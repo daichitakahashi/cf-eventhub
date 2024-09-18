@@ -1,0 +1,40 @@
+{
+  "$schema": "https://biomejs.dev/schemas/1.9.1/schema.json",
+  "files": {
+    "ignore": [
+      "node_modules/*",
+      "webapp/node_modules/*",
+      "webapp/public/*",
+      "webapp/.cache",
+      "webapp/build",
+      "webapp/app/graphql"
+    ]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2
+  },
+  "organizeImports": {
+    "enabled": true
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "correctness": {
+        "noUndeclaredVariables": "error",
+        "noUnusedVariables": "error",
+        "useHookAtTopLevel": "error",
+        "useExhaustiveDependencies": "error"
+      },
+      "style": {
+        "noNamespace": "error",
+        "useShorthandFunctionType": "off"
+      }
+    }
+  },
+  "javascript": {
+    "globals": ["Queue", "MessageSendRequest"]
+  }
+}
