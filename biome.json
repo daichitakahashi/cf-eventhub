@@ -35,6 +35,6 @@
     }
   },
   "javascript": {
-    "globals": ["Queue", "MessageSendRequest", "Message"]
+    "globals": ["Queue", "MessageSendRequest", "Message", "ExecutionContext"]
   }
 }

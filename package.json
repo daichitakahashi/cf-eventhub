@@ -22,6 +22,7 @@
     "drizzle-orm": "^0.33.0",
     "jsonpath": "^1.1.1",
     "neverthrow": "^8.0.0",
+    "postgres": "^3.4.4",
     "valibot": "^0.42.0"
   }
 }

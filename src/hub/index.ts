@@ -84,6 +84,7 @@ const emit =
               body: {
                 dispatchId: d.id, // Dispatch id is created by Persistence.saveDispatches.
               },
+              contentType: "v8",
               delaySeconds: d.delaySeconds,
             }),
           );
