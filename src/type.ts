@@ -9,3 +9,10 @@ export type Dispatch = {
   executionCount: number; // FIXME: Prefer execution log instead of execution count?
   maxRetryCount: number;
 };
+
+export type ExecutionResult =
+  | "succeeded" // Succeeded to process event in destination worker
+  | "ignored" // Event is ignored by destination worker
+  | "failed" // Failed to process event in destination worker
+  | "lost" // Event is lost.
+  | "misconfigured"; // Destination worker not found

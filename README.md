@@ -36,21 +36,27 @@ sequenceDiagram
   Queue ->> Queue: wait delaySeconds
 
   par execute each dispatch
-    Queue ->> executor: dequeue dispatch
+    Queue ->> eventhub: dequeue dispatch
+    activate eventhub
+    eventhub ->> executor: dispatch() [RPC]
     activate executor
     executor ->> DB: begin
     activate DB
     executor ->> DB: load payload<br>(UPDATE RETURNING)
-    executor ->> Worker2: handle() [RPC]
-    activate Worker2
-    Worker2 ->> Worker2: event handling
-    Worker2 -->> executor: return<br>Promise<"complete" | "ignored">
-    deactivate Worker2
-    executor ->> DB: update dispatch as completed/ignored
-    executor ->> Queue: ack() or retry()
+    opt dispatch is not completed
+      executor ->> Worker2: handle() [RPC]
+      activate Worker2
+      Worker2 ->> Worker2: event handling
+      Worker2 -->> executor: return<br>Promise<"complete" | "ignored">
+      deactivate Worker2
+      executor ->> DB: update dispatch as completed/ignored/failed
+    end
     executor ->> DB: commit
-    deactivate DB
+
+    executor -->> eventhub: return Promise<"complete" | "ignored" | "failed" | "misconfigured">
     deactivate executor
+    eventhub ->> Queue: ack() or retry()
+    deactivate eventhub
   end
 ```
 
