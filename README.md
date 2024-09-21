@@ -12,8 +12,8 @@ Developing message hub that works with Cloudflare Workers and Queues with follow
 sequenceDiagram
   participant Worker1 as Worker(producer)
   participant eventhub as eventhub
-  participant DB
   participant Queue as Queue
+  participant DB
   participant executor as executor
   participant Worker2 as Worker(consumer)
 
@@ -27,6 +27,7 @@ sequenceDiagram
   opt if routes matched
     eventhub ->> DB: create dispatches of the event<br>for matched routes
     eventhub ->> Queue: enqueue dispatches
+    activate Queue
   end
   eventhub ->> DB: commit
   deactivate DB
@@ -36,26 +37,31 @@ sequenceDiagram
   Queue ->> Queue: wait delaySeconds
 
   par execute each dispatch
-    Queue ->> eventhub: dequeue dispatch
+    Queue ->> eventhub: dequeue dispatch for matched route
     activate eventhub
     eventhub ->> executor: dispatch() [RPC]
     activate executor
     executor ->> DB: begin
     activate DB
     executor ->> DB: load payload<br>(UPDATE RETURNING)
-    opt dispatch is not completed
+    opt dispatch is found and not completed
       executor ->> Worker2: handle() [RPC]
       activate Worker2
       Worker2 ->> Worker2: event handling
-      Worker2 -->> executor: return<br>Promise<"complete" | "ignored">
+      Worker2 -->> executor: return<br>Promise<"complete" | "ignored" | "failed">
       deactivate Worker2
-      executor ->> DB: update dispatch as completed/ignored/failed
+      executor ->> DB: record execution with its status
+      opt execution succeeds or max retry exceeded
+        executor ->> DB: record dispatch result
+      end
     end
     executor ->> DB: commit
+    deactivate DB
 
-    executor -->> eventhub: return Promise<"complete" | "ignored" | "failed" | "misconfigured">
+    executor -->> eventhub: return<br>Promise<"complete" | "ignored" | "failed" | "misconfigured" | "notfound">
     deactivate executor
-    eventhub ->> Queue: ack() or retry()
+    eventhub ->> Queue: ack() on "complete" | "ignored" | "misconfigured" | "notfound"<br>or<br>retry() on "failed"
+    deactivate Queue
     deactivate eventhub
   end
 ```

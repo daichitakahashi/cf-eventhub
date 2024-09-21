@@ -1,5 +1,6 @@
 import { type Result, ok, safeTry } from "neverthrow";
 
+import type { Executor } from "../executor";
 import type {
   CreatedDispatch,
   CreatedEvent,
@@ -14,12 +15,14 @@ type Config = {
   persistence: Persistence;
   queue: Queue;
   routing: RouteConfig;
+  executor: Executor;
 };
 
 type EventHub = {
   emit(
     events: Record<string, unknown>[],
   ): Promise<Result<void, "INTERNAL_SERVER_ERROR">>;
+  dispatch(msg: Message<QueueMessage>): Promise<void>;
 };
 
 /**
@@ -30,6 +33,7 @@ type EventHub = {
 export const eventHub = (config: Config): EventHub => {
   return {
     emit: emit(config),
+    dispatch: dispatch(config),
   };
 };
 
@@ -78,9 +82,7 @@ const emit =
           const messages = createdDispatches.map(
             (d): MessageSendRequest<QueueMessage> => ({
               body: {
-                eventId: d.eventId,
                 dispatchId: d.id, // Dispatch id is created by Persistence.saveDispatches.
-                createdAt: d.createdAt,
               },
               delaySeconds: d.delaySeconds,
             }),
@@ -90,4 +92,30 @@ const emit =
         return ok(constVoid);
       }),
     );
+  };
+
+const dispatch =
+  (cfg: Config) =>
+  async (msg: Message<QueueMessage>): Promise<void> => {
+    await cfg.executor
+      .dispatch(msg.body)
+      .then((result) => {
+        switch (result) {
+          case "complete":
+          case "ignored":
+          case "misconfigured":
+          case "notfound":
+            msg.ack();
+            break;
+          case "failed":
+            msg.retry();
+            break;
+          default: {
+            const _: never = result;
+          }
+        }
+      })
+      .catch(() => {
+        msg.retry();
+      });
   };

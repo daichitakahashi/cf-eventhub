@@ -1,9 +1,7 @@
 import { fromAsyncThrowable } from "neverthrow";
 
 export type QueueMessage = {
-  eventId: string;
   dispatchId: string;
-  createdAt: Date;
 };
 
 export const enqueue = (
