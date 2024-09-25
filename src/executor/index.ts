@@ -3,11 +3,11 @@ import { fromAsyncThrowable, ok } from "neverthrow";
 
 import type { Persistence } from "../persistence";
 import type { QueueMessage } from "../type";
-import type { Handler } from "./handler";
+import { type Handler, isHandler } from "./handler";
 
-interface Env {
+type Env = {
   EVENTHUB_DB_DSN: string;
-}
+} & Record<string, unknown>;
 
 export class Executor extends WorkerEntrypoint<Env> {
   private p: Persistence;
@@ -15,6 +15,14 @@ export class Executor extends WorkerEntrypoint<Env> {
   constructor(ctx: ExecutionContext, env: Env) {
     super(ctx, env);
     throw new Error("not implemented");
+  }
+
+  private findDestinationHandler(d: string): Handler | null {
+    const dest = this.env[d];
+    if (!dest) {
+      return null;
+    }
+    return isHandler(dest) ? dest : null;
   }
 
   async dispatch(
@@ -38,17 +46,25 @@ export class Executor extends WorkerEntrypoint<Env> {
       // FIXME: handle retry count
 
       const dispatch = dispatchResult.value;
-      const handler = findDestinationHandler(dispatchResult.value.destination);
+      const handler = this.findDestinationHandler(
+        dispatchResult.value.destination,
+      );
       if (!handler) {
         return ok("misconfigured" as const);
       }
 
-      const handleResult = await fromAsyncThrowable(() => {
+      const result = await fromAsyncThrowable(() => {
         return handler.handle(dispatch.payload);
-      })();
-      const result = handleResult.unwrapOr("failed");
+      })().unwrapOr("failed" as const);
 
-      // FIXME: record execution result
+      // Save execution result.
+      const saveResult = await this.p.saveDispatchExecutionResult(
+        dispatch.id,
+        result,
+      );
+      if (saveResult.isErr()) {
+        return ok("failed" as const);
+      }
 
       return ok(result);
     });
@@ -61,7 +77,3 @@ export class Executor extends WorkerEntrypoint<Env> {
     );
   }
 }
-
-const findDestinationHandler = (d: string): Handler | null => {
-  throw new Error("not implemented");
-};

@@ -1,10 +1,10 @@
 import type { Result } from "neverthrow";
 
-import type { Dispatch } from "../type";
+import type { Dispatch, EventPayload } from "../type";
 
 export interface CreatedEvent {
   id: string;
-  payload: Record<string, unknown>;
+  payload: EventPayload;
   createdAt: Date;
 }
 
@@ -53,8 +53,8 @@ export interface Persistence {
     dispatchId: string,
   ) => Promise<Result<Dispatch, "INTERNAL_SERVER_ERROR" | "NOT_FOUND">>;
 
-  updateDispatch: (
+  saveDispatchExecutionResult: (
     dispatchId: string,
-    status: "succeeded" | "ignored" | "failed" | "lost",
+    status: "complete" | "ignored" | "failed" | "lost",
   ) => Promise<Result<void, "INTERNAL_SERVER_ERROR">>;
 }
