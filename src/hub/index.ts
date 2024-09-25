@@ -1,12 +1,8 @@
 import { type Result, ok, safeTry } from "neverthrow";
 
+import type { NewDispatch, NewEvent } from "../core/model";
+import type { Repository } from "../core/repository";
 import type { Executor } from "../executor";
-import type {
-  CreatedEvent,
-  NewDispatch,
-  NewEvent,
-  Persistence,
-} from "../persistence";
 import type { EventPayload } from "../type";
 import { type QueueMessage, enqueue } from "./queue";
 import { type RouteConfig, findRoutes } from "./routing";
@@ -14,7 +10,7 @@ import { type RouteConfig, findRoutes } from "./routing";
 const constVoid = (() => {})();
 
 type Config = {
-  persistence: Persistence;
+  repository: Repository;
   queue: Queue;
   routing: RouteConfig;
   executor: Executor;
@@ -40,14 +36,14 @@ export const eventHub = (config: Config): EventHub => {
 };
 
 const emit =
-  ({ persistence: p, queue, routing }: Config) =>
+  ({ repository: repo, queue, routing }: Config) =>
   async (events: EventPayload[]) => {
     // Skip empty.
     if (events.length === 0) {
       return ok(constVoid);
     }
 
-    return p.enterTransactionalScope(async (tx) =>
+    return repo.enterTransactionalScope(async (tx) =>
       safeTry(async function* () {
         const createdAt = new Date();
 
@@ -76,7 +72,7 @@ const emit =
         if (dispatches.length > 0) {
           // Create dispatches.
           const createdDispatches = yield* (
-            await p.createDispatches(dispatches)
+            await tx.createDispatches(dispatches)
           ).safeUnwrap();
 
           // Dispatch messages.

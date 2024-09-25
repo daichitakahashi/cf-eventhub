@@ -10,7 +10,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { drizzle } from "drizzle-orm/postgres-js";
 
-import type { Persistence } from ".";
+import type { Persistence } from "./model";
 
 // FIXME: Retryはconsumerの設定がハードリミットになるので、ソフトリミットとして後で機能追加することとする。
 // 実行回数ではなく実行記録を置いておく方法。

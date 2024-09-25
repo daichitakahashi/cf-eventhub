@@ -1,14 +1,15 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { fromAsyncThrowable, ok } from "neverthrow";
 
-import { type Persistence, appendExecutionLog } from "../persistence";
+import { appendExecutionLog } from "../core/model";
+import type { Repository } from "../core/repository";
 import type { ExecutionResult, QueueMessage } from "../type";
 import { type Handler, isHandler } from "./handler";
 
 export class Executor<
   Env extends Record<string, unknown> = Record<string, unknown>,
 > extends WorkerEntrypoint<Env> {
-  private p: Persistence;
+  private repo: Repository;
 
   constructor(ctx: ExecutionContext, env: Env) {
     super(ctx, env);
@@ -24,7 +25,7 @@ export class Executor<
   }
 
   async dispatch(msg: QueueMessage): Promise<ExecutionResult> {
-    const result = await this.p.enterTransactionalScope(async (tx) => {
+    const result = await this.repo.enterTransactionalScope(async (tx) => {
       const dispatchResult = await tx.getDispatch(msg.dispatchId);
       if (dispatchResult.isErr()) {
         return ok("failed" as const);
@@ -50,7 +51,7 @@ export class Executor<
         result,
         executedAt: new Date(),
       });
-      const saveResult = await this.p.saveDispatch(appendedDispatch);
+      const saveResult = await tx.saveDispatch(appendedDispatch);
       if (saveResult.isErr()) {
         return ok("failed" as const);
       }
