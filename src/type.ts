@@ -13,8 +13,8 @@ export type Dispatch = {
 };
 
 export type ExecutionResult =
-  | "succeeded" // Succeeded to process event in destination worker
-  | "ignored" // Event is ignored by destination worker
-  | "failed" // Failed to process event in destination worker
-  | "lost" // Event is lost.
-  | "misconfigured"; // Destination worker not found
+  | "complete" // Succeeded to process event in destination worker.
+  | "ignored" // Event is ignored by destination worker.
+  | "failed" // Failed to process event in destination worker.
+  | "misconfigured" // Destination worker not found.
+  | "notfound"; // We cannot find the ongoing dispatch.

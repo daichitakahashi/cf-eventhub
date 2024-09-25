@@ -1,15 +1,13 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { fromAsyncThrowable, ok } from "neverthrow";
 
-import type { Persistence } from "../persistence";
-import type { QueueMessage } from "../type";
+import { type Persistence, appendExecutionLog } from "../persistence";
+import type { ExecutionResult, QueueMessage } from "../type";
 import { type Handler, isHandler } from "./handler";
 
-type Env = {
-  EVENTHUB_DB_DSN: string;
-} & Record<string, unknown>;
-
-export class Executor extends WorkerEntrypoint<Env> {
+export class Executor<
+  Env extends Record<string, unknown> = Record<string, unknown>,
+> extends WorkerEntrypoint<Env> {
   private p: Persistence;
 
   constructor(ctx: ExecutionContext, env: Env) {
@@ -25,27 +23,17 @@ export class Executor extends WorkerEntrypoint<Env> {
     return isHandler(dest) ? dest : null;
   }
 
-  async dispatch(
-    msg: QueueMessage,
-  ): Promise<"complete" | "ignored" | "failed" | "misconfigured" | "notfound"> {
+  async dispatch(msg: QueueMessage): Promise<ExecutionResult> {
     const result = await this.p.enterTransactionalScope(async (tx) => {
       const dispatchResult = await tx.getDispatch(msg.dispatchId);
       if (dispatchResult.isErr()) {
-        switch (dispatchResult.error) {
-          case "NOT_FOUND":
-            return ok("notfound" as const);
-          case "INTERNAL_SERVER_ERROR":
-            return ok("failed" as const);
-          default: {
-            const _: never = dispatchResult.error;
-            throw new Error("impossible path");
-          }
-        }
+        return ok("failed" as const);
       }
 
-      // FIXME: handle retry count
-
       const dispatch = dispatchResult.value;
+      if (dispatch.status !== "ongoing") {
+        return ok("notfound" as const);
+      }
       const handler = this.findDestinationHandler(
         dispatchResult.value.destination,
       );
@@ -58,10 +46,11 @@ export class Executor extends WorkerEntrypoint<Env> {
       })().unwrapOr("failed" as const);
 
       // Save execution result.
-      const saveResult = await this.p.saveDispatchExecutionResult(
-        dispatch.id,
+      const appendedDispatch = appendExecutionLog(dispatch, {
         result,
-      );
+        executedAt: new Date(),
+      });
+      const saveResult = await this.p.saveDispatch(appendedDispatch);
       if (saveResult.isErr()) {
         return ok("failed" as const);
       }

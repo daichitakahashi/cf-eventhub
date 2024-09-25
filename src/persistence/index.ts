@@ -1,22 +1,106 @@
 import type { Result } from "neverthrow";
 
-import type { Dispatch, EventPayload } from "../type";
+import type { EventPayload, ExecutionResult } from "../type";
 
-export interface CreatedEvent {
-  id: string;
-  payload: EventPayload;
-  createdAt: Date;
+const brand = Symbol();
+
+// Properties of newly created event;
+export interface NewEvent {
+  readonly payload: EventPayload;
+  readonly createdAt: Date;
 }
 
-export interface CreatedDispatch {
-  eventId: string;
-  id: string;
-  destination: string;
-  createdAt: Date;
-  delaySeconds?: number;
+export interface CreatedEvent extends NewEvent {
+  readonly [brand]: "created";
+  readonly id: string;
 }
+
+// Properties of newly created dispatch.
+export interface NewDispatch {
+  readonly eventId: string;
+  readonly destination: string;
+  readonly createdAt: Date;
+  readonly delaySeconds?: number;
+  readonly maxRetryCount: number;
+}
+
+export interface OngoingDispatch extends NewDispatch {
+  id: string;
+  readonly [brand]: "ongoing";
+  readonly status: "ongoing";
+  readonly payload: EventPayload;
+  readonly executionLog: readonly (DispatchExecution | NewDispatchExecution)[];
+}
+
+export interface ResultedDispatch
+  extends Omit<OngoingDispatch, typeof brand | "status"> {
+  readonly [brand]: "resulted";
+  readonly status: "complete" | "ignored" | "failed" | "misconfigured" | "lost";
+  readonly resultedAt: Date;
+}
+
+export interface NewDispatchExecution {
+  readonly result: ExecutionResult;
+  readonly executedAt: Date;
+}
+
+export interface DispatchExecution
+  extends Omit<NewDispatchExecution, typeof brand> {
+  readonly [brand]: "created";
+}
+
+export const isNewDispatchExecution = (
+  d: DispatchExecution | NewDispatchExecution,
+): d is NewDispatchExecution => brand in d && d[brand] !== "created";
+
+type Dispatch = OngoingDispatch | ResultedDispatch;
+
+export const isResultedDispatch = (d: Dispatch): d is ResultedDispatch =>
+  d.status !== "ongoing";
+
+export const appendExecutionLog = (
+  dispatch: OngoingDispatch,
+  execution: NewDispatchExecution,
+): Dispatch => {
+  if (execution.result === "notfound") {
+    return dispatch;
+  }
+
+  const status =
+    execution.result !== "failed" ||
+    dispatch.executionLog.length + 1 >= dispatch.maxRetryCount
+      ? execution.result
+      : ("ongoing" as const);
+  const executionLog = dispatch.executionLog.length
+    ? [...dispatch.executionLog, execution]
+    : [execution];
+
+  if (status === "ongoing") {
+    return {
+      ...dispatch,
+      [brand]: "ongoing",
+      status: "ongoing",
+      executionLog,
+    };
+  }
+  return {
+    ...dispatch,
+    [brand]: "resulted",
+    status,
+    executionLog,
+    resultedAt: execution.executedAt,
+  };
+};
+
+export const makeDispatchLost = (d: OngoingDispatch): ResultedDispatch => ({
+  ...d,
+  [brand]: "resulted",
+  status: "lost",
+  resultedAt: new Date(),
+});
 
 export interface Persistence {
+  saveDispatchExecutionResult(id: string, result: string): unknown;
   /**
    * Enter transactional scope and call `fn`.
    * If `fn` returns `Err`, transaction must be aborted.
@@ -27,34 +111,38 @@ export interface Persistence {
   ) => Promise<Result<T, "INTERNAL_SERVER_ERROR" | E>>;
 
   /**
-   * Save events.
-   * @param events Events to be saved.
-   * @returns Complete `CreatedEvent` with generated event ids.
+   * Create events.
+   * @param events Events to be created.
+   * @returns `CreatedEvent` with event ids.
    */
-  saveEvents: (
-    events: Omit<CreatedEvent, "id">[],
+  createEvents: (
+    events: Omit<NewEvent, "id">[],
   ) => Promise<Result<CreatedEvent[], "INTERNAL_SERVER_ERROR">>;
 
   /**
-   * Save dispatches.
-   * @param dispatches Dispatches to be saved.
-   * @return Complete `CreatedDispatch` with generated dispatch ids.
+   * Create dispatches.
+   * @param dispatches Dispatches to be created.
+   * @returns Created `OngoingDispatch` with dispatch ids.
    */
-  saveDispatches: (
-    dispatches: Omit<CreatedDispatch, "id">[],
-  ) => Promise<Result<CreatedDispatch[], "INTERNAL_SERVER_ERROR">>;
+  createDispatches: (
+    dispatches: NewDispatch[],
+  ) => Promise<Result<OngoingDispatch[], "INTERNAL_SERVER_ERROR">>;
 
   /**
-   * Find dispatch by given id.
+   * Update dispatches.
+   * @param dispatches Dispatches to be updated.
+   * @return Updated `Dispatch`.
+   */
+  saveDispatch: (
+    dispatch: Dispatch,
+  ) => Promise<Result<Dispatch, "INTERNAL_SERVER_ERROR">>;
+
+  /**
+   * Get dispatch by given id.
    * @param dispatchId
-   * @returns Either found dispatch or `"NOT_FOUND"` error.
+   * @returns Found `Dispatch`.
    */
   getDispatch: (
     dispatchId: string,
-  ) => Promise<Result<Dispatch, "INTERNAL_SERVER_ERROR" | "NOT_FOUND">>;
-
-  saveDispatchExecutionResult: (
-    dispatchId: string,
-    status: "complete" | "ignored" | "failed" | "lost",
-  ) => Promise<Result<void, "INTERNAL_SERVER_ERROR">>;
+  ) => Promise<Result<Dispatch, "INTERNAL_SERVER_ERROR">>;
 }

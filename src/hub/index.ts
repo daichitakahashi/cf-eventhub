@@ -2,10 +2,12 @@ import { type Result, ok, safeTry } from "neverthrow";
 
 import type { Executor } from "../executor";
 import type {
-  CreatedDispatch,
   CreatedEvent,
+  NewDispatch,
+  NewEvent,
   Persistence,
 } from "../persistence";
+import type { EventPayload } from "../type";
 import { type QueueMessage, enqueue } from "./queue";
 import { type RouteConfig, findRoutes } from "./routing";
 
@@ -39,7 +41,7 @@ export const eventHub = (config: Config): EventHub => {
 
 const emit =
   ({ persistence: p, queue, routing }: Config) =>
-  async (events: Record<string, unknown>[]) => {
+  async (events: EventPayload[]) => {
     // Skip empty.
     if (events.length === 0) {
       return ok(constVoid);
@@ -49,33 +51,32 @@ const emit =
       safeTry(async function* () {
         const createdAt = new Date();
 
-        // Save events.
-        const createdEvents = events.map(
-          (e): Omit<CreatedEvent, "id"> => ({
+        // Create events.
+        const newEvents = events.map(
+          (e): Omit<NewEvent, "id"> => ({
             payload: e,
             createdAt,
           }),
         );
-        const created = yield* (
-          await tx.saveEvents(createdEvents)
-        ).safeUnwrap();
+        const created = yield* (await tx.createEvents(newEvents)).safeUnwrap();
 
         // Find destinations for each event and create dispatches.
         const dispatches = created.flatMap((e) =>
           findRoutes(routing, e).map(
-            ({ destination, delaySeconds }): Omit<CreatedDispatch, "id"> => ({
+            ({ destination, delaySeconds }): Omit<NewDispatch, "id"> => ({
               eventId: e.id, // Event id is created by Persistence.saveEvents.
               destination,
               createdAt,
               delaySeconds,
+              maxRetryCount: 5, // TODO: should be configurable
             }),
           ),
         );
 
         if (dispatches.length > 0) {
-          // Save dispatches.
+          // Create dispatches.
           const createdDispatches = yield* (
-            await p.saveDispatches(dispatches)
+            await p.createDispatches(dispatches)
           ).safeUnwrap();
 
           // Dispatch messages.
