@@ -31,19 +31,17 @@ export class Executor<
         return ok("failed" as const);
       }
 
-      const dispatch = dispatchResult.value;
+      const { event, dispatch } = dispatchResult.value;
       if (dispatch.status !== "ongoing") {
         return ok("notfound" as const);
       }
-      const handler = this.findDestinationHandler(
-        dispatchResult.value.destination,
-      );
+      const handler = this.findDestinationHandler(dispatch.destination);
       if (!handler) {
         return ok("misconfigured" as const);
       }
 
       const result = await fromAsyncThrowable(() => {
-        return handler.handle(dispatch.payload);
+        return handler.handle(event.payload);
       })().unwrapOr("failed" as const);
 
       // Save execution result.

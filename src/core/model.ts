@@ -18,7 +18,7 @@ export interface NewDispatch {
   readonly eventId: string;
   readonly destination: string;
   readonly createdAt: Date;
-  readonly delaySeconds?: number;
+  readonly delaySeconds: number | null;
   readonly maxRetryCount: number;
 }
 
@@ -26,7 +26,6 @@ export interface OngoingDispatch extends NewDispatch {
   id: string;
   readonly [brand]: "ongoing";
   readonly status: "ongoing";
-  readonly payload: EventPayload;
   readonly executionLog: readonly (DispatchExecution | NewDispatchExecution)[];
 }
 
@@ -56,6 +55,25 @@ export type Dispatch = OngoingDispatch | ResultedDispatch;
 
 export const isResultedDispatch = (d: Dispatch): d is ResultedDispatch =>
   d.status !== "ongoing";
+
+// Constructor of CreatedEvent
+export const createdEvent = (id: string, event: NewEvent): CreatedEvent => ({
+  ...event,
+  [brand]: "created",
+  id,
+});
+
+// Constructor of OngoingDispatch
+export const ongoingDispatch = (
+  id: string,
+  dispatch: NewDispatch,
+): OngoingDispatch => ({
+  ...dispatch,
+  [brand]: "ongoing",
+  id,
+  status: "ongoing",
+  executionLog: [],
+});
 
 export const appendExecutionLog = (
   dispatch: OngoingDispatch,

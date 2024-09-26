@@ -59,11 +59,11 @@ const emit =
         // Find destinations for each event and create dispatches.
         const dispatches = created.flatMap((e) =>
           findRoutes(routing, e).map(
-            ({ destination, delaySeconds }): Omit<NewDispatch, "id"> => ({
+            ({ destination, delaySeconds }): NewDispatch => ({
               eventId: e.id, // Event id is created by Persistence.saveEvents.
               destination,
               createdAt,
-              delaySeconds,
+              delaySeconds: delaySeconds || null,
               maxRetryCount: 5, // TODO: should be configurable
             }),
           ),
@@ -82,7 +82,7 @@ const emit =
                 dispatchId: d.id, // Dispatch id is created by Persistence.saveDispatches.
               },
               contentType: "v8",
-              delaySeconds: d.delaySeconds,
+              delaySeconds: d.delaySeconds || undefined,
             }),
           );
           yield* enqueue(queue, messages).safeUnwrap();

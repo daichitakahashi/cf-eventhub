@@ -13,6 +13,7 @@ erDiagram
         uuid event_id FK "Event ID"
         text destination "Dispatch destination"
         timestamp created_at "Create time"
+        integer delay_seconds "First delay seconds"
         integer max_retry_count "Max retry count"
     }
     events ||--o{ dispatches: "Event has dispatches of each matched destinations"

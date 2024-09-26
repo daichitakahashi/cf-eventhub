@@ -39,18 +39,19 @@ export interface Repository {
   /**
    * Update dispatches.
    * @param dispatches Dispatches to be updated.
-   * @return Updated `Dispatch`.
    */
   saveDispatch: (
     dispatch: Dispatch,
-  ) => Promise<Result<Dispatch, "INTERNAL_SERVER_ERROR">>;
+  ) => Promise<Result<void, "INTERNAL_SERVER_ERROR">>;
 
   /**
    * Get dispatch by given id.
    * @param dispatchId
-   * @returns Found `Dispatch`.
+   * @returns Found `Dispatch` and associated `CreatedEvent`.
    */
   getDispatch: (
     dispatchId: string,
-  ) => Promise<Result<Dispatch, "INTERNAL_SERVER_ERROR">>;
+  ) => Promise<
+    Result<{ event: CreatedEvent; dispatch: Dispatch }, "INTERNAL_SERVER_ERROR">
+  >;
 }

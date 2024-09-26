@@ -1,6 +1,7 @@
 import { relations } from "drizzle-orm";
 import {
   index,
+  integer,
   jsonb,
   pgTable,
   text,
@@ -65,6 +66,16 @@ export const dispatches = pgTable("dispatches", {
     mode: "date",
     withTimezone: true,
   }).notNull(),
+
+  /**
+   * First delay seconds
+   */
+  delaySeconds: integer("delay_seconds"),
+
+  /**
+   * Max retry count
+   */
+  maxRetryCount: integer("max_retry_count").notNull(),
 });
 
 export const dispatchesRelations = relations(dispatches, ({ one, many }) => ({
@@ -122,7 +133,6 @@ export const dispatchResults = pgTable("dispatch_results", {
    */
   dispatchId: uuid("dispatch_id")
     .primaryKey()
-    .defaultRandom()
     .references(() => dispatches.id),
 
   /**
