@@ -45,6 +45,7 @@ export interface NewDispatchExecution {
 export interface DispatchExecution
   extends Omit<NewDispatchExecution, typeof brand> {
   readonly [brand]: "created";
+  readonly id: string;
 }
 
 export const isNewDispatchExecution = (
