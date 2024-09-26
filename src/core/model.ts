@@ -66,12 +66,13 @@ export const appendExecutionLog = (
 
   const status =
     execution.result !== "failed" ||
-    dispatch.executionLog.length + 1 >= dispatch.maxRetryCount
+    dispatch.executionLog.length + 1 > dispatch.maxRetryCount
       ? execution.result
       : ("ongoing" as const);
-  const executionLog = dispatch.executionLog.length
-    ? [...dispatch.executionLog, execution]
-    : [execution];
+  const executionLog =
+    dispatch.executionLog.length > 0
+      ? [...dispatch.executionLog, execution]
+      : [execution];
 
   if (status === "ongoing") {
     return {
@@ -90,9 +91,12 @@ export const appendExecutionLog = (
   };
 };
 
-export const makeDispatchLost = (d: OngoingDispatch): ResultedDispatch => ({
+export const makeDispatchLost = (
+  d: OngoingDispatch,
+  resultedAt: Date,
+): ResultedDispatch => ({
   ...d,
   [brand]: "resulted",
   status: "lost",
-  resultedAt: new Date(),
+  resultedAt,
 });
