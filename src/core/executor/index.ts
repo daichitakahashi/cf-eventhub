@@ -1,9 +1,9 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { fromAsyncThrowable, ok } from "neverthrow";
 
-import { appendExecutionLog } from "../core/model";
-import type { Repository } from "../core/repository";
-import type { ExecutionResult, QueueMessage } from "../type";
+import { type DispatchExecution, appendExecutionLog } from "../model";
+import type { Repository } from "../repository";
+import type { QueueMessage } from "../type";
 import { type Handler, isHandler } from "./handler";
 
 export abstract class Executor<
@@ -26,7 +26,7 @@ export abstract class Executor<
     return isHandler(dest) ? dest : null;
   }
 
-  async dispatch(msg: QueueMessage): Promise<ExecutionResult> {
+  async dispatch(msg: QueueMessage): Promise<DispatchExecution["result"]> {
     const result = await this.repo.enterTransactionalScope(async (tx) => {
       const dispatchResult = await tx.getDispatch(msg.dispatchId);
       if (dispatchResult.isErr()) {

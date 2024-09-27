@@ -8,8 +8,8 @@ import {
 import { type Result, err, fromAsyncThrowable } from "neverthrow";
 import postgres from "postgres";
 
-import { Executor as BaseExecutor } from "../../executor";
-import { EventHub as BaseEventHub } from "../../hub";
+import { Executor as BaseExecutor } from "../core/executor";
+import { EventHub as BaseEventHub } from "../core/hub";
 import {
   type CreatedEvent,
   type Dispatch,
@@ -21,8 +21,8 @@ import {
   isNewDispatchExecution,
   isResultedDispatch,
   ongoingDispatch,
-} from "../model";
-import type { Repository } from "../repository";
+} from "../core/model";
+import type { Repository } from "../core/repository";
 import * as schema from "./schema";
 
 const createRepository = (env: Record<string, unknown>): Repository => {

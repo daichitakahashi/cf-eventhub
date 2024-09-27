@@ -4,6 +4,7 @@ export type QueueMessage = {
   dispatchId: string;
 };
 
+/** @internal */
 export const enqueue = (
   queue: Queue,
   messages: MessageSendRequest<QueueMessage>[],
