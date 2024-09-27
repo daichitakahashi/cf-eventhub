@@ -8,8 +8,7 @@ import {
   timestamp,
   uuid,
 } from "drizzle-orm/pg-core";
-import type { ExecutionResult } from "../../type";
-import type { ResultedDispatch } from "../model";
+import type { DispatchExecution, ResultedDispatch } from "../core/model";
 
 export const events = pgTable(
   "events",
@@ -106,7 +105,7 @@ export const dispatchExecutions = pgTable("dispatch_executions", {
   /**
    * Result of the execution
    */
-  result: text("result").notNull().$type<ExecutionResult>(),
+  result: text("result").notNull().$type<DispatchExecution["result"]>(),
 
   /**
    * Execute time

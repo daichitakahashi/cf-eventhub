@@ -2,9 +2,9 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 import { ok, safeTry } from "neverthrow";
 import * as v from "valibot";
 
-import type { NewDispatch, NewEvent } from "../core/model";
-import type { Repository } from "../core/repository";
 import type { Executor } from "../executor";
+import type { NewDispatch, NewEvent } from "../model";
+import type { Repository } from "../repository";
 import type { EventPayload } from "../type";
 import { type QueueMessage, enqueue } from "./queue";
 import { RouteConfig, findRoutes } from "./routing";

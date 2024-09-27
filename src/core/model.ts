@@ -1,4 +1,4 @@
-import type { EventPayload, ExecutionResult } from "../type";
+import type { EventPayload } from "./type";
 
 const brand = Symbol();
 
@@ -37,7 +37,12 @@ export interface ResultedDispatch
 }
 
 export interface NewDispatchExecution {
-  readonly result: ExecutionResult;
+  readonly result:
+    | "complete" // Succeeded to process event in destination worker.
+    | "ignored" // Event is ignored by destination worker.
+    | "failed" // Failed to process event in destination worker.
+    | "misconfigured" // Destination worker not found.
+    | "notfound"; // We cannot find the ongoing dispatch.;
   readonly executedAt: Date;
 }
 

@@ -1,29 +1,23 @@
 import { assert, describe, expect, test } from "vitest";
 
-import type { EventPayload } from "../type";
 import {
   type NewDispatch,
   type OngoingDispatch,
   appendExecutionLog,
   makeDispatchLost,
 } from "./model";
+import type { EventPayload } from "./type";
 
 const nextTime = async () => {
   await new Promise((resolve) => setTimeout(resolve, 1));
   return new Date();
 };
 
-const ongoingDispatch = (
-  { eventId, destination, createdAt, maxRetryCount }: NewDispatch,
-  payload: EventPayload,
-) =>
+const ongoingDispatch = (dispatch: NewDispatch, payload: EventPayload) =>
   ({
+    ...dispatch,
     id: crypto.randomUUID(),
     status: "ongoing",
-    eventId,
-    destination,
-    createdAt,
-    maxRetryCount,
     payload,
     executionLog: [],
   }) as unknown as OngoingDispatch;
@@ -37,6 +31,7 @@ describe("appendExecutionLog", async () => {
       destination: "WORKER_A",
       createdAt,
       maxRetryCount: 3,
+      delaySeconds: 5,
     },
     {
       key: "value",
@@ -55,6 +50,7 @@ describe("appendExecutionLog", async () => {
       destination: "WORKER_A",
       createdAt,
       maxRetryCount: 3,
+      delaySeconds: 5,
       payload: { key: "value" },
       executionLog: [
         {
@@ -77,6 +73,7 @@ describe("appendExecutionLog", async () => {
       destination: "WORKER_A",
       createdAt,
       maxRetryCount: 3,
+      delaySeconds: 5,
       payload: { key: "value" },
       executionLog: [
         {
@@ -104,6 +101,7 @@ describe("appendExecutionLog", async () => {
       destination: "WORKER_A",
       createdAt,
       maxRetryCount: 3,
+      delaySeconds: 5,
       payload: { key: "value" },
       executionLog: [
         {
@@ -127,6 +125,7 @@ describe("appendExecutionLog", async () => {
       destination: "WORKER_A",
       createdAt,
       maxRetryCount: 3,
+      delaySeconds: 5,
       payload: { key: "value" },
       executionLog: [
         {
@@ -151,6 +150,7 @@ describe("appendExecutionLog", async () => {
       destination: "WORKER_A",
       createdAt,
       maxRetryCount: 3,
+      delaySeconds: 5,
       payload: { key: "value" },
       executionLog: [
         {
@@ -174,6 +174,7 @@ describe("appendExecutionLog", async () => {
       destination: "WORKER_A",
       createdAt,
       maxRetryCount: 3,
+      delaySeconds: 5,
       payload: { key: "value" },
       executionLog: [
         {
@@ -201,6 +202,7 @@ describe("appendExecutionLog", async () => {
       destination: "WORKER_A",
       createdAt,
       maxRetryCount: 3,
+      delaySeconds: 5,
       payload: { key: "value" },
       executionLog: [
         {
@@ -232,6 +234,7 @@ describe("appendExecutionLog", async () => {
       destination: "WORKER_A",
       createdAt,
       maxRetryCount: 3,
+      delaySeconds: 5,
       payload: { key: "value" },
       executionLog: [
         {
@@ -268,6 +271,7 @@ describe("appendExecutionLog", async () => {
       destination: "WORKER_A",
       createdAt,
       maxRetryCount: 3,
+      delaySeconds: 5,
       payload: { key: "value" },
       executionLog: [
         {
@@ -291,6 +295,7 @@ describe("appendExecutionLog", async () => {
       destination: "WORKER_A",
       createdAt,
       maxRetryCount: 3,
+      delaySeconds: 5,
       payload: { key: "value" },
       executionLog: [
         {
@@ -318,6 +323,7 @@ describe("appendExecutionLog", async () => {
       destination: "WORKER_A",
       createdAt,
       maxRetryCount: 3,
+      delaySeconds: 5,
       payload: { key: "value" },
       executionLog: [
         {
@@ -349,6 +355,7 @@ describe("appendExecutionLog", async () => {
       destination: "WORKER_A",
       createdAt,
       maxRetryCount: 3,
+      delaySeconds: 5,
       payload: { key: "value" },
       executionLog: [
         {
@@ -381,6 +388,7 @@ describe("appendExecutionLog", async () => {
         destination: "WORKER_A",
         createdAt,
         maxRetryCount: 0,
+        delaySeconds: 5,
       },
       {
         key: "value",
@@ -398,6 +406,7 @@ describe("appendExecutionLog", async () => {
       destination: "WORKER_A",
       createdAt,
       maxRetryCount: 0,
+      delaySeconds: 5,
       payload: { key: "value" },
       executionLog: [
         {
@@ -418,6 +427,7 @@ describe("appendExecutionLog", async () => {
         destination: "WORKER_A",
         createdAt,
         maxRetryCount: 0,
+        delaySeconds: 5,
       },
       {
         key: "value",
@@ -435,6 +445,7 @@ describe("appendExecutionLog", async () => {
       destination: "WORKER_A",
       createdAt,
       maxRetryCount: 0,
+      delaySeconds: 5,
       payload: { key: "value" },
       executionLog: [
         {
@@ -456,6 +467,7 @@ describe("makeDispatchLost", async () => {
       destination: "WORKER_A",
       createdAt,
       maxRetryCount: 3,
+      delaySeconds: 5,
     },
     {
       key: "value",
@@ -471,6 +483,7 @@ describe("makeDispatchLost", async () => {
       destination: "WORKER_A",
       createdAt,
       maxRetryCount: 3,
+      delaySeconds: 5,
       payload: { key: "value" },
       executionLog: [],
       resultedAt,
@@ -489,6 +502,7 @@ describe("makeDispatchLost", async () => {
       destination: "WORKER_A",
       createdAt,
       maxRetryCount: 3,
+      delaySeconds: 5,
       payload: { key: "value" },
       executionLog: [
         {
@@ -508,6 +522,7 @@ describe("makeDispatchLost", async () => {
       destination: "WORKER_A",
       createdAt,
       maxRetryCount: 3,
+      delaySeconds: 5,
       payload: { key: "value" },
       executionLog: [
         {
