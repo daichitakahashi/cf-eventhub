@@ -8,6 +8,8 @@ import {
 import { type Result, err, fromAsyncThrowable } from "neverthrow";
 import postgres from "postgres";
 
+import { Executor as BaseExecutor } from "../../executor";
+import { EventHub as BaseEventHub } from "../../hub";
 import {
   type CreatedEvent,
   type Dispatch,
@@ -83,7 +85,7 @@ class PgRepository implements Repository {
         );
       },
       (e) => {
-        // TODO:
+        console.error(e); // TODO:
         return "INTERNAL_SERVER_ERROR" as const;
       },
     )();
@@ -120,7 +122,7 @@ class PgRepository implements Repository {
         );
       },
       (e) => {
-        // TODO:
+        console.error(e); // TODO:
         return "INTERNAL_SERVER_ERROR" as const;
       },
     )();
@@ -152,7 +154,7 @@ class PgRepository implements Repository {
         }
       },
       (e) => {
-        // TODO:
+        console.error(e); // TODO:
         return "INTERNAL_SERVER_ERROR" as const;
       },
     )();
@@ -202,9 +204,21 @@ class PgRepository implements Repository {
         return { event, dispatch };
       },
       (e) => {
-        // TODO:
+        console.error(e); // TODO:
         return "INTERNAL_SERVER_ERROR" as const;
       },
     )();
+  }
+}
+
+export class Executor extends BaseExecutor {
+  protected getRepository(env: Record<string, unknown>): Repository {
+    return createRepository(env);
+  }
+}
+
+export class EventHub extends BaseEventHub {
+  protected getRepository(env: Record<string, unknown>): Repository {
+    return createRepository(env);
   }
 }

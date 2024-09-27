@@ -6,15 +6,17 @@ import type { Repository } from "../core/repository";
 import type { ExecutionResult, QueueMessage } from "../type";
 import { type Handler, isHandler } from "./handler";
 
-export class Executor<
+export abstract class Executor<
   Env extends Record<string, unknown> = Record<string, unknown>,
 > extends WorkerEntrypoint<Env> {
   private repo: Repository;
 
   constructor(ctx: ExecutionContext, env: Env) {
     super(ctx, env);
-    throw new Error("not implemented");
+    this.repo = this.getRepository(env);
   }
+
+  protected abstract getRepository(env: Env): Repository;
 
   private findDestinationHandler(d: string): Handler | null {
     const dest = this.env[d];
