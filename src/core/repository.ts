@@ -24,7 +24,7 @@ export interface Repository {
    * @returns `CreatedEvent` with event ids.
    */
   createEvents: (
-    events: Omit<NewEvent, "id">[],
+    events: NewEvent[],
   ) => Promise<Result<CreatedEvent[], "INTERNAL_SERVER_ERROR">>;
 
   /**
@@ -52,6 +52,9 @@ export interface Repository {
   getDispatch: (
     dispatchId: string,
   ) => Promise<
-    Result<{ event: CreatedEvent; dispatch: Dispatch }, "INTERNAL_SERVER_ERROR">
+    Result<
+      { event: CreatedEvent; dispatch: Dispatch } | null,
+      "INTERNAL_SERVER_ERROR"
+    >
   >;
 }

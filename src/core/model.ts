@@ -46,20 +46,19 @@ export interface NewDispatchExecution {
   readonly executedAt: Date;
 }
 
-export interface DispatchExecution
-  extends Omit<NewDispatchExecution, typeof brand> {
+export interface DispatchExecution extends NewDispatchExecution {
   readonly [brand]: "created";
   readonly id: string;
 }
 
 export const isNewDispatchExecution = (
   d: DispatchExecution | NewDispatchExecution,
-): d is NewDispatchExecution => brand in d && d[brand] !== "created";
+): d is NewDispatchExecution => !(brand in d && d[brand] === "created");
 
 export type Dispatch = OngoingDispatch | ResultedDispatch;
 
 export const isResultedDispatch = (d: Dispatch): d is ResultedDispatch =>
-  d.status !== "ongoing";
+  d[brand] === "resulted";
 
 // Constructor of CreatedEvent
 export const createdEvent = (id: string, event: NewEvent): CreatedEvent => ({
@@ -78,6 +77,18 @@ export const ongoingDispatch = (
   id,
   status: "ongoing",
   executionLog: [],
+});
+
+// Constructor of DispatchExecution
+export const dispatchExecution = (
+  id: string,
+  result: "complete" | "ignored" | "failed" | "misconfigured" | "notfound",
+  executedAt: Date,
+): DispatchExecution => ({
+  id,
+  [brand]: "created",
+  result,
+  executedAt,
 });
 
 export const appendExecutionLog = (

@@ -3,14 +3,17 @@ import {
   index,
   integer,
   jsonb,
-  pgTable,
+  pgSchema,
   text,
   timestamp,
   uuid,
 } from "drizzle-orm/pg-core";
+
 import type { DispatchExecution, ResultedDispatch } from "../core/model";
 
-export const events = pgTable(
+const eventhub = pgSchema("eventhub");
+
+export const events = eventhub.table(
   "events",
   {
     /**
@@ -40,7 +43,7 @@ export const eventsRelations = relations(events, ({ many }) => ({
   dispatches: many(dispatches),
 }));
 
-export const dispatches = pgTable("dispatches", {
+export const dispatches = eventhub.table("dispatches", {
   /**
    * Dispatch ID
    */
@@ -83,13 +86,10 @@ export const dispatchesRelations = relations(dispatches, ({ one, many }) => ({
     references: [events.id],
   }),
   executions: many(dispatchExecutions),
-  result: one(dispatchResults, {
-    fields: [dispatches.id],
-    references: [dispatchResults.dispatchId],
-  }),
+  result: one(dispatchResults),
 }));
 
-export const dispatchExecutions = pgTable("dispatch_executions", {
+export const dispatchExecutions = eventhub.table("dispatch_executions", {
   /**
    * Execution ID
    */
@@ -126,7 +126,7 @@ export const dispatchExecutionsRelations = relations(
   }),
 );
 
-export const dispatchResults = pgTable("dispatch_results", {
+export const dispatchResults = eventhub.table("dispatch_results", {
   /**
    * Dispatch ID
    */

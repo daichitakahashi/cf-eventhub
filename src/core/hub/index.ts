@@ -14,14 +14,14 @@ const constVoid = (() => {})();
 export abstract class EventHub<
   Env extends Record<string, unknown> = Record<string, unknown>,
 > extends WorkerEntrypoint<Env> {
-  private _repo: Repository;
+  private _repo: Promise<Repository>;
   private _queue: Queue;
   private _routing: RouteConfig;
   private _executor: Executor;
 
   constructor(ctx: ExecutionContext, env: Env) {
     super(ctx, env);
-    this._repo = this.getRepository(env);
+    this._repo = this.getRepository();
     this._queue = this.getQueue();
     this._routing = this.getRouting();
     this._executor = this.getExecutor();
@@ -63,7 +63,7 @@ export abstract class EventHub<
     return executor as Executor;
   }
 
-  protected abstract getRepository(env: Env): Repository;
+  protected abstract getRepository(): Promise<Repository>;
 
   /**
    *
@@ -76,8 +76,9 @@ export abstract class EventHub<
     }
     const routing = this._routing;
     const queue = this._queue;
+    const repo = await this._repo;
 
-    const result = await this._repo.enterTransactionalScope(async (tx) =>
+    const result = await repo.enterTransactionalScope(async (tx) =>
       safeTry(async function* () {
         const createdAt = new Date();
 

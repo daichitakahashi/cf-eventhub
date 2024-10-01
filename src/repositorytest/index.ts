@@ -1,15 +1,377 @@
+import { err, ok, safeTry } from "neverthrow";
 import { assert, expect } from "vitest";
 
-import { err } from "neverthrow";
+import { appendExecutionLog, makeDispatchLost } from "../core/model";
 import type { Repository } from "../core/repository";
 
-/*
-シナリオ1: ロールバック
-イベントの作成、ディスパッチの作成を行い、最後にエラーを返した後で、ディスパッチ・イベントの取得を行い、nullが返るのを確認する
+const eventPayload = {
+  uuid: crypto.randomUUID(),
+  timestamp: Date.now(),
+};
 
-シナリオ2: 実行記録の保存
-イベント、ディスパッチを作成し、実行記録を保存する
-*/
+// Create event and dispatch.
+const createEvent = (repo: Repository) =>
+  repo.enterTransactionalScope(
+    async (tx) =>
+      await safeTry(async function* () {
+        // Create events.
+        const eventCreatedAt = new Date();
+        const [createdEvent] = yield* (
+          await tx.createEvents([
+            {
+              payload: eventPayload,
+              createdAt: eventCreatedAt,
+            },
+            {
+              payload: { key: "value" },
+              createdAt: eventCreatedAt,
+            },
+          ])
+        ).safeUnwrap();
+
+        const dispatchesCreatedAt = new Date();
+        const [createdDispatch] = yield* (
+          await tx.createDispatches([
+            {
+              eventId: createdEvent.id,
+              destination: "WORKER_1",
+              createdAt: dispatchesCreatedAt,
+              delaySeconds: null,
+              maxRetryCount: 5,
+            },
+            {
+              eventId: createdEvent.id,
+              destination: "WORKER_2",
+              createdAt: dispatchesCreatedAt,
+              delaySeconds: 5,
+              maxRetryCount: 10,
+            },
+          ])
+        ).safeUnwrap();
+
+        return ok({ eventId: createdEvent.id, dispatchId: createdDispatch.id });
+      }),
+  );
+
+// Execute dispatch and record its failure.
+const dispatchFailed = (repo: Repository, dispatchId: string) =>
+  repo.enterTransactionalScope(
+    async (tx) =>
+      await safeTry(async function* () {
+        const got = yield* (await tx.getDispatch(dispatchId)).safeUnwrap();
+        assert(got !== null);
+        const dispatch = got.dispatch;
+        assert(dispatch.status === "ongoing");
+
+        const failed = appendExecutionLog(dispatch, {
+          result: "failed",
+          executedAt: new Date(),
+        });
+
+        return tx.saveDispatch(failed);
+      }),
+  );
+
+/** @internal */
+export const testRepositoryPersistsCompleteDispatch = async (
+  repo: Repository,
+) => {
+  // Max retry count is 5.
+  // Fail 5 times and complete.
+  const got = await safeTry(async function* () {
+    const { dispatchId } = yield* (await createEvent(repo)).safeUnwrap();
+
+    // Fail 4 times.
+    for (const _ of [...Array(5)]) {
+      yield* (await dispatchFailed(repo, dispatchId)).safeUnwrap();
+    }
+
+    // Complete
+    const got = yield* (await repo.getDispatch(dispatchId)).safeUnwrap();
+    assert(got !== null);
+    const { dispatch } = got;
+    assert(dispatch.status === "ongoing");
+
+    yield* (
+      await repo.saveDispatch(
+        appendExecutionLog(dispatch, {
+          result: "complete",
+          executedAt: new Date(),
+        }),
+      )
+    ).safeUnwrap();
+
+    return await repo.getDispatch(dispatchId);
+  });
+  assert(got.isOk());
+  assert(got.value !== null);
+  const { event, dispatch } = got.value;
+
+  expect(event).toMatchObject({
+    id: expect.any(String),
+    payload: eventPayload,
+    createdAt: expect.any(Date),
+  });
+
+  // Dispatch is executed 6 times(first try and 5 retries).
+  expect(dispatch).toMatchObject({
+    id: expect.any(String),
+    eventId: event.id,
+    status: "complete",
+    destination: "WORKER_1",
+    createdAt: expect.any(Date),
+    delaySeconds: null,
+    maxRetryCount: 5,
+    executionLog: [
+      {
+        id: expect.any(String),
+        result: "failed",
+        executedAt: expect.any(Date),
+      },
+      {
+        id: expect.any(String),
+        result: "failed",
+        executedAt: expect.any(Date),
+      },
+      {
+        id: expect.any(String),
+        result: "failed",
+        executedAt: expect.any(Date),
+      },
+      {
+        id: expect.any(String),
+        result: "failed",
+        executedAt: expect.any(Date),
+      },
+      {
+        id: expect.any(String),
+        result: "failed",
+        executedAt: expect.any(Date),
+      },
+      {
+        id: expect.any(String),
+        result: "complete",
+        executedAt: expect.any(Date),
+      },
+    ],
+  });
+};
+
+/** @internal */
+export const testRepositoryPersistsFailedDispatch = async (
+  repo: Repository,
+) => {
+  // Max retry count is 5.
+  // Fail 6 times.
+  const got = await safeTry(async function* () {
+    const { dispatchId } = yield* (await createEvent(repo)).safeUnwrap();
+
+    // Fail 6 times.
+    for (const _ of [...Array(6)]) {
+      yield* (await dispatchFailed(repo, dispatchId)).safeUnwrap();
+    }
+
+    return await repo.getDispatch(dispatchId);
+  });
+  assert(got.isOk());
+  assert(got.value !== null);
+  const { event, dispatch } = got.value;
+
+  expect(event).toMatchObject({
+    id: expect.any(String),
+    payload: eventPayload,
+    createdAt: expect.any(Date),
+  });
+
+  // Dispatch is executed 6 times(first try and 5 retries).
+  expect(dispatch).toMatchObject({
+    id: expect.any(String),
+    eventId: event.id,
+    status: "failed",
+    destination: "WORKER_1",
+    createdAt: expect.any(Date),
+    delaySeconds: null,
+    maxRetryCount: 5,
+    executionLog: [
+      {
+        id: expect.any(String),
+        result: "failed",
+        executedAt: expect.any(Date),
+      },
+      {
+        id: expect.any(String),
+        result: "failed",
+        executedAt: expect.any(Date),
+      },
+      {
+        id: expect.any(String),
+        result: "failed",
+        executedAt: expect.any(Date),
+      },
+      {
+        id: expect.any(String),
+        result: "failed",
+        executedAt: expect.any(Date),
+      },
+      {
+        id: expect.any(String),
+        result: "failed",
+        executedAt: expect.any(Date),
+      },
+      {
+        id: expect.any(String),
+        result: "failed",
+        executedAt: expect.any(Date),
+      },
+    ],
+  });
+};
+
+/** @internal */
+export const testRepositoryPersistsIgnoredDispatch = async (
+  repo: Repository,
+) => {
+  const got = await safeTry(async function* () {
+    const { dispatchId } = yield* (await createEvent(repo)).safeUnwrap();
+
+    const got = yield* (await repo.getDispatch(dispatchId)).safeUnwrap();
+    assert(got !== null);
+    const { dispatch } = got;
+    assert(dispatch.status === "ongoing");
+
+    const ignored = appendExecutionLog(dispatch, {
+      result: "ignored",
+      executedAt: new Date(),
+    });
+    yield* (await repo.saveDispatch(ignored)).safeUnwrap();
+
+    return await repo.getDispatch(dispatchId);
+  });
+  assert(got.isOk());
+  assert(got.value !== null);
+  const { event, dispatch } = got.value;
+
+  expect(event).toMatchObject({
+    id: expect.any(String),
+    payload: eventPayload,
+    createdAt: expect.any(Date),
+  });
+
+  // Dispatch is ignored in first try.
+  expect(dispatch).toMatchObject({
+    id: expect.any(String),
+    eventId: event.id,
+    status: "ignored",
+    destination: "WORKER_1",
+    createdAt: expect.any(Date),
+    delaySeconds: null,
+    maxRetryCount: 5,
+    executionLog: [
+      {
+        id: expect.any(String),
+        result: "ignored",
+        executedAt: expect.any(Date),
+      },
+    ],
+  });
+};
+
+/** @internal */
+export const testRepositoryPersistsMisconfiguredDispatch = async (
+  repo: Repository,
+) => {
+  const got = await safeTry(async function* () {
+    const { dispatchId } = yield* (await createEvent(repo)).safeUnwrap();
+
+    const got = yield* (await repo.getDispatch(dispatchId)).safeUnwrap();
+    assert(got !== null);
+    const { dispatch } = got;
+    assert(dispatch.status === "ongoing");
+
+    const ignored = appendExecutionLog(dispatch, {
+      result: "misconfigured",
+      executedAt: new Date(),
+    });
+    yield* (await repo.saveDispatch(ignored)).safeUnwrap();
+
+    return await repo.getDispatch(dispatchId);
+  });
+  assert(got.isOk());
+  assert(got.value !== null);
+  const { event, dispatch } = got.value;
+
+  expect(event).toMatchObject({
+    id: expect.any(String),
+    payload: eventPayload,
+    createdAt: expect.any(Date),
+  });
+
+  // Dispatch is ignored in first try.
+  expect(dispatch).toMatchObject({
+    id: expect.any(String),
+    eventId: event.id,
+    status: "misconfigured",
+    destination: "WORKER_1",
+    createdAt: expect.any(Date),
+    delaySeconds: null,
+    maxRetryCount: 5,
+    executionLog: [
+      {
+        id: expect.any(String),
+        result: "misconfigured",
+        executedAt: expect.any(Date),
+      },
+    ],
+  });
+};
+
+/** @internal */
+export const testRepositoryPersistsLostDispatch = async (repo: Repository) => {
+  const got = await safeTry(async function* () {
+    const { dispatchId } = yield* (await createEvent(repo)).safeUnwrap();
+
+    // Fail once.
+    yield* (await dispatchFailed(repo, dispatchId)).safeUnwrap();
+
+    // Mark dispatch as lost.
+    const got = yield* (await repo.getDispatch(dispatchId)).safeUnwrap();
+    assert(got !== null);
+    const { dispatch } = got;
+    assert(dispatch.status === "ongoing");
+
+    const lost = makeDispatchLost(dispatch, new Date());
+    yield* (await repo.saveDispatch(lost)).safeUnwrap();
+
+    return await repo.getDispatch(dispatchId);
+  });
+  assert(got.isOk());
+  assert(got.value !== null);
+  const { event, dispatch } = got.value;
+
+  expect(event).toMatchObject({
+    id: expect.any(String),
+    payload: eventPayload,
+    createdAt: expect.any(Date),
+  });
+
+  // Dispatch is executed once and failed. After that, it has been lost.
+  expect(dispatch).toMatchObject({
+    id: expect.any(String),
+    eventId: event.id,
+    status: "lost",
+    destination: "WORKER_1",
+    createdAt: expect.any(Date),
+    delaySeconds: null,
+    maxRetryCount: 5,
+    executionLog: [
+      {
+        id: expect.any(String),
+        result: "failed",
+        executedAt: expect.any(Date),
+      },
+    ],
+  });
+};
 
 /** @internal */
 export const testRepositoryRollback = async (
@@ -43,7 +405,7 @@ export const testRepositoryRollback = async (
       ]);
       assert(result.isOk(), "createEvents must be succeeded");
 
-      expect(result.value).toStrictEqual([
+      expect(result.value).toMatchObject([
         {
           id: expect.any(String),
           payload: eventPayload,
@@ -80,9 +442,10 @@ export const testRepositoryRollback = async (
       ]);
       assert(result.isOk(), "createDispatches must be succeeded");
 
-      expect(result.value).toStrictEqual([
+      expect(result.value).toMatchObject([
         {
           eventId: createdEvent.id,
+          status: "ongoing",
           destination: "WORKER_1",
           createdAt: expect.any(Date),
           delaySeconds: null,
@@ -90,6 +453,7 @@ export const testRepositoryRollback = async (
         },
         {
           eventId: createdEvent.id,
+          status: "ongoing",
           destination: "WORKER_2",
           createdAt: expect.any(Date),
           delaySeconds: 5,
