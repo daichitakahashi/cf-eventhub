@@ -1,0 +1,216 @@
+{
+  "id": "bcf86021-1130-48a7-8d80-fdef1f316d6c",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "eventhub.dispatch_executions": {
+      "name": "dispatch_executions",
+      "schema": "eventhub",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "dispatch_id": {
+          "name": "dispatch_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "result": {
+          "name": "result",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "executed_at": {
+          "name": "executed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "dispatch_executions_dispatch_id_dispatches_id_fk": {
+          "name": "dispatch_executions_dispatch_id_dispatches_id_fk",
+          "tableFrom": "dispatch_executions",
+          "tableTo": "dispatches",
+          "schemaTo": "eventhub",
+          "columnsFrom": [
+            "dispatch_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {}
+    },
+    "eventhub.dispatch_results": {
+      "name": "dispatch_results",
+      "schema": "eventhub",
+      "columns": {
+        "dispatch_id": {
+          "name": "dispatch_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "result": {
+          "name": "result",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "resulted_at": {
+          "name": "resulted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "dispatch_results_dispatch_id_dispatches_id_fk": {
+          "name": "dispatch_results_dispatch_id_dispatches_id_fk",
+          "tableFrom": "dispatch_results",
+          "tableTo": "dispatches",
+          "schemaTo": "eventhub",
+          "columnsFrom": [
+            "dispatch_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {}
+    },
+    "eventhub.dispatches": {
+      "name": "dispatches",
+      "schema": "eventhub",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "event_id": {
+          "name": "event_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "destination": {
+          "name": "destination",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "delay_seconds": {
+          "name": "delay_seconds",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "max_retry_count": {
+          "name": "max_retry_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "dispatches_event_id_events_id_fk": {
+          "name": "dispatches_event_id_events_id_fk",
+          "tableFrom": "dispatches",
+          "tableTo": "events",
+          "schemaTo": "eventhub",
+          "columnsFrom": [
+            "event_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {}
+    },
+    "eventhub.events": {
+      "name": "events",
+      "schema": "eventhub",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "payload": {
+          "name": "payload",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "events_created_at_index": {
+          "name": "events_created_at_index",
+          "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {}
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}
