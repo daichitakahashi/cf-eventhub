@@ -1,4 +1,3 @@
-import { WorkerEntrypoint } from "cloudflare:workers";
 import { ok, safeTry } from "neverthrow";
 import * as v from "valibot";
 
@@ -7,76 +6,29 @@ import type { NewDispatch, NewEvent } from "../model";
 import type { Repository } from "../repository";
 import type { EventPayload } from "../type";
 import { type QueueMessage, enqueue } from "./queue";
-import { RouteConfig, findRoutes } from "./routing";
+import { Config, findRoutes } from "./routing";
 
 const constVoid = (() => {})();
 
-export abstract class EventHub<
-  Env extends Record<string, unknown> = Record<string, unknown>,
-> extends WorkerEntrypoint<Env> {
-  private _repo: Promise<Repository>;
-  private _queue: Queue;
-  private _routing: RouteConfig;
-  private _executor: Executor;
+export interface EventHub {
+  putEvent(events: EventPayload[]): Promise<void>;
+}
 
-  constructor(ctx: ExecutionContext, env: Env) {
-    super(ctx, env);
-    this._repo = this.getRepository();
-    this._queue = this.getQueue();
-    this._routing = this.getRouting();
-    this._executor = this.getExecutor();
-  }
+export class EventSink {
+  constructor(
+    private repo: Repository,
+    private queue: Queue,
+    private routeConfig: Config,
+  ) {}
 
-  private getQueue() {
-    const queue = this.env.EVENTHUB_QUEUE;
-    if (!queue) {
-      throw new Error("cf-eventhub: EVENTHUB_QUEUE not set");
-    }
-    if (typeof queue !== "object" || "send" in queue) {
-      throw new Error("cf-eventhub: value of EVENTHUB_QUEUE is not a Queue");
-    }
-    return queue as Queue;
-  }
-
-  private getRouting() {
-    const routing = this.env.EVENTHUB_ROUTING;
-    if (!routing) {
-      throw new Error("cf-eventhub: EVENTHUB_ROUTING not set");
-    }
-    if (typeof routing !== "string") {
-      throw new Error("cf-eventhub: value of EVENTHUB_Routing is not a string");
-    }
-
-    return v.parse(RouteConfig, JSON.parse(routing));
-  }
-
-  private getExecutor() {
-    const executor = this.env.EVENTHUB_EXECUTOR;
-    if (!executor) {
-      throw new Error("cf-eventhub: EVENTHUB_EXECUTOR not set");
-    }
-    if (typeof executor !== "object" || "dispatch" in executor) {
-      throw new Error(
-        "cf-eventhub: value of EVENTHUB_EXECUTOR is not a Executor",
-      );
-    }
-    return executor as Executor;
-  }
-
-  protected abstract getRepository(): Promise<Repository>;
-
-  /**
-   *
-   * @param events Events to be emitted
-   */
-  async emit(events: EventPayload[]) {
+  async putEvent(events: EventPayload[]): Promise<void> {
     // Skip empty.
     if (events.length === 0) {
       return;
     }
-    const routing = this._routing;
-    const queue = this._queue;
-    const repo = await this._repo;
+    const routing = this.routeConfig;
+    const queue = this.queue;
+    const repo = this.repo;
 
     const result = await repo.enterTransactionalScope(async (tx) =>
       safeTry(async function* () {
@@ -129,11 +81,50 @@ export abstract class EventHub<
     if (result.isErr()) {
       return Promise.reject(result.error);
     }
-    return Promise.resolve(constVoid);
+  }
+}
+
+export const getQueue = (env: Record<string, unknown>) => {
+  const queue = env.EVENTHUB_QUEUE;
+  if (!queue) {
+    throw new Error("cf-eventhub: EVENTHUB_QUEUE not set");
+  }
+  if (typeof queue !== "object" || "send" in queue) {
+    throw new Error("cf-eventhub: value of EVENTHUB_QUEUE is not a Queue");
+  }
+  return queue as Queue;
+};
+
+export const getRouteConfig = (env: Record<string, unknown>) => {
+  const routing = env.EVENTHUB_ROUTING;
+  if (!routing) {
+    throw new Error("cf-eventhub: EVENTHUB_ROUTING not set");
+  }
+  if (typeof routing !== "string") {
+    throw new Error("cf-eventhub: value of EVENTHUB_Routing is not a string");
   }
 
+  return v.parse(Config, JSON.parse(routing));
+};
+
+export const getExecutor = (env: Record<string, unknown>) => {
+  const executor = env.EVENTHUB_EXECUTOR;
+  if (!executor) {
+    throw new Error("cf-eventhub: EVENTHUB_EXECUTOR not set");
+  }
+  if (typeof executor !== "object" || "dispatch" in executor) {
+    throw new Error(
+      "cf-eventhub: value of EVENTHUB_EXECUTOR is not a Executor",
+    );
+  }
+  return executor as Executor;
+};
+
+export class EventConsumer {
+  constructor(private executor: Executor) {}
+
   private async dispatch(msg: Message<QueueMessage>) {
-    await this._executor
+    await this.executor
       .dispatch(msg.body)
       .then((result) => {
         switch (result) {
