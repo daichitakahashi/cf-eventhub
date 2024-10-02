@@ -1,57 +1,24 @@
-import { WorkerEntrypoint } from "cloudflare:workers";
-
-import { type Executor as BaseExecutor, Dispatcher } from "../core/executor";
-import {
-  type EventHub as BaseEventHub,
-  EventConsumer,
-  EventSink,
-  getExecutor,
-  getQueue,
-  getRouteConfig,
-} from "../core/hub";
-import type { EventPayload, QueueMessage } from "../core/type";
+import type { Executor as BaseExecutor } from "../core/executor";
+import { RpcExecutor } from "../core/executor/rpc";
+import { RpcEventHub } from "../core/hub/rpc";
+import type { Repository } from "../core/repository";
 import { DevRepository } from "./repository";
 
 export class Executor<
     Env extends Record<string, unknown> = Record<string, unknown>,
   >
-  extends WorkerEntrypoint<Env>
+  extends RpcExecutor<Env>
   implements BaseExecutor
 {
-  private dispatcher: Dispatcher;
-
-  constructor(ctx: ExecutionContext, env: Env) {
-    super(ctx, env);
-    const repo = new DevRepository();
-    this.dispatcher = new Dispatcher(repo, env);
-  }
-
-  dispatch(msg: QueueMessage) {
-    return this.dispatcher.dispatch(msg);
+  protected getRepository(): Repository {
+    return new DevRepository();
   }
 }
 
 export class EventHub<
-    Env extends Record<string, unknown> = Record<string, unknown>,
-  >
-  extends WorkerEntrypoint<Env>
-  implements BaseEventHub
-{
-  private sink: EventSink;
-  private consumer: EventConsumer;
-
-  constructor(ctx: ExecutionContext, env: Env) {
-    super(ctx, env);
-    const repo = new DevRepository();
-    this.sink = new EventSink(repo, getQueue(env), getRouteConfig(env));
-    this.consumer = new EventConsumer(getExecutor(env));
-  }
-
-  putEvent(events: EventPayload[]) {
-    return this.sink.putEvent(events);
-  }
-
-  queue(batch: MessageBatch<QueueMessage>) {
-    return this.consumer.queue(batch);
+  Env extends Record<string, unknown> = Record<string, unknown>,
+> extends RpcEventHub<Env> {
+  protected getRepository(): Repository {
+    return new DevRepository();
   }
 }
