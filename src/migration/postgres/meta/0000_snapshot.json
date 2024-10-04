@@ -1,5 +1,5 @@
 {
-  "id": "bcf86021-1130-48a7-8d80-fdef1f316d6c",
+  "id": "6106fd33-7215-41fa-888d-046fa1abe524",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -132,8 +132,8 @@
           "primaryKey": false,
           "notNull": false
         },
-        "max_retry_count": {
-          "name": "max_retry_count",
+        "max_retries": {
+          "name": "max_retries",
           "type": "integer",
           "primaryKey": false,
           "notNull": true

@@ -49,7 +49,7 @@ export class EventSink {
               destination,
               createdAt,
               delaySeconds: delaySeconds || null,
-              maxRetryCount: 5, // TODO: should be configurable
+              maxRetries: 5, // TODO: should be configurable
             }),
           ),
         );

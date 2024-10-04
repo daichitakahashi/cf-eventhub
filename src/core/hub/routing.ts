@@ -19,6 +19,7 @@ const Route = v.object({
   conditions: v.array(Condition),
   destination: v.pipe(v.string(), v.minLength(1)),
   delaySeconds: v.optional(v.number()),
+  maxRetries: v.optional(v.number()),
 });
 export type Route = v.InferOutput<typeof Route>;
 

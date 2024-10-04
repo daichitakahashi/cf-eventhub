@@ -19,7 +19,7 @@ export interface NewDispatch {
   readonly destination: string;
   readonly createdAt: Date;
   readonly delaySeconds: number | null;
-  readonly maxRetryCount: number;
+  readonly maxRetries: number;
 }
 
 export interface OngoingDispatch extends NewDispatch {
@@ -101,7 +101,7 @@ export const appendExecutionLog = (
 
   const status =
     execution.result !== "failed" ||
-    dispatch.executionLog.length + 1 > dispatch.maxRetryCount
+    dispatch.executionLog.length + 1 > dispatch.maxRetries
       ? execution.result
       : ("ongoing" as const);
   const executionLog =

@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS "eventhub"."dispatches" (
 	"destination" text NOT NULL,
 	"created_at" timestamp with time zone NOT NULL,
 	"delay_seconds" integer,
-	"max_retry_count" integer NOT NULL
+	"max_retries" integer NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "eventhub"."events" (

@@ -37,14 +37,14 @@ const createEvent = (repo: Repository) =>
               destination: "WORKER_1",
               createdAt: dispatchesCreatedAt,
               delaySeconds: null,
-              maxRetryCount: 5,
+              maxRetries: 5,
             },
             {
               eventId: createdEvent.id,
               destination: "WORKER_2",
               createdAt: dispatchesCreatedAt,
               delaySeconds: 5,
-              maxRetryCount: 10,
+              maxRetries: 10,
             },
           ])
         ).safeUnwrap();
@@ -121,7 +121,7 @@ export const testRepositoryPersistsCompleteDispatch = async (
     destination: "WORKER_1",
     createdAt: expect.any(Date),
     delaySeconds: null,
-    maxRetryCount: 5,
+    maxRetries: 5,
     executionLog: [
       {
         id: expect.any(String),
@@ -191,7 +191,7 @@ export const testRepositoryPersistsFailedDispatch = async (
     destination: "WORKER_1",
     createdAt: expect.any(Date),
     delaySeconds: null,
-    maxRetryCount: 5,
+    maxRetries: 5,
     executionLog: [
       {
         id: expect.any(String),
@@ -265,7 +265,7 @@ export const testRepositoryPersistsIgnoredDispatch = async (
     destination: "WORKER_1",
     createdAt: expect.any(Date),
     delaySeconds: null,
-    maxRetryCount: 5,
+    maxRetries: 5,
     executionLog: [
       {
         id: expect.any(String),
@@ -314,7 +314,7 @@ export const testRepositoryPersistsMisconfiguredDispatch = async (
     destination: "WORKER_1",
     createdAt: expect.any(Date),
     delaySeconds: null,
-    maxRetryCount: 5,
+    maxRetries: 5,
     executionLog: [
       {
         id: expect.any(String),
@@ -362,7 +362,7 @@ export const testRepositoryPersistsLostDispatch = async (repo: Repository) => {
     destination: "WORKER_1",
     createdAt: expect.any(Date),
     delaySeconds: null,
-    maxRetryCount: 5,
+    maxRetries: 5,
     executionLog: [
       {
         id: expect.any(String),
@@ -430,14 +430,14 @@ export const testRepositoryRollback = async (
           destination: "WORKER_1",
           createdAt,
           delaySeconds: null,
-          maxRetryCount: 5,
+          maxRetries: 5,
         },
         {
           eventId: createdEvent.id,
           destination: "WORKER_2",
           createdAt,
           delaySeconds: 5,
-          maxRetryCount: 10,
+          maxRetries: 10,
         },
       ]);
       assert(result.isOk(), "createDispatches must be succeeded");
@@ -449,7 +449,7 @@ export const testRepositoryRollback = async (
           destination: "WORKER_1",
           createdAt: expect.any(Date),
           delaySeconds: null,
-          maxRetryCount: 5,
+          maxRetries: 5,
         },
         {
           eventId: createdEvent.id,
@@ -457,7 +457,7 @@ export const testRepositoryRollback = async (
           destination: "WORKER_2",
           createdAt: expect.any(Date),
           delaySeconds: 5,
-          maxRetryCount: 10,
+          maxRetries: 10,
         },
       ]);
 
