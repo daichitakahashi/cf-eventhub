@@ -31,7 +31,7 @@ export type RouteConfig = v.InferOutput<typeof RouteConfig>;
 export const Config = v.object({
   routes: RouteConfig,
 });
-export type Config = v.InferOutput<typeof RouteConfig>;
+export type Config = v.InferOutput<typeof Config>;
 
 const matchCond = (message: unknown) => (cond: Condition) => {
   const values = jsonpath.query(message, cond.path);
@@ -52,5 +52,5 @@ const matchCond = (message: unknown) => (cond: Condition) => {
   return values.every((v) => matchers.every((match) => match(v)));
 };
 
-export const findRoutes = (routes: RouteConfig, message: unknown): Route[] =>
-  routes.filter((r) => r.conditions.every(matchCond(message)));
+export const findRoutes = (c: Config, message: unknown): Route[] =>
+  c.routes.filter((r) => r.conditions.every(matchCond(message)));

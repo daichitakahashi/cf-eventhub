@@ -1,15 +1,11 @@
-import { WorkerEntrypoint } from "cloudflare:workers";
-
 import type { EventPayload } from "../type";
 
-const handler = Symbol();
+/** @internal */
+export const handler = Symbol();
 
-export abstract class Handler extends WorkerEntrypoint {
-  abstract handle(
-    payload: EventPayload,
-  ): Promise<"complete" | "ignored" | "failed">;
-
-  [handler] = true;
+export interface Handler {
+  [handler]: true;
+  handle(payload: EventPayload): Promise<"complete" | "ignored" | "failed">;
 }
 
 export const isHandler = (dest: NonNullable<unknown>): dest is Handler => {
