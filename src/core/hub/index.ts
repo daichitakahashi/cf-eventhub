@@ -44,12 +44,12 @@ export class EventSink {
         // Find destinations for each event and create dispatches.
         const dispatches = created.flatMap((e) =>
           findRoutes(routing, e).map(
-            ({ destination, delaySeconds }): NewDispatch => ({
+            ({ destination, delaySeconds, maxRetries }): NewDispatch => ({
               eventId: e.id, // Event id is created by Persistence.saveEvents.
               destination,
               createdAt,
-              delaySeconds: delaySeconds || null,
-              maxRetryCount: 5, // TODO: should be configurable
+              delaySeconds: delaySeconds || routing.defaultDelaySeconds || null,
+              maxRetries: maxRetries || routing.defaultMaxRetries || 5,
             }),
           ),
         );

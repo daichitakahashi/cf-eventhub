@@ -77,7 +77,7 @@ export const dispatches = eventhub.table("dispatches", {
   /**
    * Max retry count
    */
-  maxRetryCount: integer("max_retry_count").notNull(),
+  maxRetries: integer("max_retries").notNull(),
 });
 
 export const dispatchesRelations = relations(dispatches, ({ one, many }) => ({

@@ -95,7 +95,7 @@ export class PgRepository implements Repository {
             destination: d.destination,
             createdAt: d.createdAt,
             delaySeconds: d.delaySeconds,
-            maxRetryCount: d.maxRetryCount,
+            maxRetries: d.maxRetries,
           }),
         );
 
@@ -109,7 +109,7 @@ export class PgRepository implements Repository {
             destination: r.destination,
             createdAt: r.createdAt,
             delaySeconds: r.delaySeconds,
-            maxRetryCount: r.maxRetryCount,
+            maxRetries: r.maxRetries,
           }),
         );
       },
@@ -185,7 +185,7 @@ export class PgRepository implements Repository {
           destination: row.destination,
           createdAt: row.createdAt,
           delaySeconds: row.delaySeconds,
-          maxRetryCount: row.maxRetryCount,
+          maxRetries: row.maxRetries,
         });
         for (const e of row.executions) {
           if (dispatch.status === "ongoing") {
