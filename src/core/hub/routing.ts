@@ -30,6 +30,9 @@ export type RouteConfig = v.InferOutput<typeof RouteConfig>;
  * Route configuration schema.
  */
 export const Config = v.object({
+  defaultDelaySeconds: v.optional(
+    v.pipe(v.number(), v.integer(), v.minValue(0)),
+  ),
   defaultMaxRetries: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0))),
   routes: RouteConfig,
 });

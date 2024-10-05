@@ -48,7 +48,7 @@ export class EventSink {
               eventId: e.id, // Event id is created by Persistence.saveEvents.
               destination,
               createdAt,
-              delaySeconds: delaySeconds || null,
+              delaySeconds: delaySeconds || routing.defaultDelaySeconds || null,
               maxRetries: maxRetries || routing.defaultMaxRetries || 5,
             }),
           ),
