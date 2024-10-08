@@ -24,12 +24,33 @@ export type QueueBindingInput = {
   readonly queueName: Input<string>;
 };
 
+/**
+ * Resource constructor of event handler worker script.
+ */
 export type HandlerWorkerScript<W> = {
+  /**
+   * Worker script name.
+   */
   readonly name: string;
+  /**
+   * Constructor of the handler worker script.
+   * @param name Value of `HandlerWorkerScript.name`
+   * @param eventHub Input value that can be used to bind EventHub worker script.
+   * @returns Created worker script.
+   */
   workerScript(name: string, eventHub: ServiceBindingInput): W;
+  /**
+   * Input value for Service Bindings setting of Executor to bind created handler worker script.
+   */
   readonly binding: Omit<HandlerWorkerScriptBinding, "service">;
 };
 
+/**
+ * Creates cached version of given script.
+ * This is useful when the same HandlerWorkerScript is attached to multiple route conditions.
+ * @param script Original HandlerWorkerScript.
+ * @returns Cached version of given script.
+ */
 export const handlerWorkerScriptRef = <W>(
   script: HandlerWorkerScript<W>,
 ): HandlerWorkerScript<W> => {
@@ -54,29 +75,74 @@ type WorkerScript = {
 };
 
 export type EventHubArgs<W extends WorkerScript> = Omit<Config, "routes"> & {
+  /**
+   * Account ID of Cloudflare.
+   */
   accountId: Input<string>;
+  /**
+   * Prefix for Queue and workers script name(EventHub, Executor).
+   */
   name: Input<string>;
+  /**
+   * Routing configuration of event handling.
+   */
   routes: HandlerRoute<W>[];
 };
 
 export type CreateEventHubWorkerScriptArgs = {
+  /**
+   * Account ID of Cloudflare.
+   */
   accountId: Input<string>;
+  /**
+   * Worker script name.
+   */
   name: Input<string>;
+  /**
+   * Input value that should be used for binding created Queue to EventHub.
+   */
   queueBinding: QueueBindingInput;
+  /**
+   * Input value that should be used for binding routing configuration to EventHub.
+   */
   routeConfigBinding: TextBindingInput;
 };
 
 export type CreateExecutorWorkerScriptArgs = {
+  /**
+   * Account ID of Cloudflare.
+   */
   accountId: Input<string>;
+  /**
+   * Worker script name.
+   */
   name: Input<string>;
+  /**
+   * Input value that should be used for binding handlers to Executor.
+   */
   handlerBindings: HandlerWorkerScriptBinding[];
 };
 
 type CreateQueueConsumerArgs = {
+  /**
+   * Account ID of Cloudflare.
+   */
   accountId: Input<string>;
+  /**
+   * Queue name.
+   */
   queue: Input<string>;
+  /**
+   * Executor worker script name.
+   */
   executor: Input<string>;
+  /**
+   * Default delay seconds derived from `EventHubArgs`.
+   */
   defaultDelaySeconds?: Input<number>;
+  /**
+   * Default max retries derived from `EventHubArgs`.
+   */
   defaultMaxRetries?: Input<number>;
 };
 
@@ -88,8 +154,12 @@ export abstract class EventHub<
   queueConsumer: _QueueConsumer | undefined;
   eventHub: _WorkerScript;
   executor: _WorkerScript;
+  handlers: Record<string, _WorkerScript>;
 
   constructor(
+    /**
+     * Prefix for resource names of Queue and Worker scripts(EventHub, Executor).
+     */
     public name: string,
     args: EventHubArgs<_WorkerScript>,
   ) {
@@ -153,6 +223,7 @@ export abstract class EventHub<
     this.queueConsumer = consumer;
     this.eventHub = eventHub;
     this.executor = executor;
+    this.handlers = handlers;
   }
 
   abstract createEventHubWorkerScript(
