@@ -6,7 +6,7 @@ import type { QueueMessage } from "../type";
 import { type Handler, isHandler } from "./handler";
 
 export interface Executor {
-  dispatch(msg: QueueMessage): Promise<DispatchExecution["result"]>;
+  queue(batch: MessageBatch<QueueMessage>): Promise<void>;
 }
 
 export class Dispatcher {

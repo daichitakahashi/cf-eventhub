@@ -37,9 +37,7 @@ sequenceDiagram
   Queue ->> Queue: wait delaySeconds
 
   par execute each dispatch
-    Queue ->> eventhub: dequeue dispatch for matched route
-    activate eventhub
-    eventhub ->> executor: dispatch() [RPC]
+    Queue ->> executor: dequeue dispatch for matched route
     activate executor
     executor ->> DB: begin
     activate DB
@@ -58,10 +56,8 @@ sequenceDiagram
     executor ->> DB: commit
     deactivate DB
 
-    executor -->> eventhub: return<br>Promise<"complete" | "ignored" | "failed" | "misconfigured" | "notfound">
+    executor ->> Queue: ack() on "complete" | "ignored" | "misconfigured" | "notfound"<br>or<br>retry() on "failed"
     deactivate executor
-    eventhub ->> Queue: ack() on "complete" | "ignored" | "misconfigured" | "notfound"<br>or<br>retry() on "failed"
     deactivate Queue
-    deactivate eventhub
   end
 ```
