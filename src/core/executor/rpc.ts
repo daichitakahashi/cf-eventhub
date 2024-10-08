@@ -1,9 +1,13 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 
 import { Dispatcher, type Executor } from ".";
+import { DefaultLogger, type LogLevel } from "../logger";
 import type { Repository } from "../repository";
 import type { EventPayload, QueueMessage } from "../type";
 import { type Handler, handler } from "./handler";
+
+const getLogLevel = (env: Record<string, unknown>) =>
+  (env.EVNTHUB_LOG_LEVEL as LogLevel) || "INFO";
 
 export abstract class RpcExecutor<
     Env extends Record<string, unknown> = Record<string, unknown>,
@@ -15,7 +19,8 @@ export abstract class RpcExecutor<
 
   constructor(ctx: ExecutionContext, env: Env) {
     super(ctx, env);
-    this.dispatcher = new Dispatcher(this.getRepository(), env);
+    const logger = this.getLogger();
+    this.dispatcher = new Dispatcher(this.getRepository(), env, logger);
   }
 
   private async dispatch(msg: Message<QueueMessage>) {
@@ -46,6 +51,10 @@ export abstract class RpcExecutor<
     for (const msg of batch.messages) {
       await this.dispatch(msg);
     }
+  }
+
+  protected getLogger() {
+    return new DefaultLogger(getLogLevel(this.env));
   }
 
   protected abstract getRepository(): Repository;

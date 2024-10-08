@@ -1,5 +1,6 @@
 import { ok, safeTry } from "neverthrow";
 
+import type { Logger } from "../logger";
 import type { NewDispatch, NewEvent } from "../model";
 import type { Repository } from "../repository";
 import type { EventPayload } from "../type";
@@ -17,6 +18,7 @@ export class EventSink {
     private repo: Repository,
     private queue: Queue,
     private routeConfig: Config,
+    private logger: Logger,
   ) {}
 
   async putEvent(events: EventPayload[]): Promise<void> {
@@ -27,10 +29,13 @@ export class EventSink {
     const routing = this.routeConfig;
     const queue = this.queue;
     const repo = this.repo;
+    const logger = this.logger;
 
     const result = await repo.enterTransactionalScope(async (tx) =>
       safeTry(async function* () {
         const createdAt = new Date();
+
+        logger.debug(`put ${events.length} events`);
 
         // Create events.
         const newEvents = events.map(
@@ -55,6 +60,8 @@ export class EventSink {
         );
 
         if (dispatches.length > 0) {
+          logger.debug(`create ${dispatches.length} dispatches`);
+
           // Create dispatches.
           const createdDispatches = yield* (
             await tx.createDispatches(dispatches)
@@ -70,7 +77,9 @@ export class EventSink {
               delaySeconds: d.delaySeconds || undefined,
             }),
           );
-          yield* enqueue(queue, messages).safeUnwrap();
+          yield* enqueue(queue, messages, logger).safeUnwrap();
+        } else {
+          logger.debug("no dispatches created");
         }
         return ok(constVoid);
       }),
