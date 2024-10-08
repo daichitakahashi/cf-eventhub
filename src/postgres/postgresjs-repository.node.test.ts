@@ -6,6 +6,7 @@ import {
 } from "testcontainers";
 import { afterAll, beforeAll, describe, test } from "vitest";
 
+import { DefaultLogger } from "../core/logger";
 import {
   testRepositoryPersistsCompleteDispatch,
   testRepositoryPersistsFailedDispatch,
@@ -56,51 +57,72 @@ describe("repositorytest", () => {
   });
 
   test("Persists complete dispatch", async () => {
-    const repo = createRepository({
-      EVENTHUB_DSN: dsn,
-    });
+    const repo = createRepository(
+      {
+        EVENTHUB_DSN: dsn,
+      },
+      new DefaultLogger("DEBUG"),
+    );
     await testRepositoryPersistsCompleteDispatch(repo);
   });
 
   test("Persists failed dispatch", async () => {
-    const repo = createRepository({
-      EVENTHUB_DSN: dsn,
-    });
+    const repo = createRepository(
+      {
+        EVENTHUB_DSN: dsn,
+      },
+      new DefaultLogger("DEBUG"),
+    );
     await testRepositoryPersistsFailedDispatch(repo);
   });
 
   test("Persists ignored dispatch", async () => {
-    const repo = createRepository({
-      EVENTHUB_DSN: dsn,
-    });
+    const repo = createRepository(
+      {
+        EVENTHUB_DSN: dsn,
+      },
+      new DefaultLogger("DEBUG"),
+    );
     await testRepositoryPersistsIgnoredDispatch(repo);
   });
 
   test("Persists misconfigured dispatch", async () => {
-    const repo = createRepository({
-      EVENTHUB_DSN: dsn,
-    });
+    const repo = createRepository(
+      {
+        EVENTHUB_DSN: dsn,
+      },
+      new DefaultLogger("DEBUG"),
+    );
     await testRepositoryPersistsMisconfiguredDispatch(repo);
   });
 
   test("Persists lost dispatch", async () => {
-    const repo = createRepository({
-      EVENTHUB_DSN: dsn,
-    });
+    const repo = createRepository(
+      {
+        EVENTHUB_DSN: dsn,
+      },
+      new DefaultLogger("DEBUG"),
+    );
     await testRepositoryPersistsLostDispatch(repo);
   });
 
   test("Rollback by Result(Err)", async () => {
-    const repo = createRepository({
-      EVENTHUB_DSN: dsn,
-    });
+    const repo = createRepository(
+      {
+        EVENTHUB_DSN: dsn,
+      },
+      new DefaultLogger("DEBUG"),
+    );
     await testRepositoryRollback(repo, "RESULT");
   });
 
   test("Rollback by exception", async () => {
-    const repo = createRepository({
-      EVENTHUB_DSN: dsn,
-    });
+    const repo = createRepository(
+      {
+        EVENTHUB_DSN: dsn,
+      },
+      new DefaultLogger("DEBUG"),
+    );
     await testRepositoryRollback(repo, "THROW");
   });
 });

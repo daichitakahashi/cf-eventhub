@@ -43,20 +43,16 @@ export abstract class RpcEventHub<
 
   constructor(ctx: ExecutionContext, env: Env) {
     super(ctx, env);
-    const repo = this.getRepository();
-    this.sink = new EventSink(
-      repo,
-      getQueue(env),
-      getRouteConfig(env),
-      this.getLogger(),
-    );
+    const logger = this.getLogger();
+    const repo = this.getRepository(logger);
+    this.sink = new EventSink(repo, getQueue(env), getRouteConfig(env), logger);
   }
-
-  protected abstract getRepository(): Repository;
 
   protected getLogger(): Logger {
     return new DefaultLogger(getLogLevel(this.env));
   }
+
+  protected abstract getRepository(logger: Logger): Repository;
 
   putEvent(events: EventPayload[]) {
     return this.sink.putEvent(events);

@@ -6,6 +6,7 @@ import type {
 } from "drizzle-orm/postgres-js";
 import { type Result, err, fromAsyncThrowable } from "neverthrow";
 
+import type { Logger } from "../core/logger";
 import {
   type CreatedEvent,
   type Dispatch,
@@ -32,7 +33,10 @@ type Tx = PgTransaction<
 
 /** @internal */
 export class PgRepository implements Repository {
-  constructor(private db: Db | Tx) {}
+  constructor(
+    private db: Db | Tx,
+    private logger: Logger,
+  ) {}
 
   async enterTransactionalScope<T, E>(
     fn: (tx: Repository) => Promise<Result<T, E>>,
@@ -41,7 +45,7 @@ export class PgRepository implements Repository {
 
     try {
       await this.db.transaction(async (tx) => {
-        result = await fn(new PgRepository(tx));
+        result = await fn(new PgRepository(tx, this.logger));
         if (result.isOk()) return;
         tx.rollback();
       });
@@ -77,7 +81,7 @@ export class PgRepository implements Repository {
         );
       },
       (e) => {
-        console.error(e); // TODO:
+        this.logger.error("error on createEvents:", e);
         return "INTERNAL_SERVER_ERROR" as const;
       },
     )();
@@ -114,7 +118,7 @@ export class PgRepository implements Repository {
         );
       },
       (e) => {
-        console.error(e); // TODO:
+        this.logger.error("error on createDispatches:", e);
         return "INTERNAL_SERVER_ERROR" as const;
       },
     )();
@@ -146,7 +150,7 @@ export class PgRepository implements Repository {
         }
       },
       (e) => {
-        console.error(e); // TODO:
+        this.logger.error("error on saveDispatch:", e);
         return "INTERNAL_SERVER_ERROR" as const;
       },
     )();
@@ -203,7 +207,7 @@ export class PgRepository implements Repository {
         return { event, dispatch };
       },
       (e) => {
-        console.error(e); // TODO:
+        this.logger.error("error on getDispatch:", e);
         return "INTERNAL_SERVER_ERROR" as const;
       },
     )();
