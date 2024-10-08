@@ -2,6 +2,7 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 import * as v from "valibot";
 
 import { type EventHub, EventSink } from ".";
+import { DefaultLogger, type LogLevel, type Logger } from "../logger";
 import type { Repository } from "../repository";
 import type { EventPayload } from "../type";
 import { Config } from "./routing";
@@ -29,6 +30,9 @@ const getRouteConfig = (env: Record<string, unknown>) => {
   return v.parse(Config, JSON.parse(routing));
 };
 
+const getLogLevel = (env: Record<string, unknown>) =>
+  (env.EVNTHUB_LOG_LEVEL as LogLevel) || "INFO";
+
 export abstract class RpcEventHub<
     Env extends Record<string, unknown> = Record<string, unknown>,
   >
@@ -39,11 +43,16 @@ export abstract class RpcEventHub<
 
   constructor(ctx: ExecutionContext, env: Env) {
     super(ctx, env);
-    const repo = this.getRepository();
-    this.sink = new EventSink(repo, getQueue(env), getRouteConfig(env));
+    const logger = this.getLogger();
+    const repo = this.getRepository(logger);
+    this.sink = new EventSink(repo, getQueue(env), getRouteConfig(env), logger);
   }
 
-  protected abstract getRepository(): Repository;
+  protected getLogger(): Logger {
+    return new DefaultLogger(getLogLevel(this.env));
+  }
+
+  protected abstract getRepository(logger: Logger): Repository;
 
   putEvent(events: EventPayload[]) {
     return this.sink.putEvent(events);

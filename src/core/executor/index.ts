@@ -1,5 +1,6 @@
 import { fromAsyncThrowable, ok } from "neverthrow";
 
+import type { Logger } from "../logger";
 import { type DispatchExecution, appendExecutionLog } from "../model";
 import type { Repository } from "../repository";
 import type { QueueMessage } from "../type";
@@ -13,6 +14,7 @@ export class Dispatcher {
   constructor(
     private repo: Repository,
     private env: Record<string, unknown>,
+    private logger: Logger,
   ) {}
 
   private findDestinationHandler(d: string): Handler | null {
@@ -60,7 +62,7 @@ export class Dispatcher {
     return result.match(
       (result) => result,
       (e) => {
-        console.error(e); // FIXME:
+        this.logger.error("error on dispatch:", e);
         return "failed";
       },
     );
