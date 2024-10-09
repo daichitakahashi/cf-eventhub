@@ -4,6 +4,7 @@ import type { Logger } from "../logger";
 
 export type QueueMessage = {
   dispatchId: string;
+  delaySeconds?: number;
 };
 
 /** @internal */

@@ -43,7 +43,9 @@ export abstract class RpcExecutor<
         }
       })
       .catch(() => {
-        msg.retry();
+        msg.retry({
+          delaySeconds: msg.body.delaySeconds,
+        });
       });
   }
 

@@ -72,6 +72,7 @@ export class EventSink {
             (d): MessageSendRequest<QueueMessage> => ({
               body: {
                 dispatchId: d.id, // Dispatch id is created by Persistence.saveDispatches.
+                delaySeconds: d.delaySeconds || undefined,
               },
               contentType: "v8",
               delaySeconds: d.delaySeconds || undefined,
