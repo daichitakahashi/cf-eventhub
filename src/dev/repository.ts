@@ -17,7 +17,7 @@ import type { Repository } from "../core/repository";
 export class DevRepository implements Repository {
   private mu: Mutex;
   private events: Map<string, CreatedEvent>;
-  private dispatches: Map<string, Dispatch>;
+  private dispatches: Map<string, { index: number; dispatch: Dispatch }>;
 
   constructor(repo?: DevRepository) {
     this.mu = new Mutex();
@@ -86,7 +86,10 @@ export class DevRepository implements Repository {
         return ongoingDispatch(id, d);
       });
       for (const d of created) {
-        this.dispatches.set(d.id, d);
+        this.dispatches.set(d.id, {
+          index: this.dispatches.size,
+          dispatch: d,
+        });
       }
 
       return ok(created);
@@ -97,7 +100,8 @@ export class DevRepository implements Repository {
     dispatch: Dispatch,
   ): Promise<Result<void, "INTERNAL_SERVER_ERROR">> {
     return this.mu.runExclusive(async () => {
-      if (!this.dispatches.has(dispatch.id)) {
+      const v = this.dispatches.get(dispatch.id);
+      if (!v) {
         throw new Error("dispatch not found");
       }
 
@@ -113,7 +117,10 @@ export class DevRepository implements Repository {
         }
       });
 
-      this.dispatches.set(clone.id, clone);
+      this.dispatches.set(clone.id, {
+        index: v.index,
+        dispatch: clone,
+      });
       return ok((() => {})());
     });
   }
@@ -126,14 +133,65 @@ export class DevRepository implements Repository {
       "INTERNAL_SERVER_ERROR"
     >
   > {
-    const dispatch = this.dispatches.get(dispatchId);
-    if (!dispatch) {
+    const v = this.dispatches.get(dispatchId);
+    if (!v) {
       return ok(null);
     }
-    const event = this.events.get(dispatch.eventId);
+    const event = this.events.get(v.dispatch.eventId);
     if (!event) {
       throw new Error("event not found");
     }
-    return ok({ event, dispatch });
+    return ok({ event, dispatch: v.dispatch });
+  }
+
+  async listOngoingDispatches(
+    maxItems: number,
+    continuationToken?: string,
+  ): Promise<
+    Result<
+      { list: OngoingDispatch[]; continuationToken?: string },
+      "INTERNAL_SERVER_ERROR"
+    >
+  > {
+    const values = [...this.dispatches.values()];
+
+    let lastIndex = 0;
+    if (continuationToken) {
+      const last = this.dispatches.get(
+        decodeContinuationToken(continuationToken),
+      );
+      if (!last) {
+        return err("INTERNAL_SERVER_ERROR");
+      }
+      lastIndex = last.index;
+    }
+
+    const list = lastIndex ? values.slice(lastIndex + 1) : values;
+    const result: OngoingDispatch[] = [];
+    for (const { dispatch } of list) {
+      if (dispatch.status !== "ongoing") {
+        continue;
+      }
+      result.push(dispatch);
+      if (result.length > maxItems) {
+        break;
+      }
+    }
+
+    if (result.length > maxItems) {
+      return ok({
+        list: result.slice(0 - 1),
+        continuationToken: encodeContinuationToken(
+          result[result.length - 2].id,
+        ),
+      });
+    }
+    return ok({
+      list: result,
+    });
   }
 }
+
+const encodeContinuationToken = (id: string) => btoa(id);
+
+const decodeContinuationToken = (token: string) => atob(token);

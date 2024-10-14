@@ -30,7 +30,7 @@ const createEvent = (repo: Repository) =>
         ).safeUnwrap();
 
         const dispatchesCreatedAt = new Date();
-        const [createdDispatch] = yield* (
+        const created = yield* (
           await tx.createDispatches([
             {
               eventId: createdEvent.id,
@@ -48,6 +48,10 @@ const createEvent = (repo: Repository) =>
             },
           ])
         ).safeUnwrap();
+        const createdDispatch = created.find(
+          ({ destination }) => destination === "WORKER_1",
+        );
+        assert(createdDispatch !== undefined);
 
         return ok({ eventId: createdEvent.id, dispatchId: createdDispatch.id });
       }),
@@ -441,6 +445,7 @@ export const testRepositoryRollback = async (
         },
       ]);
       assert(result.isOk(), "createDispatches must be succeeded");
+      result.value.sort((d1, d2) => (d1.destination < d2.destination ? -1 : 1));
 
       expect(result.value).toMatchObject([
         {
