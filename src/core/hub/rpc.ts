@@ -57,4 +57,8 @@ export abstract class RpcEventHub<
   putEvent(events: EventPayload[]) {
     return this.sink.putEvent(events);
   }
+
+  scheduled(_ctrl: ScheduledController): Promise<void> {
+    return this.sink.markLostDispatches();
+  }
 }
