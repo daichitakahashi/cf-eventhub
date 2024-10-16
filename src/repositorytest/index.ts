@@ -30,7 +30,7 @@ const createEvent = (repo: Repository) =>
         ).safeUnwrap();
 
         const dispatchesCreatedAt = new Date();
-        const [createdDispatch] = yield* (
+        const created = yield* (
           await tx.createDispatches([
             {
               eventId: createdEvent.id,
@@ -48,6 +48,10 @@ const createEvent = (repo: Repository) =>
             },
           ])
         ).safeUnwrap();
+        const createdDispatch = created.find(
+          ({ destination }) => destination === "WORKER_1",
+        );
+        assert(createdDispatch !== undefined);
 
         return ok({ eventId: createdEvent.id, dispatchId: createdDispatch.id });
       }),
@@ -373,6 +377,229 @@ export const testRepositoryPersistsLostDispatch = async (repo: Repository) => {
   });
 };
 
+const nextDate = async () => {
+  await new Promise((resolve) => setTimeout(resolve, 1));
+  return new Date();
+};
+
+/** @internal */
+export const testRepositoryListOngoingDispatches = async (repo: Repository) => {
+  // Create dispatches.
+  const result = await repo.createEvents([
+    {
+      payload: {},
+      createdAt: new Date(),
+    },
+  ]);
+  assert(result.isOk());
+  const { id: eventId } = result.value[0];
+
+  const dispatchIds: string[] = [];
+  for (let i = 0; i < 20; i++) {
+    const createResult = await repo.createDispatches([
+      {
+        eventId,
+        destination: `dest_${i}`,
+        createdAt: await nextDate(),
+        delaySeconds: null,
+        maxRetries: 1,
+      },
+    ]);
+    assert(createResult.isOk());
+    const created = createResult.value[0];
+
+    const next = appendExecutionLog(created, {
+      result: i % 2 === 0 ? "failed" : "complete",
+      executedAt: await nextDate(),
+    });
+    const saveResult = await repo.saveDispatch(next);
+    assert(saveResult.isOk());
+
+    dispatchIds.push(next.id);
+  }
+
+  // List first 3 dispatches.
+  const firstResult = await repo.listOngoingDispatches(3);
+  assert(firstResult.isOk());
+  expect(firstResult.value).toMatchObject({
+    list: [
+      {
+        id: dispatchIds[0],
+        status: "ongoing",
+        destination: "dest_0",
+        delaySeconds: null,
+        maxRetries: 1,
+        createdAt: expect.any(Date),
+        executionLog: [
+          {
+            result: "failed",
+            executedAt: expect.any(Date),
+          },
+        ],
+      },
+      {
+        id: dispatchIds[2],
+        status: "ongoing",
+        destination: "dest_2",
+        delaySeconds: null,
+        maxRetries: 1,
+        createdAt: expect.any(Date),
+        executionLog: [
+          {
+            result: "failed",
+            executedAt: expect.any(Date),
+          },
+        ],
+      },
+      {
+        id: dispatchIds[4],
+        status: "ongoing",
+        destination: "dest_4",
+        delaySeconds: null,
+        maxRetries: 1,
+        createdAt: expect.any(Date),
+        executionLog: [
+          {
+            result: "failed",
+            executedAt: expect.any(Date),
+          },
+        ],
+      },
+    ],
+    continuationToken: expect.any(String),
+  });
+
+  const secondResult = await repo.listOngoingDispatches(
+    3,
+    firstResult.value.continuationToken,
+  );
+  assert(secondResult.isOk());
+  expect(secondResult.value).toMatchObject({
+    list: [
+      {
+        id: dispatchIds[6],
+        status: "ongoing",
+        destination: "dest_6",
+        delaySeconds: null,
+        maxRetries: 1,
+        createdAt: expect.any(Date),
+        executionLog: [
+          {
+            result: "failed",
+            executedAt: expect.any(Date),
+          },
+        ],
+      },
+      {
+        id: dispatchIds[8],
+        status: "ongoing",
+        destination: "dest_8",
+        delaySeconds: null,
+        maxRetries: 1,
+        createdAt: expect.any(Date),
+        executionLog: [
+          {
+            result: "failed",
+            executedAt: expect.any(Date),
+          },
+        ],
+      },
+      {
+        id: dispatchIds[10],
+        status: "ongoing",
+        destination: "dest_10",
+        delaySeconds: null,
+        maxRetries: 1,
+        createdAt: expect.any(Date),
+        executionLog: [
+          {
+            result: "failed",
+            executedAt: expect.any(Date),
+          },
+        ],
+      },
+    ],
+    continuationToken: expect.any(String),
+  });
+
+  const thirdResult = await repo.listOngoingDispatches(
+    3,
+    secondResult.value.continuationToken,
+  );
+  assert(thirdResult.isOk());
+  expect(thirdResult.value).toMatchObject({
+    list: [
+      {
+        id: dispatchIds[12],
+        status: "ongoing",
+        destination: "dest_12",
+        delaySeconds: null,
+        maxRetries: 1,
+        createdAt: expect.any(Date),
+        executionLog: [
+          {
+            result: "failed",
+            executedAt: expect.any(Date),
+          },
+        ],
+      },
+      {
+        id: dispatchIds[14],
+        status: "ongoing",
+        destination: "dest_14",
+        delaySeconds: null,
+        maxRetries: 1,
+        createdAt: expect.any(Date),
+        executionLog: [
+          {
+            result: "failed",
+            executedAt: expect.any(Date),
+          },
+        ],
+      },
+      {
+        id: dispatchIds[16],
+        status: "ongoing",
+        destination: "dest_16",
+        delaySeconds: null,
+        maxRetries: 1,
+        createdAt: expect.any(Date),
+        executionLog: [
+          {
+            result: "failed",
+            executedAt: expect.any(Date),
+          },
+        ],
+      },
+    ],
+    continuationToken: expect.any(String),
+  });
+
+  const fourthResult = await repo.listOngoingDispatches(
+    3,
+    thirdResult.value.continuationToken,
+  );
+  assert(fourthResult.isOk());
+  expect(fourthResult.value).toMatchObject({
+    list: [
+      {
+        id: dispatchIds[18],
+        status: "ongoing",
+        destination: "dest_18",
+        delaySeconds: null,
+        maxRetries: 1,
+        executionLog: [
+          {
+            result: "failed",
+            executedAt: expect.any(Date),
+          },
+        ],
+      },
+    ],
+    continuationToken: undefined,
+  });
+};
+
 /** @internal */
 export const testRepositoryRollback = async (
   repo: Repository,
@@ -441,6 +668,7 @@ export const testRepositoryRollback = async (
         },
       ]);
       assert(result.isOk(), "createDispatches must be succeeded");
+      result.value.sort((d1, d2) => (d1.destination < d2.destination ? -1 : 1));
 
       expect(result.value).toMatchObject([
         {

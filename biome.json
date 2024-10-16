@@ -40,7 +40,8 @@
       "MessageSendRequest",
       "Message",
       "MessageBatch",
-      "ExecutionContext"
+      "ExecutionContext",
+      "ScheduledController"
     ]
   }
 }

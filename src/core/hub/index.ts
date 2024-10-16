@@ -1,7 +1,7 @@
-import { ok, safeTry } from "neverthrow";
+import { err, ok, safeTry } from "neverthrow";
 
 import type { Logger } from "../logger";
-import type { NewDispatch, NewEvent } from "../model";
+import { type NewDispatch, type NewEvent, makeDispatchLost } from "../model";
 import type { Repository } from "../repository";
 import type { EventPayload } from "../type";
 import { type QueueMessage, enqueue } from "./queue";
@@ -86,6 +86,35 @@ export class EventSink {
       }),
     );
 
+    if (result.isErr()) {
+      return Promise.reject(result.error);
+    }
+  }
+
+  async markLostDispatches(): Promise<void> {
+    const repo = this.repo;
+    const result = await repo.enterTransactionalScope(async (tx) =>
+      safeTry(async function* () {
+        let continuationToken: string | undefined;
+        do {
+          const listResult = yield* (
+            await tx.listOngoingDispatches(30, continuationToken)
+          ).safeUnwrap();
+
+          const lostDispatches = listResult.list.filter(
+            (d) => d.executionLog.length > d.maxRetries,
+          );
+
+          for (const d of lostDispatches) {
+            const resulted = makeDispatchLost(d, new Date());
+            yield* (await repo.saveDispatch(resulted)).safeUnwrap();
+          }
+
+          continuationToken = listResult.continuationToken;
+        } while (continuationToken === undefined);
+        return ok((() => {})());
+      }),
+    );
     if (result.isErr()) {
       return Promise.reject(result.error);
     }

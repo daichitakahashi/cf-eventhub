@@ -25,25 +25,27 @@ export const outputLogLevel =
   };
 
 export class DefaultLogger implements Logger {
+  private outputLogLevel: (targetLogLevel: LogLevel) => boolean;
+
   /**
    * @param level Lowest log level to out.
    */
-  constructor(private level: LogLevel) {}
-  private get outputLogLevel() {
-    return logLevels[this.level];
+  constructor(level: LogLevel) {
+    this.outputLogLevel = outputLogLevel(level);
   }
+
   debug(...data: unknown[]) {
-    if (this.outputLogLevel <= logLevels.DEBUG) {
+    if (this.outputLogLevel("DEBUG")) {
       console.log("[DEBUG]:", ...data);
     }
   }
   info(...data: unknown[]) {
-    if (logLevels.INFO <= this.outputLogLevel) {
+    if (this.outputLogLevel("INFO")) {
       console.log("[INFO]:", ...data);
     }
   }
   error(...data: unknown[]) {
-    if (logLevels.ERROR <= this.outputLogLevel) {
+    if (this.outputLogLevel("ERROR")) {
       console.error("[ERROR]", ...data);
     }
   }
