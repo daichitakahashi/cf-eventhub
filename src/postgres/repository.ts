@@ -1,16 +1,13 @@
 import {
   type ExtractTablesWithRelations,
-  type InferModelFromColumns,
-  type SQL,
   Table,
   aliasedTable,
   and,
   eq,
-  isNotNull,
   isNull,
   sql,
 } from "drizzle-orm";
-import type { PgColumn, PgTransaction } from "drizzle-orm/pg-core";
+import type { PgTransaction } from "drizzle-orm/pg-core";
 import type {
   PostgresJsDatabase,
   PostgresJsQueryResultHKT,
@@ -298,11 +295,6 @@ export class PgRepository implements Repository {
           db
             .select({
               id: d.id,
-              eventId: d.eventId,
-              destination: d.destination,
-              delaySeconds: d.delaySeconds,
-              maxRetries: d.maxRetries,
-              createdAt: d.createdAt,
             })
             .from(d)
             .leftJoin(
@@ -312,7 +304,7 @@ export class PgRepository implements Repository {
             .where(
               and(
                 token
-                  ? sql`(${d.createdAt}, ${d.id}) > (${token.createdAt}, ${token.id})`
+                  ? sql`(${d.createdAt}, ${d.id}) > (${token.createdAt.toISOString()}, ${token.id})`
                   : undefined,
                 isNull(schema.dispatchResults.dispatchId),
               ),
@@ -324,47 +316,52 @@ export class PgRepository implements Repository {
 
         // Aggregate executions.
         const aliasedExecutions = aliasedTable(schema.dispatchExecutions, "ex");
-        const executions = db
-          .with(dispatches)
-          .select({
-            dispatchId: aliasedExecutions.dispatchId,
-            data: sql<
-              | {
-                  id: string;
-                  result:
-                    | "complete"
-                    | "ignored"
-                    | "failed"
-                    | "misconfigured"
-                    | "notfound";
-                  executedAt: string;
-                }[]
-              | null
-            >`jsonb_agg(row_to_json("ex") order by "ex"."executed_at")`.as(
-              "data",
-            ),
-          })
-          .from(aliasedExecutions)
-          .where(eq(aliasedExecutions.dispatchId, dispatches.id))
-          .groupBy(aliasedExecutions.dispatchId)
-          .as("executions");
+        const executions = db.$with("executions").as(
+          db
+            .with(dispatches)
+            .select({
+              dispatchId: aliasedExecutions.dispatchId,
+              data: sql<
+                | {
+                    id: string;
+                    result:
+                      | "complete"
+                      | "ignored"
+                      | "failed"
+                      | "misconfigured"
+                      | "notfound";
+                    executed_at: string;
+                  }[]
+                | null
+              >`jsonb_agg(row_to_json("ex") order by "ex"."executed_at")`.as(
+                "data",
+              ),
+            })
+            .from(aliasedExecutions)
+            //.where(eq(aliasedExecutions.dispatchId, dispatches.id))
+            .innerJoin(
+              dispatches,
+              eq(aliasedExecutions.dispatchId, dispatches.id),
+            )
+            .groupBy(aliasedExecutions.dispatchId),
+        );
 
         const rows = await db
-          .with(dispatches)
+          .with(executions)
           .select({
             dispatch: {
-              id: dispatches.id,
-              eventId: dispatches.eventId,
-              destination: dispatches.destination,
-              delaySeconds: dispatches.delaySeconds,
-              maxRetries: dispatches.maxRetries,
-              createdAt: dispatches.createdAt,
+              id: d.id,
+              eventId: d.eventId,
+              destination: d.destination,
+              delaySeconds: d.delaySeconds,
+              maxRetries: d.maxRetries,
+              createdAt: d.createdAt,
             },
             executions: executions.data,
           })
-          .from(dispatches)
-          .leftJoin(executions, eq(dispatches.id, executions.dispatchId))
-          .orderBy(schema.dispatches.createdAt, schema.dispatches.id);
+          .from(d)
+          .innerJoin(executions, eq(d.id, executions.dispatchId))
+          .orderBy(d.createdAt, d.id);
 
         const hasNextPage = rows.length > maxItems;
         const list = (hasNextPage ? rows.slice(0, -1) : rows).flatMap((row) => {
@@ -380,7 +377,7 @@ export class PgRepository implements Repository {
               if (dispatch.status === "ongoing") {
                 dispatch = appendExecutionLog(
                   dispatch,
-                  dispatchExecution(e.id, e.result, new Date(e.executedAt)),
+                  dispatchExecution(e.id, e.result, new Date(e.executed_at)),
                 );
               }
             }

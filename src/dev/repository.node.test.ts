@@ -1,6 +1,7 @@
 import { beforeAll, describe, test } from "vitest";
 
 import {
+  testRepositoryListOngoingDispatches,
   testRepositoryPersistsCompleteDispatch,
   testRepositoryPersistsFailedDispatch,
   testRepositoryPersistsIgnoredDispatch,
@@ -41,5 +42,11 @@ describe("repositorytest", () => {
 
   test("Rollback by exception", async () => {
     await testRepositoryRollback(repo, "THROW");
+  });
+});
+
+describe("repositorytest.testRepositoryListOngoingDispatches", () => {
+  test("List ongoing dispatches", async () => {
+    await testRepositoryListOngoingDispatches(new DevRepository());
   });
 });

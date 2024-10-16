@@ -180,7 +180,7 @@ export class DevRepository implements Repository {
 
     if (result.length > maxItems) {
       return ok({
-        list: result.slice(0 - 1),
+        list: result.slice(0, -1),
         continuationToken: encodeContinuationToken(
           result[result.length - 2].id,
         ),
@@ -188,6 +188,7 @@ export class DevRepository implements Repository {
     }
     return ok({
       list: result,
+      continuationToken: undefined,
     });
   }
 }
