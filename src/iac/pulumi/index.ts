@@ -1,4 +1,4 @@
-import { Queue } from "@pulumi/cloudflare";
+import { Queue, WorkersCronTrigger } from "@pulumi/cloudflare";
 import { type Input, jsonStringify } from "@pulumi/pulumi";
 
 import type { Config, Route } from "../../core/hub/routing";
@@ -87,6 +87,10 @@ export type EventHubArgs<W extends WorkerScript> = Omit<Config, "routes"> & {
    * Routing configuration of event handling.
    */
   routes: HandlerRoute<W>[];
+  /**
+   * Cron expressions to mark dispatches lost.
+   */
+  markDispatchesLostSchedules: Input<Input<string>[]>;
 };
 
 export type CreateEventHubWorkerScriptArgs = {
@@ -153,6 +157,7 @@ export abstract class EventHub<
   queue: Queue;
   queueConsumer: _QueueConsumer | undefined;
   eventHub: _WorkerScript;
+  cronTrigger: WorkersCronTrigger;
   executor: _WorkerScript;
   handlers: Record<string, _WorkerScript>;
 
@@ -219,9 +224,16 @@ export abstract class EventHub<
       defaultMaxRetries: args.defaultMaxRetries,
     });
 
+    const cronTrigger = new WorkersCronTrigger(`${name}:cronTrigger`, {
+      accountId: args.accountId,
+      schedules: args.markDispatchesLostSchedules,
+      scriptName: eventHub.name,
+    });
+
     this.queue = queue;
     this.queueConsumer = consumer;
     this.eventHub = eventHub;
+    this.cronTrigger = cronTrigger;
     this.executor = executor;
     this.handlers = handlers;
   }
