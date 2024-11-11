@@ -1,4 +1,4 @@
-import { err, ok, safeTry } from "neverthrow";
+import { ok, safeTry } from "neverthrow";
 
 import type { Logger } from "../logger";
 import { type NewDispatch, type NewEvent, makeDispatchLost } from "../model";
@@ -101,9 +101,15 @@ export class EventSink {
             await tx.listOngoingDispatches(30, continuationToken)
           ).safeUnwrap();
 
-          const lostDispatches = listResult.list.filter(
-            (d) => d.executionLog.length > d.maxRetries,
-          );
+          const lostDispatches = listResult.list.filter((d) => {
+            const lastExecution =
+              d.executionLog.length > 0
+                ? d.executionLog[d.executionLog.length - 1].executedAt
+                : d.createdAt;
+            const elapsed = Date.now() - lastExecution.getTime();
+
+            return elapsed > ((d.delaySeconds || 1) + 60 * 15) * 1000; // 15min elapsed from last execution or its creation.
+          });
 
           for (const d of lostDispatches) {
             const resulted = makeDispatchLost(d, new Date());
