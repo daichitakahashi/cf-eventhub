@@ -3,6 +3,7 @@ import * as v from "valibot";
 
 import { type EventHub, EventSink } from ".";
 import { DefaultLogger, type LogLevel, type Logger } from "../logger";
+import type { Dispatch } from "../model";
 import type { Repository } from "../repository";
 import type { EventPayload } from "../type";
 import { Config } from "./routing";
@@ -54,8 +55,28 @@ export abstract class RpcEventHub<
 
   protected abstract getRepository(logger: Logger): Repository;
 
-  putEvent(events: EventPayload[]) {
+  /**
+   * Put events.
+   * Events are persisted and dispatched to destinations.
+   * @param events Events to be put.
+   */
+  async putEvent(events: EventPayload[]) {
     return this.sink.putEvent(events);
+  }
+
+  /**
+   * List dispatches.
+   * @param args.maxItems Maximum number of dispatches to list. Default is 10.
+   * @param args.continuationToken Continuation token for pagination.
+   * @param args.filterByStatus Filter dispatches by status.
+   * @returns List of dispatches and continuation token.
+   */
+  async listDispatches(args?: {
+    maxItems?: number;
+    continuationToken?: string;
+    filterByStatus?: (Dispatch["status"])[]
+  }): Promise<{list: Dispatch[], continuationToken?: string}> {
+    throw new Error("Not implemented");
   }
 
   scheduled(_ctrl: ScheduledController): Promise<void> {
