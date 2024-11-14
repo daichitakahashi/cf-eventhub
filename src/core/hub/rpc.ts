@@ -3,7 +3,7 @@ import * as v from "valibot";
 
 import { type EventHub, EventSink } from ".";
 import { DefaultLogger, type LogLevel, type Logger } from "../logger";
-import type { Dispatch, Event } from "../model";
+import type { Dispatch, Event, ResultedDispatch } from "../model";
 import type { Repository } from "../repository";
 import type { EventPayload } from "../type";
 import { Config } from "./routing";
@@ -125,17 +125,32 @@ export abstract class RpcEventHub<Env extends RpcEnv = RpcEnv>
 
   /**
    * Mark non-resulted dispatches which are meet condition.
-   * @param condition.elapsedSeconds Elapsed seconds from last execution time or creation time to mark as lost. Default is 15min(900).
+   * @param args.maxItems Maximum number of dispatches to mark as lost. Default is 20.
+   * @param args.elapsedSeconds Elapsed seconds from last execution time or creation time to mark as lost. Default is 15min(900).
+   * @param args.continuationToken Continuation token for pagination.
+   * @returns List of dispatches and continuation token.
+   *  Even if list is empty, continuation token may be returned (there are ongoing dispatches not scanned).
    */
-  async markLostDispatches(condition?: {
+  async markLostDispatches(args?: {
+    maxItems?: number;
     elapsedSeconds?: number;
-  }): Promise<void> {
-    return this.sink.markLostDispatches(condition);
+    continuationToken?: string;
+  }): Promise<{ list: ResultedDispatch[]; continuationToken?: string }> {
+    return this.sink.markLostDispatches(args);
   }
 
-  scheduled(_ctrl: ScheduledController): Promise<void> {
-    return this.sink.markLostDispatches({
-      elapsedSeconds: this.lostDetectionElapsedSeconds,
-    });
+  /**
+   * Reference implementation of scheduled handler.
+   */
+  async scheduled(_ctrl: ScheduledController): Promise<void> {
+    let continuationToken: string | undefined;
+    do {
+      const result = await this.markLostDispatches({
+        maxItems: 20,
+        elapsedSeconds: this.lostDetectionElapsedSeconds,
+        continuationToken,
+      });
+      continuationToken = result.continuationToken;
+    } while (continuationToken);
   }
 }
