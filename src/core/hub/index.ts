@@ -179,8 +179,14 @@ export class EventSink {
     }
   }
 
-  async markLostDispatches(): Promise<void> {
+  async markLostDispatches(condition?: {
+    elapsedSeconds?: number;
+  }): Promise<void> {
     const repo = this.repo;
+    const elapsedSeconds = condition?.elapsedSeconds || 60 * 15; // Default value (15 min) is derived from duration limit of Queue Consumers.
+
+    // TODO: separate transaction
+
     const result = await repo.enterTransactionalScope(async (tx) =>
       safeTry(async function* () {
         let continuationToken: string | undefined;
@@ -190,13 +196,13 @@ export class EventSink {
           ).safeUnwrap();
 
           const lostDispatches = listResult.list.filter((d) => {
-            const lastExecution =
+            const lastTime =
               d.executionLog.length > 0
                 ? d.executionLog[d.executionLog.length - 1].executedAt
                 : d.createdAt;
-            const elapsed = Date.now() - lastExecution.getTime();
+            const elapsed = Date.now() - lastTime.getTime();
 
-            return elapsed > ((d.delaySeconds || 1) + 60 * 15) * 1000; // 15min elapsed from last execution or its creation.
+            return elapsed > ((d.delaySeconds || 0) + elapsedSeconds) * 1000; // elapsed from last execution or its creation.
           });
 
           for (const d of lostDispatches) {

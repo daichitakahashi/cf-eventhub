@@ -8,7 +8,14 @@ import type { Repository } from "../repository";
 import type { EventPayload } from "../type";
 import { Config } from "./routing";
 
-const getQueue = (env: Record<string, unknown>) => {
+type RpcEnv = Record<string, unknown> & {
+  EVENTHUB_QUEUE: Queue;
+  EVENTHUB_ROUTING: string;
+  EVENTHUB_LOG_LEVEL?: string;
+  EVENTHUB_LOST_DETECTION_ELAPSED_SECONDS?: string;
+};
+
+const getQueue = (env: RpcEnv) => {
   const queue = env.EVENTHUB_QUEUE;
   if (!queue) {
     throw new Error("cf-eventhub: EVENTHUB_QUEUE not set");
@@ -19,7 +26,7 @@ const getQueue = (env: Record<string, unknown>) => {
   return queue as Queue;
 };
 
-const getRouteConfig = (env: Record<string, unknown>) => {
+const getRouteConfig = (env: RpcEnv) => {
   const routing = env.EVENTHUB_ROUTING;
   if (!routing) {
     throw new Error("cf-eventhub: EVENTHUB_ROUTING not set");
@@ -31,22 +38,37 @@ const getRouteConfig = (env: Record<string, unknown>) => {
   return v.parse(Config, JSON.parse(routing));
 };
 
-const getLogLevel = (env: Record<string, unknown>) =>
+const getLostDetectionElapsedSeconds = (env: RpcEnv) => {
+  if (!env.EVENTHUB_LOST_DETECTION_ELAPSED_SECONDS) {
+    return undefined;
+  }
+  const elapsedSeconds = Number.parseInt(
+    env.EVENTHUB_LOST_DETECTION_ELAPSED_SECONDS,
+  );
+  if (!Number.isSafeInteger(elapsedSeconds)) {
+    throw new Error(
+      "cf-eventhub: EVENTHUB_LOST_DETECTION_ELAPSED_SECONDS is not a safe integer",
+    );
+  }
+  return elapsedSeconds;
+};
+
+const getLogLevel = (env: RpcEnv) =>
   (env.EVNTHUB_LOG_LEVEL as LogLevel) || "INFO";
 
-export abstract class RpcEventHub<
-    Env extends Record<string, unknown> = Record<string, unknown>,
-  >
+export abstract class RpcEventHub<Env extends RpcEnv = RpcEnv>
   extends WorkerEntrypoint<Env>
   implements EventHub
 {
   private sink: EventSink;
+  private lostDetectionElapsedSeconds: number | undefined;
 
   constructor(ctx: ExecutionContext, env: Env) {
     super(ctx, env);
     const logger = this.getLogger();
     const repo = this.getRepository(logger);
     this.sink = new EventSink(repo, getQueue(env), getRouteConfig(env), logger);
+    this.lostDetectionElapsedSeconds = getLostDetectionElapsedSeconds(env);
   }
 
   protected getLogger(): Logger {
@@ -101,7 +123,19 @@ export abstract class RpcEventHub<
     return this.sink.retryDispatch(args);
   }
 
+  /**
+   * Mark non-resulted dispatches which are meet condition.
+   * @param condition.elapsedSeconds Elapsed seconds from last execution time or creation time to mark as lost. Default is 15min(900).
+   */
+  async markLostDispatches(condition?: {
+    elapsedSeconds?: number;
+  }): Promise<void> {
+    return this.sink.markLostDispatches(condition);
+  }
+
   scheduled(_ctrl: ScheduledController): Promise<void> {
-    return this.sink.markLostDispatches();
+    return this.sink.markLostDispatches({
+      elapsedSeconds: this.lostDetectionElapsedSeconds,
+    });
   }
 }
