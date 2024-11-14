@@ -4,9 +4,8 @@ import {
   aliasedTable,
   and,
   eq,
-  inArray,
-  isNotNull,
   isNull,
+  or,
   sql,
 } from "drizzle-orm";
 import type { PgTransaction } from "drizzle-orm/pg-core";
@@ -25,10 +24,10 @@ import type { Logger } from "../core/logger";
 import {
   type CreatedEvent,
   type Dispatch,
+  type Event,
   type NewDispatch,
   type NewEvent,
   type OngoingDispatch,
-  type ResultedDispatch,
   appendExecutionLog,
   createdEvent,
   dispatchExecution,
@@ -269,6 +268,185 @@ export class PgRepository implements Repository {
     )();
   }
 
+  async getEvent(
+    eventId: string,
+  ): Promise<Result<Event | null, "INTERNAL_SERVER_ERROR">> {
+    const db = this.db;
+    const logger = this.logger;
+    return fromAsyncThrowable(
+      async () => {
+        const rows = await db
+          .select()
+          .from(schema.events)
+          .where(eq(schema.events.id, eventId))
+          .limit(1);
+
+        const row = rows.at(0);
+        if (!row) {
+          return null;
+        }
+
+        return createdEvent(row.id, {
+          payload: row.payload,
+          createdAt: row.createdAt,
+        });
+      },
+      (e) => {
+        logger.error("getEvent:", e);
+        return "INTERNAL_SERVER_ERROR" as const;
+      },
+    )();
+  }
+
+  async listDispatches(
+    maxItems: number,
+    continuationToken?: string,
+    filterByStatus?: Dispatch["status"][],
+  ): Promise<
+    Result<
+      { list: Dispatch[]; continuationToken?: string },
+      "INTERNAL_SERVER_ERROR" | "INVALID_CONTINUATION_TOKEN"
+    >
+  > {
+    const db = this.db;
+    const logger = this.logger;
+
+    let token: { id: string; createdAt: Date } | undefined;
+    if (continuationToken) {
+      const result = decodeContinuationToken(continuationToken);
+      if (result.isErr()) {
+        return err(result.error);
+      }
+      token = result.value;
+    }
+
+    const statuses = filterByStatus ? [...new Set(filterByStatus)] : undefined;
+
+    return fromAsyncThrowable(
+      async () => {
+        // Lock non-resulted rows for update.
+        const d = aliasedTable(schema.dispatches, "d");
+        const dispatches = db.$with("dispatches").as(
+          db
+            .select({
+              id: d.id,
+            })
+            .from(d)
+            .leftJoin(
+              schema.dispatchResults,
+              eq(d.id, schema.dispatchResults.dispatchId),
+            )
+            .where(
+              and(
+                token
+                  ? sql`(${d.createdAt}, ${d.id}) > (${token.createdAt.toISOString()}, ${token.id})`
+                  : undefined,
+                statuses
+                  ? or(
+                      ...statuses.map((status) =>
+                        status === "ongoing"
+                          ? isNull(schema.dispatchResults.dispatchId)
+                          : eq(schema.dispatchResults.result, status),
+                      ),
+                    )
+                  : undefined,
+              ),
+            )
+            .orderBy(d.createdAt, d.id)
+            .limit(maxItems + 1) // check next item exists
+            .for("update", { of: new Table("d", undefined, "") }), // Workaround: "FOR UPDATE OF" requires unqualified table reference.
+        );
+
+        // Aggregate executions.
+        const aliasedExecutions = aliasedTable(schema.dispatchExecutions, "ex");
+        const executions = db.$with("executions").as(
+          db
+            .with(dispatches)
+            .select({
+              dispatchId: aliasedExecutions.dispatchId,
+              data: sql<
+                | {
+                    id: string;
+                    result:
+                      | "complete"
+                      | "ignored"
+                      | "failed"
+                      | "misconfigured"
+                      | "notfound";
+                    executed_at: string;
+                  }[]
+                | null
+              >`jsonb_agg(row_to_json("ex") order by "ex"."executed_at")`.as(
+                "data",
+              ),
+            })
+            .from(aliasedExecutions)
+            //.where(eq(aliasedExecutions.dispatchId, dispatches.id))
+            .innerJoin(
+              dispatches,
+              eq(aliasedExecutions.dispatchId, dispatches.id),
+            )
+            .groupBy(aliasedExecutions.dispatchId),
+        );
+
+        const rows = await db
+          .with(executions)
+          .select({
+            dispatch: {
+              id: d.id,
+              eventId: d.eventId,
+              destination: d.destination,
+              delaySeconds: d.delaySeconds,
+              maxRetries: d.maxRetries,
+              createdAt: d.createdAt,
+            },
+            executions: executions.data,
+          })
+          .from(d)
+          .innerJoin(executions, eq(d.id, executions.dispatchId))
+          .orderBy(d.createdAt, d.id);
+
+        const hasNextPage = rows.length > maxItems;
+        const list = (hasNextPage ? rows.slice(0, -1) : rows).flatMap((row) => {
+          let dispatch: Dispatch = ongoingDispatch(row.dispatch.id, {
+            eventId: row.dispatch.eventId,
+            destination: row.dispatch.destination,
+            createdAt: row.dispatch.createdAt,
+            delaySeconds: row.dispatch.delaySeconds,
+            maxRetries: row.dispatch.maxRetries,
+          });
+          if (row.executions !== null) {
+            for (const e of row.executions) {
+              if (dispatch.status === "ongoing") {
+                dispatch = appendExecutionLog(
+                  dispatch,
+                  dispatchExecution(e.id, e.result, new Date(e.executed_at)),
+                );
+              }
+            }
+          }
+
+          return dispatch.status === "ongoing" ? [dispatch] : [];
+        });
+        const last = hasNextPage ? list[list.length - 1] : undefined;
+
+        return {
+          list,
+          continuationToken: last
+            ? encodeContinuationToken({
+                id: last.id,
+                createdAt: last.createdAt,
+              })
+            : undefined,
+        };
+      },
+      (e) => {
+        logger.error("listOngoingDispatches:", e);
+        return "INTERNAL_SERVER_ERROR" as const;
+      },
+    )();
+  }
+
   async listOngoingDispatches(
     maxItems: number,
     continuationToken?: string,
@@ -402,158 +580,6 @@ export class PgRepository implements Repository {
       },
       (e) => {
         logger.error("listOngoingDispatches:", e);
-        return "INTERNAL_SERVER_ERROR" as const;
-      },
-    )();
-  }
-
-  async listResultedDispatches(
-    maxItems: number,
-    continuationToken?: string,
-    filterByStatus?: ResultedDispatch["status"][],
-  ): Promise<
-    Result<
-      { list: ResultedDispatch[]; continuationToken?: string },
-      "INTERNAL_SERVER_ERROR" | "INVALID_CONTINUATION_TOKEN"
-    >
-  > {
-    const db = this.db;
-    const logger = this.logger;
-
-    let token: { id: string; createdAt: Date } | undefined;
-    if (continuationToken) {
-      const result = decodeContinuationToken(continuationToken);
-      if (result.isErr()) {
-        return err(result.error);
-      }
-      token = result.value;
-    }
-
-    return fromAsyncThrowable(
-      async () => {
-        const dispatches = db.$with("dispatches").as(
-          db
-            .select({
-              id: schema.dispatches.id,
-              eventId: schema.dispatches.eventId,
-              destination: schema.dispatches.destination,
-              createdAt: schema.dispatches.createdAt,
-              delaySeconds: schema.dispatches.delaySeconds,
-              maxRetries: schema.dispatches.maxRetries,
-              result: schema.dispatchResults.result,
-              resultedAt: schema.dispatchResults.resultedAt,
-            })
-            .from(schema.dispatches)
-            .innerJoin(
-              schema.dispatchResults,
-              eq(schema.dispatches.id, schema.dispatchResults.dispatchId),
-            )
-            .where(
-              and(
-                token
-                  ? sql`(${schema.dispatches.createdAt}, ${schema.dispatches.id}) > (${token.createdAt.toISOString()}, ${token.id})`
-                  : undefined,
-                isNotNull(schema.dispatchResults.result),
-                filterByStatus
-                  ? inArray(schema.dispatchResults.result, filterByStatus)
-                  : undefined,
-              ),
-            )
-            .orderBy(schema.dispatches.createdAt, schema.dispatches.id)
-            .limit(maxItems + 1), // check next item exists
-        );
-
-        // Aggregate executions.
-        const aliasedExecutions = aliasedTable(schema.dispatchExecutions, "ex");
-        const executions = db.$with("executions").as(
-          db
-            .with(dispatches)
-            .select({
-              dispatchId: aliasedExecutions.dispatchId,
-              data: sql<
-                | {
-                    id: string;
-                    result:
-                      | "complete"
-                      | "ignored"
-                      | "failed"
-                      | "misconfigured"
-                      | "notfound";
-                    executed_at: string;
-                  }[]
-                | null
-              >`jsonb_agg(row_to_json("ex") order by "ex"."executed_at")`.as(
-                "data",
-              ),
-            })
-            .from(aliasedExecutions)
-            .where(eq(aliasedExecutions.dispatchId, dispatches.id))
-            .innerJoin(
-              dispatches,
-              eq(aliasedExecutions.dispatchId, dispatches.id),
-            )
-            .groupBy(aliasedExecutions.dispatchId),
-        );
-
-        const rows = await db
-          .with(executions)
-          .select({
-            dispatch: {
-              id: dispatches.id,
-              eventId: dispatches.eventId,
-              destination: dispatches.destination,
-              delaySeconds: dispatches.delaySeconds,
-              maxRetries: dispatches.maxRetries,
-              createdAt: dispatches.createdAt,
-              result: dispatches.result,
-              resultedAt: dispatches.resultedAt,
-            },
-            executions: executions.data,
-          })
-          .from(dispatches)
-          .innerJoin(executions, eq(dispatches.id, executions.dispatchId))
-          .orderBy(dispatches.createdAt, dispatches.id);
-
-        const hasNextPage = rows.length > maxItems;
-        const list = (hasNextPage ? rows.slice(0, -1) : rows).flatMap((row) => {
-          let dispatch: Dispatch = ongoingDispatch(row.dispatch.id, {
-            eventId: row.dispatch.eventId,
-            destination: row.dispatch.destination,
-            createdAt: row.dispatch.createdAt,
-            delaySeconds: row.dispatch.delaySeconds,
-            maxRetries: row.dispatch.maxRetries,
-          });
-
-          if (row.executions !== null) {
-            for (const e of row.executions) {
-              if (dispatch.status === "ongoing") {
-                dispatch = appendExecutionLog(
-                  dispatch,
-                  dispatchExecution(e.id, e.result, new Date(e.executed_at)),
-                );
-              }
-            }
-          }
-          if (dispatch.status === "ongoing" && row.dispatch.result === "lost") {
-            dispatch = makeDispatchLost(dispatch, row.dispatch.resultedAt);
-          }
-
-          return dispatch.status !== "ongoing" ? [dispatch] : [];
-        });
-        const last = hasNextPage ? list[list.length - 1] : undefined;
-
-        return {
-          list,
-          continuationToken: last
-            ? encodeContinuationToken({
-                id: last.id,
-                createdAt: last.createdAt,
-              })
-            : undefined,
-        };
-      },
-      (e) => {
-        logger.error("listResultedDispatches:", e);
         return "INTERNAL_SERVER_ERROR" as const;
       },
     )();

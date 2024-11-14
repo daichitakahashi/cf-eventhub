@@ -224,13 +224,13 @@ export class DevRepository implements Repository {
     }
 
     const list = lastIndex ? values.slice(lastIndex + 1) : values;
-    const filter = new Set(filterByStatus || []);
+    const filter = filterByStatus ? new Set(filterByStatus) : undefined;
     const result: Dispatch[] = [];
     for (const { dispatch } of list) {
       if (dispatch.status === "ongoing") {
         continue;
       }
-      if (!filter.has(dispatch.status)) {
+      if (filter && !filter.has(dispatch.status)) {
         continue;
       }
       result.push(dispatch);
