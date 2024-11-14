@@ -1,4 +1,4 @@
-import { ok, safeTry } from "neverthrow";
+import { err, ok, safeTry } from "neverthrow";
 
 import type { Logger } from "../logger";
 import {
@@ -54,7 +54,7 @@ export class EventSink {
 
         // Find destinations for each event and create dispatches.
         const dispatches = created.flatMap((e) =>
-          findRoutes(routing, e).map(
+          findRoutes(routing, e.payload).map(
             ({ destination, delaySeconds, maxRetries }): NewDispatch => ({
               eventId: e.id, // Event id is created by Persistence.saveEvents.
               destination,
@@ -102,18 +102,78 @@ export class EventSink {
     continuationToken?: string;
     filterByStatus?: Dispatch["status"][];
   }): Promise<{ list: Dispatch[]; continuationToken?: string }> {
-    throw new Error("Not implemented");
+    const result = await this.repo.listDispatches(
+      args?.maxItems || 10,
+      args?.continuationToken,
+      args?.filterByStatus,
+    );
+    if (result.isErr()) {
+      return Promise.reject(result.error);
+    }
+    return result.value;
   }
 
   async getEvent(eventId: string): Promise<Event> {
-    throw new Error("Not implemented");
+    const result = await this.repo.getEvent(eventId);
+    if (result.isErr()) {
+      return Promise.reject(result.error);
+    }
+    if (result.value === null) {
+      return Promise.reject("event not found");
+    }
+    return result.value;
   }
 
-  async retryDispatches(args: {
-    dispatchIds: string[];
+  async retryDispatch(args: {
+    dispatchId: string;
     options?: { maxRetries?: number; delaySeconds?: number };
   }): Promise<void> {
-    throw new Error("Not implemented");
+    const queue = this.queue;
+    const repo = this.repo;
+    const logger = this.logger;
+
+    const result = await safeTry(async function* () {
+      const { dispatchId, options } = args;
+
+      // Get target dispatch.
+      const data = yield* (await repo.getDispatch(dispatchId)).safeUnwrap();
+      if (data === null) {
+        return Promise.reject("dispatch not found");
+      }
+      const { dispatch } = data;
+      if (dispatch.status === "ongoing") {
+        return err("DISPATCH_IS_ONGOING" as const);
+      }
+
+      // Create new dispatch for retry.
+      // Override options if provided.
+      const newDispatch: NewDispatch = {
+        eventId: dispatch.eventId,
+        destination: dispatch.destination,
+        createdAt: new Date(),
+        delaySeconds: options?.delaySeconds || dispatch.delaySeconds,
+        maxRetries: options?.maxRetries || dispatch.maxRetries,
+      };
+      const [created] = yield* (
+        await repo.createDispatches([newDispatch])
+      ).safeUnwrap();
+
+      const message: MessageSendRequest<QueueMessage> = {
+        body: {
+          dispatchId: created.id,
+          delaySeconds: created.delaySeconds || undefined,
+        },
+        contentType: "v8",
+        delaySeconds: created.delaySeconds || undefined,
+      };
+
+      yield* (await enqueue(queue, [message], logger)).safeUnwrap();
+      return ok(constVoid);
+    });
+
+    if (result.isErr()) {
+      return Promise.reject(result.error);
+    }
   }
 
   async markLostDispatches(): Promise<void> {

@@ -88,15 +88,15 @@ export abstract class RpcEventHub<
   }
 
   /**
-   * Retry dispatches which are in any resulted status.
-   * @param args.dispatchIds Dispatch IDs to retry.
+   * Retry dispatch which is in any resulted status.
+   * @param args.dispatchId Dispatch ID to retry.
    * @param args.options Dispatch options to override. If options are not provided, the original options are used.
    */
   async retryDispatches(args: {
-    dispatchIds: string[];
+    dispatchId: string;
     options?: { maxRetries?: number; delaySeconds?: number };
   }): Promise<void> {
-    return this.sink.retryDispatches(args);
+    return this.sink.retryDispatch(args);
   }
 
   scheduled(_ctrl: ScheduledController): Promise<void> {
