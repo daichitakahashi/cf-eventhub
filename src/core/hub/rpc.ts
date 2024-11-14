@@ -74,8 +74,20 @@ export abstract class RpcEventHub<
   async listDispatches(args?: {
     maxItems?: number;
     continuationToken?: string;
-    filterByStatus?: (Dispatch["status"])[]
-  }): Promise<{list: Dispatch[], continuationToken?: string}> {
+    filterByStatus?: Dispatch["status"][];
+  }): Promise<{ list: Dispatch[]; continuationToken?: string }> {
+    throw new Error("Not implemented");
+  }
+
+  /**
+   * Retry dispatches which are in any resulted status.
+   * @param args.dispatchIds Dispatch IDs to retry.
+   * @param args.options Dispatch options to override. If options are not provided, the original options are used.
+   */
+  async retryDispatches(args: {
+    dispatchIds: string[];
+    options?: { maxRetries?: number; delaySeconds?: number };
+  }): Promise<void> {
     throw new Error("Not implemented");
   }
 
