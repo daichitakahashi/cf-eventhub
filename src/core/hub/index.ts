@@ -3,9 +3,10 @@ import { err, ok, safeTry } from "neverthrow";
 import type { Logger } from "../logger";
 import {
   type Dispatch,
+  type Event,
   type NewDispatch,
   type NewEvent,
-  type Event,
+  type OngoingDispatch,
   makeDispatchLost,
 } from "../model";
 import type { Repository } from "../repository";
@@ -183,7 +184,7 @@ export class EventSink {
         let continuationToken: string | undefined;
         do {
           const listResult = yield* (
-            await tx.listOngoingDispatches(30, continuationToken)
+            await tx.listDispatches(30, continuationToken, ["ongoing"])
           ).safeUnwrap();
 
           const lostDispatches = listResult.list.filter((d) => {
@@ -197,7 +198,7 @@ export class EventSink {
           });
 
           for (const d of lostDispatches) {
-            const resulted = makeDispatchLost(d, new Date());
+            const resulted = makeDispatchLost(d as OngoingDispatch, new Date());
             yield* (await repo.saveDispatch(resulted)).safeUnwrap();
           }
 
