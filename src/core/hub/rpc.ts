@@ -3,6 +3,7 @@ import * as v from "valibot";
 
 import { type EventHub, EventSink } from ".";
 import { DefaultLogger, type LogLevel, type Logger } from "../logger";
+import type { Dispatch, Event } from "../model";
 import type { Repository } from "../repository";
 import type { EventPayload } from "../type";
 import { Config } from "./routing";
@@ -54,8 +55,50 @@ export abstract class RpcEventHub<
 
   protected abstract getRepository(logger: Logger): Repository;
 
-  putEvent(events: EventPayload[]) {
+  /**
+   * Put events.
+   * Events are persisted and dispatched to destinations.
+   * @param events Events to be put.
+   */
+  async putEvent(events: EventPayload[]) {
     return this.sink.putEvent(events);
+  }
+
+  /**
+   * List dispatches.
+   * @param args.maxItems Maximum number of dispatches to list. Default is 10.
+   * @param args.continuationToken Continuation token for pagination.
+   * @param args.filterByStatus Filter dispatches by status.
+   * @param args.orderBy Sort order. Default is "CREATED_AT_ASC".
+   * @returns List of dispatches and continuation token.
+   */
+  async listDispatches(args?: {
+    maxItems?: number;
+    continuationToken?: string;
+    filterByStatus?: Dispatch["status"][];
+    orderBy?: "CREATED_AT_ASC" | "CREATED_AT_DESC";
+  }): Promise<{ list: Dispatch[]; continuationToken?: string }> {
+    return this.sink.listDispatches(args);
+  }
+
+  /**
+   * Get event.
+   * @param eventId Event ID to get.
+   */
+  async getEvent(eventId: string): Promise<Event> {
+    return this.sink.getEvent(eventId);
+  }
+
+  /**
+   * Retry dispatch which is in any resulted status.
+   * @param args.dispatchId Dispatch ID to retry.
+   * @param args.options Dispatch options to override. If options are not provided, the original options are used.
+   */
+  async retryDispatches(args: {
+    dispatchId: string;
+    options?: { maxRetries?: number; delaySeconds?: number };
+  }): Promise<void> {
+    return this.sink.retryDispatch(args);
   }
 
   scheduled(_ctrl: ScheduledController): Promise<void> {

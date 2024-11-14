@@ -3,6 +3,7 @@ import type { Result } from "neverthrow";
 import type {
   CreatedEvent,
   Dispatch,
+  Event,
   NewDispatch,
   NewEvent,
   OngoingDispatch,
@@ -59,17 +60,30 @@ export interface Repository {
   >;
 
   /**
-   *
+   * Get event by given id.
+   * @param eventId
+   * @returns Found `Event`.
+   */
+  getEvent: (
+    eventId: string,
+  ) => Promise<Result<Event | null, "INTERNAL_SERVER_ERROR">>;
+
+  /**
+   * Get dispatches.
    * @param maxItems maximum number of items to be fetched
    * @param continuationToken token returned in last call
+   * @param filterByStatus
+   * @param orderBy
    * @returns
    */
-  listOngoingDispatches: (
+  listDispatches: (
     maxItems: number,
     continuationToken?: string,
+    filterByStatus?: Dispatch["status"][],
+    orderBy?: "CREATED_AT_ASC" | "CREATED_AT_DESC",
   ) => Promise<
     Result<
-      { list: OngoingDispatch[]; continuationToken?: string },
+      { list: Dispatch[]; continuationToken?: string },
       "INTERNAL_SERVER_ERROR" | "INVALID_CONTINUATION_TOKEN"
     >
   >;

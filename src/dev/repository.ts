@@ -4,6 +4,7 @@ import { type Result, err, ok } from "neverthrow";
 import {
   type CreatedEvent,
   type Dispatch,
+  type Event,
   type NewDispatch,
   type NewEvent,
   type OngoingDispatch,
@@ -144,6 +145,13 @@ export class DevRepository implements Repository {
     return ok({ event, dispatch: v.dispatch });
   }
 
+  async getEvent(
+    eventId: string,
+  ): Promise<Result<Event | null, "INTERNAL_SERVER_ERROR">> {
+    const event = this.events.get(eventId);
+    return ok(event || null);
+  }
+
   async listOngoingDispatches(
     maxItems: number,
     continuationToken?: string,
@@ -170,6 +178,61 @@ export class DevRepository implements Repository {
     const result: OngoingDispatch[] = [];
     for (const { dispatch } of list) {
       if (dispatch.status !== "ongoing") {
+        continue;
+      }
+      result.push(dispatch);
+      if (result.length > maxItems) {
+        break;
+      }
+    }
+
+    if (result.length > maxItems) {
+      return ok({
+        list: result.slice(0, -1),
+        continuationToken: encodeContinuationToken(
+          result[result.length - 2].id,
+        ),
+      });
+    }
+    return ok({
+      list: result,
+      continuationToken: undefined,
+    });
+  }
+
+  async listDispatches(
+    maxItems: number,
+    continuationToken?: string,
+    filterByStatus?: Dispatch["status"][],
+    orderBy?: "CREATED_AT_ASC" | "CREATED_AT_DESC",
+  ): Promise<
+    Result<
+      { list: Dispatch[]; continuationToken?: string },
+      "INTERNAL_SERVER_ERROR" | "INVALID_CONTINUATION_TOKEN"
+    >
+  > {
+    const order = orderBy || "CREATED_AT_ASC";
+    const values = [...this.dispatches.values()];
+    if (order === "CREATED_AT_DESC") {
+      values.reverse();
+    }
+
+    let lastIndex = 0;
+    if (continuationToken) {
+      const last = this.dispatches.get(
+        decodeContinuationToken(continuationToken),
+      );
+      if (!last) {
+        return err("INVALID_CONTINUATION_TOKEN");
+      }
+      lastIndex = last.index;
+    }
+
+    const list = lastIndex ? values.slice(lastIndex + 1) : values;
+    const filter = filterByStatus ? new Set(filterByStatus) : undefined;
+    const result: Dispatch[] = [];
+    for (const { dispatch } of list) {
+      if (filter && !filter.has(dispatch.status)) {
         continue;
       }
       result.push(dispatch);

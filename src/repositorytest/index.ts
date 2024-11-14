@@ -419,7 +419,7 @@ export const testRepositoryListOngoingDispatches = async (repo: Repository) => {
   }
 
   // List first 3 dispatches.
-  const firstResult = await repo.listOngoingDispatches(3);
+  const firstResult = await repo.listDispatches(3, undefined, ["ongoing"]);
   assert(firstResult.isOk());
   expect(firstResult.value).toMatchObject({
     list: [
@@ -469,9 +469,10 @@ export const testRepositoryListOngoingDispatches = async (repo: Repository) => {
     continuationToken: expect.any(String),
   });
 
-  const secondResult = await repo.listOngoingDispatches(
+  const secondResult = await repo.listDispatches(
     3,
     firstResult.value.continuationToken,
+    ["ongoing"],
   );
   assert(secondResult.isOk());
   expect(secondResult.value).toMatchObject({
@@ -522,9 +523,10 @@ export const testRepositoryListOngoingDispatches = async (repo: Repository) => {
     continuationToken: expect.any(String),
   });
 
-  const thirdResult = await repo.listOngoingDispatches(
+  const thirdResult = await repo.listDispatches(
     3,
     secondResult.value.continuationToken,
+    ["ongoing"],
   );
   assert(thirdResult.isOk());
   expect(thirdResult.value).toMatchObject({
@@ -575,9 +577,10 @@ export const testRepositoryListOngoingDispatches = async (repo: Repository) => {
     continuationToken: expect.any(String),
   });
 
-  const fourthResult = await repo.listOngoingDispatches(
+  const fourthResult = await repo.listDispatches(
     3,
     thirdResult.value.continuationToken,
+    ["ongoing"],
   );
   assert(fourthResult.isOk());
   expect(fourthResult.value).toMatchObject({
