@@ -69,22 +69,6 @@ export interface Repository {
   ) => Promise<Result<Event | null, "INTERNAL_SERVER_ERROR">>;
 
   /**
-   * Get ongoing dispatches.
-   * @param maxItems maximum number of items to be fetched
-   * @param continuationToken token returned in last call
-   * @returns
-   */
-  listOngoingDispatches: (
-    maxItems: number,
-    continuationToken?: string,
-  ) => Promise<
-    Result<
-      { list: OngoingDispatch[]; continuationToken?: string },
-      "INTERNAL_SERVER_ERROR" | "INVALID_CONTINUATION_TOKEN"
-    >
-  >;
-
-  /**
    * Get dispatches.
    * @param maxItems maximum number of items to be fetched
    * @param continuationToken token returned in last call

@@ -227,9 +227,6 @@ export class DevRepository implements Repository {
     const filter = filterByStatus ? new Set(filterByStatus) : undefined;
     const result: Dispatch[] = [];
     for (const { dispatch } of list) {
-      if (dispatch.status === "ongoing") {
-        continue;
-      }
       if (filter && !filter.has(dispatch.status)) {
         continue;
       }
