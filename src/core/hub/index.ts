@@ -102,11 +102,13 @@ export class EventSink {
     maxItems?: number;
     continuationToken?: string;
     filterByStatus?: Dispatch["status"][];
+    orderBy?: "CREATED_AT_ASC" | "CREATED_AT_DESC";
   }): Promise<{ list: Dispatch[]; continuationToken?: string }> {
     const result = await this.repo.listDispatches(
       args?.maxItems || 10,
       args?.continuationToken,
       args?.filterByStatus,
+      args?.orderBy,
     );
     if (result.isErr()) {
       return Promise.reject(result.error);

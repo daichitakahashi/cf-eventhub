@@ -73,12 +73,14 @@ export interface Repository {
    * @param maxItems maximum number of items to be fetched
    * @param continuationToken token returned in last call
    * @param filterByStatus
+   * @param orderBy
    * @returns
    */
   listDispatches: (
     maxItems: number,
     continuationToken?: string,
     filterByStatus?: Dispatch["status"][],
+    orderBy?: "CREATED_AT_ASC" | "CREATED_AT_DESC",
   ) => Promise<
     Result<
       { list: Dispatch[]; continuationToken?: string },

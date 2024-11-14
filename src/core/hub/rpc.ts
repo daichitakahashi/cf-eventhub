@@ -69,12 +69,14 @@ export abstract class RpcEventHub<
    * @param args.maxItems Maximum number of dispatches to list. Default is 10.
    * @param args.continuationToken Continuation token for pagination.
    * @param args.filterByStatus Filter dispatches by status.
+   * @param args.orderBy Sort order. Default is "CREATED_AT_ASC".
    * @returns List of dispatches and continuation token.
    */
   async listDispatches(args?: {
     maxItems?: number;
     continuationToken?: string;
     filterByStatus?: Dispatch["status"][];
+    orderBy?: "CREATED_AT_ASC" | "CREATED_AT_DESC";
   }): Promise<{ list: Dispatch[]; continuationToken?: string }> {
     return this.sink.listDispatches(args);
   }

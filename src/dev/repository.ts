@@ -204,13 +204,18 @@ export class DevRepository implements Repository {
     maxItems: number,
     continuationToken?: string,
     filterByStatus?: Dispatch["status"][],
+    orderBy?: "CREATED_AT_ASC" | "CREATED_AT_DESC",
   ): Promise<
     Result<
       { list: Dispatch[]; continuationToken?: string },
       "INTERNAL_SERVER_ERROR" | "INVALID_CONTINUATION_TOKEN"
     >
   > {
+    const order = orderBy || "CREATED_AT_ASC";
     const values = [...this.dispatches.values()];
+    if (order === "CREATED_AT_DESC") {
+      values.reverse();
+    }
 
     let lastIndex = 0;
     if (continuationToken) {

@@ -3,6 +3,7 @@ import {
   Table,
   aliasedTable,
   and,
+  desc,
   eq,
   isNull,
   or,
@@ -302,6 +303,7 @@ export class PgRepository implements Repository {
     maxItems: number,
     continuationToken?: string,
     filterByStatus?: Dispatch["status"][],
+    orderBy?: "CREATED_AT_ASC" | "CREATED_AT_DESC",
   ): Promise<
     Result<
       { list: Dispatch[]; continuationToken?: string },
@@ -320,6 +322,7 @@ export class PgRepository implements Repository {
       token = result.value;
     }
 
+    const order = orderBy || "CREATED_AT_ASC";
     const statuses = filterByStatus ? [...new Set(filterByStatus)] : undefined;
 
     return fromAsyncThrowable(
@@ -339,7 +342,9 @@ export class PgRepository implements Repository {
             .where(
               and(
                 token
-                  ? sql`(${d.createdAt}, ${d.id}) > (${token.createdAt.toISOString()}, ${token.id})`
+                  ? order === "CREATED_AT_ASC"
+                    ? sql`(${d.createdAt}, ${d.id}) > (${token.createdAt.toISOString()}, ${token.id})`
+                    : sql`(${d.createdAt}, ${d.id}) < (${token.createdAt.toISOString()}, ${token.id})`
                   : undefined,
                 statuses
                   ? or(
@@ -352,7 +357,11 @@ export class PgRepository implements Repository {
                   : undefined,
               ),
             )
-            .orderBy(d.createdAt, d.id)
+            .orderBy(
+              ...(order === "CREATED_AT_ASC"
+                ? [d.createdAt, d.id]
+                : [desc(d.createdAt), desc(d.id)]),
+            )
             .limit(maxItems + 1) // check next item exists
             .for("update", { of: new Table("d", undefined, "") }), // Workaround: "FOR UPDATE OF" requires unqualified table reference.
         );
