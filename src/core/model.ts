@@ -13,6 +13,8 @@ export interface CreatedEvent extends NewEvent {
   readonly id: string;
 }
 
+export type Event = CreatedEvent;
+
 // Properties of newly created dispatch.
 export interface NewDispatch {
   readonly eventId: string;

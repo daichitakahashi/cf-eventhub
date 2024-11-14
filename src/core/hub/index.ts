@@ -1,7 +1,13 @@
 import { ok, safeTry } from "neverthrow";
 
 import type { Logger } from "../logger";
-import { type NewDispatch, type NewEvent, makeDispatchLost } from "../model";
+import {
+  type Dispatch,
+  type NewDispatch,
+  type NewEvent,
+  type Event,
+  makeDispatchLost,
+} from "../model";
 import type { Repository } from "../repository";
 import type { EventPayload } from "../type";
 import { type QueueMessage, enqueue } from "./queue";
@@ -89,6 +95,25 @@ export class EventSink {
     if (result.isErr()) {
       return Promise.reject(result.error);
     }
+  }
+
+  async listDispatches(args?: {
+    maxItems?: number;
+    continuationToken?: string;
+    filterByStatus?: Dispatch["status"][];
+  }): Promise<{ list: Dispatch[]; continuationToken?: string }> {
+    throw new Error("Not implemented");
+  }
+
+  async getEvent(eventId: string): Promise<Event> {
+    throw new Error("Not implemented");
+  }
+
+  async retryDispatches(args: {
+    dispatchIds: string[];
+    options?: { maxRetries?: number; delaySeconds?: number };
+  }): Promise<void> {
+    throw new Error("Not implemented");
   }
 
   async markLostDispatches(): Promise<void> {

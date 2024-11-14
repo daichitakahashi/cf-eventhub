@@ -3,7 +3,7 @@ import * as v from "valibot";
 
 import { type EventHub, EventSink } from ".";
 import { DefaultLogger, type LogLevel, type Logger } from "../logger";
-import type { Dispatch } from "../model";
+import type { Dispatch, Event } from "../model";
 import type { Repository } from "../repository";
 import type { EventPayload } from "../type";
 import { Config } from "./routing";
@@ -76,7 +76,15 @@ export abstract class RpcEventHub<
     continuationToken?: string;
     filterByStatus?: Dispatch["status"][];
   }): Promise<{ list: Dispatch[]; continuationToken?: string }> {
-    throw new Error("Not implemented");
+    return this.sink.listDispatches(args);
+  }
+
+  /**
+   * Get event.
+   * @param eventId Event ID to get.
+   */
+  async getEvent(eventId: string): Promise<Event> {
+    return this.sink.getEvent(eventId);
   }
 
   /**
@@ -88,7 +96,7 @@ export abstract class RpcEventHub<
     dispatchIds: string[];
     options?: { maxRetries?: number; delaySeconds?: number };
   }): Promise<void> {
-    throw new Error("Not implemented");
+    return this.sink.retryDispatches(args);
   }
 
   scheduled(_ctrl: ScheduledController): Promise<void> {
