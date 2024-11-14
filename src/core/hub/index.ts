@@ -7,6 +7,7 @@ import {
   type NewDispatch,
   type NewEvent,
   type OngoingDispatch,
+  type ResultedDispatch,
   makeDispatchLost,
 } from "../model";
 import type { Repository } from "../repository";
@@ -179,38 +180,50 @@ export class EventSink {
     }
   }
 
-  async markLostDispatches(): Promise<void> {
+  async markLostDispatches(args?: {
+    maxItems?: number;
+    elapsedSeconds?: number;
+    continuationToken?: string;
+  }): Promise<{ list: ResultedDispatch[]; continuationToken?: string }> {
     const repo = this.repo;
+    const elapsedSeconds = args?.elapsedSeconds || 60 * 15; // Default value (15 min) is derived from duration limit of Queue Consumers.
+
     const result = await repo.enterTransactionalScope(async (tx) =>
       safeTry(async function* () {
-        let continuationToken: string | undefined;
-        do {
-          const listResult = yield* (
-            await tx.listDispatches(30, continuationToken, ["ongoing"])
-          ).safeUnwrap();
+        const listResult = yield* (
+          await tx.listDispatches(
+            args?.maxItems || 20,
+            args?.continuationToken,
+            ["ongoing"],
+            "CREATED_AT_ASC",
+          )
+        ).safeUnwrap();
 
-          const lostDispatches = listResult.list.filter((d) => {
-            const lastExecution =
-              d.executionLog.length > 0
-                ? d.executionLog[d.executionLog.length - 1].executedAt
-                : d.createdAt;
-            const elapsed = Date.now() - lastExecution.getTime();
+        const lostDispatches = listResult.list.filter((d) => {
+          const lastTime =
+            d.executionLog.length > 0
+              ? d.executionLog[d.executionLog.length - 1].executedAt
+              : d.createdAt;
+          const elapsed = Date.now() - lastTime.getTime();
 
-            return elapsed > ((d.delaySeconds || 1) + 60 * 15) * 1000; // 15min elapsed from last execution or its creation.
-          });
+          return elapsed > ((d.delaySeconds || 0) + elapsedSeconds) * 1000; // elapsed from last execution or its creation.
+        });
 
-          for (const d of lostDispatches) {
-            const resulted = makeDispatchLost(d as OngoingDispatch, new Date());
-            yield* (await repo.saveDispatch(resulted)).safeUnwrap();
-          }
-
-          continuationToken = listResult.continuationToken;
-        } while (continuationToken === undefined);
-        return ok((() => {})());
+        const result: ResultedDispatch[] = [];
+        for (const d of lostDispatches) {
+          const resulted = makeDispatchLost(d as OngoingDispatch, new Date());
+          result.push(resulted);
+          yield* (await repo.saveDispatch(resulted)).safeUnwrap();
+        }
+        return ok({
+          list: result,
+          continuationToken: listResult.continuationToken,
+        });
       }),
     );
     if (result.isErr()) {
       return Promise.reject(result.error);
     }
+    return result.value;
   }
 }

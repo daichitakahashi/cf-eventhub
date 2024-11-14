@@ -3,12 +3,19 @@ import * as v from "valibot";
 
 import { type EventHub, EventSink } from ".";
 import { DefaultLogger, type LogLevel, type Logger } from "../logger";
-import type { Dispatch, Event } from "../model";
+import type { Dispatch, Event, ResultedDispatch } from "../model";
 import type { Repository } from "../repository";
 import type { EventPayload } from "../type";
 import { Config } from "./routing";
 
-const getQueue = (env: Record<string, unknown>) => {
+type RpcEnv = Record<string, unknown> & {
+  EVENTHUB_QUEUE: Queue;
+  EVENTHUB_ROUTING: string;
+  EVENTHUB_LOG_LEVEL?: string;
+  EVENTHUB_LOST_DETECTION_ELAPSED_SECONDS?: string;
+};
+
+const getQueue = (env: RpcEnv) => {
   const queue = env.EVENTHUB_QUEUE;
   if (!queue) {
     throw new Error("cf-eventhub: EVENTHUB_QUEUE not set");
@@ -19,7 +26,7 @@ const getQueue = (env: Record<string, unknown>) => {
   return queue as Queue;
 };
 
-const getRouteConfig = (env: Record<string, unknown>) => {
+const getRouteConfig = (env: RpcEnv) => {
   const routing = env.EVENTHUB_ROUTING;
   if (!routing) {
     throw new Error("cf-eventhub: EVENTHUB_ROUTING not set");
@@ -31,22 +38,37 @@ const getRouteConfig = (env: Record<string, unknown>) => {
   return v.parse(Config, JSON.parse(routing));
 };
 
-const getLogLevel = (env: Record<string, unknown>) =>
+const getLostDetectionElapsedSeconds = (env: RpcEnv) => {
+  if (!env.EVENTHUB_LOST_DETECTION_ELAPSED_SECONDS) {
+    return undefined;
+  }
+  const elapsedSeconds = Number.parseInt(
+    env.EVENTHUB_LOST_DETECTION_ELAPSED_SECONDS,
+  );
+  if (!Number.isSafeInteger(elapsedSeconds)) {
+    throw new Error(
+      "cf-eventhub: EVENTHUB_LOST_DETECTION_ELAPSED_SECONDS is not a safe integer",
+    );
+  }
+  return elapsedSeconds;
+};
+
+const getLogLevel = (env: RpcEnv) =>
   (env.EVNTHUB_LOG_LEVEL as LogLevel) || "INFO";
 
-export abstract class RpcEventHub<
-    Env extends Record<string, unknown> = Record<string, unknown>,
-  >
+export abstract class RpcEventHub<Env extends RpcEnv = RpcEnv>
   extends WorkerEntrypoint<Env>
   implements EventHub
 {
   private sink: EventSink;
+  private lostDetectionElapsedSeconds: number | undefined;
 
   constructor(ctx: ExecutionContext, env: Env) {
     super(ctx, env);
     const logger = this.getLogger();
     const repo = this.getRepository(logger);
     this.sink = new EventSink(repo, getQueue(env), getRouteConfig(env), logger);
+    this.lostDetectionElapsedSeconds = getLostDetectionElapsedSeconds(env);
   }
 
   protected getLogger(): Logger {
@@ -101,7 +123,34 @@ export abstract class RpcEventHub<
     return this.sink.retryDispatch(args);
   }
 
-  scheduled(_ctrl: ScheduledController): Promise<void> {
-    return this.sink.markLostDispatches();
+  /**
+   * Mark non-resulted dispatches which are meet condition.
+   * @param args.maxItems Maximum number of dispatches to mark as lost. Default is 20.
+   * @param args.elapsedSeconds Elapsed seconds from last execution time or creation time to mark as lost. Default is 15min(900).
+   * @param args.continuationToken Continuation token for pagination.
+   * @returns List of dispatches and continuation token.
+   *  Even if list is empty, continuation token may be returned (there are ongoing dispatches not scanned).
+   */
+  async markLostDispatches(args?: {
+    maxItems?: number;
+    elapsedSeconds?: number;
+    continuationToken?: string;
+  }): Promise<{ list: ResultedDispatch[]; continuationToken?: string }> {
+    return this.sink.markLostDispatches(args);
+  }
+
+  /**
+   * Reference implementation of scheduled handler.
+   */
+  async scheduled(_ctrl: ScheduledController): Promise<void> {
+    let continuationToken: string | undefined;
+    do {
+      const result = await this.markLostDispatches({
+        maxItems: 20,
+        elapsedSeconds: this.lostDetectionElapsedSeconds,
+        continuationToken,
+      });
+      continuationToken = result.continuationToken;
+    } while (continuationToken);
   }
 }
