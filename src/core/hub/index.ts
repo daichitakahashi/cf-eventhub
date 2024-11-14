@@ -185,14 +185,17 @@ export class EventSink {
     const repo = this.repo;
     const elapsedSeconds = condition?.elapsedSeconds || 60 * 15; // Default value (15 min) is derived from duration limit of Queue Consumers.
 
-    // TODO: separate transaction
-
-    const result = await repo.enterTransactionalScope(async (tx) =>
-      safeTry(async function* () {
-        let continuationToken: string | undefined;
-        do {
+    let continuationToken: string | undefined;
+    do {
+      const result = await repo.enterTransactionalScope(async (tx) =>
+        safeTry(async function* () {
           const listResult = yield* (
-            await tx.listDispatches(30, continuationToken, ["ongoing"])
+            await tx.listDispatches(
+              30,
+              continuationToken,
+              ["ongoing"],
+              "CREATED_AT_ASC",
+            )
           ).safeUnwrap();
 
           const lostDispatches = listResult.list.filter((d) => {
@@ -209,14 +212,13 @@ export class EventSink {
             const resulted = makeDispatchLost(d as OngoingDispatch, new Date());
             yield* (await repo.saveDispatch(resulted)).safeUnwrap();
           }
-
-          continuationToken = listResult.continuationToken;
-        } while (continuationToken === undefined);
-        return ok((() => {})());
-      }),
-    );
-    if (result.isErr()) {
-      return Promise.reject(result.error);
-    }
+          return ok(listResult.continuationToken);
+        }),
+      );
+      if (result.isErr()) {
+        return Promise.reject(result.error);
+      }
+      continuationToken = result.value;
+    } while (continuationToken !== undefined);
   }
 }
