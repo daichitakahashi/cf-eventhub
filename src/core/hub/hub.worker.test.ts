@@ -6,6 +6,7 @@ import { DefaultLogger } from "../logger";
 import type { Repository } from "../repository";
 import type { Config } from "./routing";
 import type { QueueMessage } from "./queue";
+import { makeDispatchLost } from "../model";
 
 class QueueMock implements Queue<QueueMessage> {
   private _sentMessages: {
@@ -53,64 +54,64 @@ const executor =
     return queue;
   };
 
-describe("putEvent", () => {
-  const route: Config = {
-    routes: [
-      {
-        conditions: [
-          {
-            path: "$.like",
-            exact: "culture",
-          },
-          {
-            path: "$.avoidUrban",
-            exact: false,
-          },
-        ],
-        destination: "TOKYO",
-        maxRetries: 11,
-        delaySeconds: 11,
-      },
-      {
-        conditions: [
-          {
-            path: "$.like",
-            exact: "culture",
-          },
-        ],
-        destination: "OKAYAMA",
-        maxRetries: 33,
-        delaySeconds: 33,
-      },
-      {
-        conditions: [
-          {
-            path: "$.like",
-            exact: "nature",
-          },
-        ],
-        destination: "HOkKAIDO",
-        maxRetries: 66,
-        delaySeconds: 66,
-      },
-      {
-        conditions: [
-          {
-            path: "$.like",
-            exact: "nature",
-          },
-        ],
-        destination: "OKINAWA",
-      },
-    ],
-    defaultMaxRetries: 99,
-    defaultDelaySeconds: 99,
-  };
-  type Message = {
-    like: string;
-    avoidUrban: boolean;
-  };
+const route: Config = {
+  routes: [
+    {
+      conditions: [
+        {
+          path: "$.like",
+          exact: "culture",
+        },
+        {
+          path: "$.avoidUrban",
+          exact: false,
+        },
+      ],
+      destination: "TOKYO",
+      maxRetries: 11,
+      delaySeconds: 11,
+    },
+    {
+      conditions: [
+        {
+          path: "$.like",
+          exact: "culture",
+        },
+      ],
+      destination: "OKAYAMA",
+      maxRetries: 33,
+      delaySeconds: 33,
+    },
+    {
+      conditions: [
+        {
+          path: "$.like",
+          exact: "nature",
+        },
+      ],
+      destination: "HOkKAIDO",
+      maxRetries: 66,
+      delaySeconds: 66,
+    },
+    {
+      conditions: [
+        {
+          path: "$.like",
+          exact: "nature",
+        },
+      ],
+      destination: "OKINAWA",
+    },
+  ],
+  defaultMaxRetries: 99,
+  defaultDelaySeconds: 99,
+};
+type Message = {
+  like: string;
+  avoidUrban: boolean;
+};
 
+describe("putEvent", () => {
   test("putEvent makes dispatches", async () => {
     const repo = new DevRepository();
     const execute = executor(route, repo);
@@ -244,10 +245,167 @@ describe("putEvent", () => {
 
 describe("retryDispatch", () => {
   test("retryDispatch makes new dispatch", async () => {
-    //
+    const repo = new DevRepository();
+    const execute = executor(route, repo);
+
+    await execute(async (sink) => {
+      await sink.putEvent([
+        {
+          like: "culture",
+          avoidUrban: true,
+        },
+      ] as Message[]);
+    });
+
+    const createdDispatches = await repo.listDispatches(100);
+    assert(createdDispatches.isOk());
+    expect(createdDispatches.value.list).toHaveLength(1);
+    const createdDispatch = createdDispatches.value.list[0];
+    assert(createdDispatch.status === "ongoing");
+
+    // Make dispatch lost.
+    const save = await repo.saveDispatch(
+      makeDispatchLost(createdDispatch, new Date()),
+    );
+    assert(save.isOk());
+
+    // Retry.
+    const queue = await execute(async (sink) => {
+      await sink.retryDispatch({
+        dispatchId: createdDispatch.id,
+      });
+    });
+
+    // Check retried dispatch.
+    const dispatches = await repo.listDispatches(
+      100,
+      undefined,
+      ["ongoing"],
+      "CREATED_AT_DESC", // list in reversed order
+    );
+    assert(dispatches.isOk());
+    expect(dispatches.value.list).toHaveLength(1);
+    const retriedDispatch = dispatches.value.list[0];
+
+    expect(retriedDispatch.id).not.toBe(createdDispatch.id);
+    expect(retriedDispatch.eventId).toBe(createdDispatch.eventId);
+    expect(retriedDispatch).toMatchObject({
+      status: "ongoing",
+      destination: "OKAYAMA",
+      delaySeconds: 33,
+      maxRetries: 33,
+      executionLog: [],
+    });
+
+    // Check sent messages.
+    queue.sentMessages.find((m) => m.body.dispatchId === retriedDispatch.id);
+    expect(queue.sentMessages).toHaveLength(1);
+    expect(queue.sentMessages[0]).toMatchObject({
+      body: {
+        dispatchId: retriedDispatch.id,
+        delaySeconds: 33,
+      },
+      delaySeconds: 33,
+    });
   });
 
-  test("retry of ongoing dispatch causes error", async () => {});
+  test("retry with override options", async () => {
+    const repo = new DevRepository();
+    const execute = executor(route, repo);
+
+    await execute(async (sink) => {
+      await sink.putEvent([
+        {
+          like: "culture",
+          avoidUrban: true,
+        },
+      ] as Message[]);
+    });
+
+    const createdDispatches = await repo.listDispatches(100);
+    assert(createdDispatches.isOk());
+    expect(createdDispatches.value.list).toHaveLength(1);
+    const createdDispatch = createdDispatches.value.list[0];
+    assert(createdDispatch.status === "ongoing");
+
+    // Make dispatch lost.
+    const save = await repo.saveDispatch(
+      makeDispatchLost(createdDispatch, new Date()),
+    );
+    assert(save.isOk());
+
+    // Retry.
+    const queue = await execute(async (sink) => {
+      await sink.retryDispatch({
+        dispatchId: createdDispatch.id,
+        options: {
+          delaySeconds: 777,
+          maxRetries: 777,
+        },
+      });
+    });
+
+    // Check retried dispatch.
+    const dispatches = await repo.listDispatches(
+      100,
+      undefined,
+      ["ongoing"],
+      "CREATED_AT_DESC", // list in reversed order
+    );
+    assert(dispatches.isOk());
+    expect(dispatches.value.list).toHaveLength(1);
+    const retriedDispatch = dispatches.value.list[0];
+
+    expect(retriedDispatch.id).not.toBe(createdDispatch.id);
+    expect(retriedDispatch.eventId).toBe(createdDispatch.eventId);
+    expect(retriedDispatch).toMatchObject({
+      status: "ongoing",
+      destination: "OKAYAMA",
+      delaySeconds: 777, // *
+      maxRetries: 777, // *
+      executionLog: [],
+    });
+
+    // Check sent messages.
+    queue.sentMessages.find((m) => m.body.dispatchId === retriedDispatch.id);
+    expect(queue.sentMessages).toHaveLength(1);
+    expect(queue.sentMessages[0]).toMatchObject({
+      body: {
+        dispatchId: retriedDispatch.id,
+        delaySeconds: 777, // *
+      },
+      delaySeconds: 777, // *
+    });
+  });
+
+  test("retry of ongoing dispatch causes error", async () => {
+    const repo = new DevRepository();
+    const execute = executor(route, repo);
+
+    await execute(async (sink) => {
+      await sink.putEvent([
+        {
+          like: "culture",
+          avoidUrban: true,
+        },
+      ] as Message[]);
+    });
+
+    const createdDispatches = await repo.listDispatches(100);
+    assert(createdDispatches.isOk());
+    expect(createdDispatches.value.list).toHaveLength(1);
+    const createdDispatch = createdDispatches.value.list[0];
+    assert(createdDispatch.status === "ongoing");
+
+    // Retry.
+    expect(
+      execute(async (sink) => {
+        await sink.retryDispatch({
+          dispatchId: createdDispatch.id,
+        });
+      }),
+    ).rejects.toThrowError();
+  });
 });
 
 // describe("markLostDispatches", () => {});
