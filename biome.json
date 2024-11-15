@@ -33,6 +33,8 @@
       "MessageSendRequest",
       "Message",
       "MessageBatch",
+      "QueueSendOptions",
+      "QueueSendBatchOptions",
       "ExecutionContext",
       "ScheduledController"
     ]

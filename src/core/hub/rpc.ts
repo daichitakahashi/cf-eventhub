@@ -8,7 +8,7 @@ import type { Repository } from "../repository";
 import type { EventPayload } from "../type";
 import { Config } from "./routing";
 
-type RpcEnv = Record<string, unknown> & {
+export type RpcEnv = Record<string, unknown> & {
   EVENTHUB_QUEUE: Queue;
   EVENTHUB_ROUTING: string;
   EVENTHUB_LOG_LEVEL?: string;
@@ -116,7 +116,7 @@ export abstract class RpcEventHub<Env extends RpcEnv = RpcEnv>
    * @param args.dispatchId Dispatch ID to retry.
    * @param args.options Dispatch options to override. If options are not provided, the original options are used.
    */
-  async retryDispatches(args: {
+  async retryDispatch(args: {
     dispatchId: string;
     options?: { maxRetries?: number; delaySeconds?: number };
   }): Promise<void> {

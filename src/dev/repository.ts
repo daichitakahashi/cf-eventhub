@@ -152,54 +152,6 @@ export class DevRepository implements Repository {
     return ok(event || null);
   }
 
-  async listOngoingDispatches(
-    maxItems: number,
-    continuationToken?: string,
-  ): Promise<
-    Result<
-      { list: OngoingDispatch[]; continuationToken?: string },
-      "INTERNAL_SERVER_ERROR"
-    >
-  > {
-    const values = [...this.dispatches.values()];
-
-    let lastIndex = 0;
-    if (continuationToken) {
-      const last = this.dispatches.get(
-        decodeContinuationToken(continuationToken),
-      );
-      if (!last) {
-        return err("INTERNAL_SERVER_ERROR");
-      }
-      lastIndex = last.index;
-    }
-
-    const list = lastIndex ? values.slice(lastIndex + 1) : values;
-    const result: OngoingDispatch[] = [];
-    for (const { dispatch } of list) {
-      if (dispatch.status !== "ongoing") {
-        continue;
-      }
-      result.push(dispatch);
-      if (result.length > maxItems) {
-        break;
-      }
-    }
-
-    if (result.length > maxItems) {
-      return ok({
-        list: result.slice(0, -1),
-        continuationToken: encodeContinuationToken(
-          result[result.length - 2].id,
-        ),
-      });
-    }
-    return ok({
-      list: result,
-      continuationToken: undefined,
-    });
-  }
-
   async listDispatches(
     maxItems: number,
     continuationToken?: string,
