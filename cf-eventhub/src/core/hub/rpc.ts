@@ -5,7 +5,7 @@ import { type EventHub, EventSink } from ".";
 import { DefaultLogger, type LogLevel, type Logger } from "../logger";
 import type { Dispatch, Event, ResultedDispatch } from "../model";
 import type { Repository } from "../repository";
-import type { EventPayload } from "../type";
+import type { EventPayload, SymbolStripped } from "../type";
 import { Config } from "./routing";
 
 export type RpcEnv = Record<string, unknown> & {
@@ -99,7 +99,9 @@ export abstract class RpcEventHub<Env extends RpcEnv = RpcEnv>
     continuationToken?: string;
     filterByStatus?: Dispatch["status"][];
     orderBy?: "CREATED_AT_ASC" | "CREATED_AT_DESC";
-  }): Promise<{ list: Dispatch[]; continuationToken?: string }> {
+  }): Promise<
+    SymbolStripped<{ list: Dispatch[]; continuationToken?: string }>
+  > {
     return this.sink.listDispatches(args);
   }
 
@@ -107,7 +109,7 @@ export abstract class RpcEventHub<Env extends RpcEnv = RpcEnv>
    * Get event.
    * @param eventId Event ID to get.
    */
-  async getEvent(eventId: string): Promise<Event> {
+  async getEvent(eventId: string): Promise<SymbolStripped<Event> | null> {
     return this.sink.getEvent(eventId);
   }
 
@@ -135,7 +137,9 @@ export abstract class RpcEventHub<Env extends RpcEnv = RpcEnv>
     maxItems?: number;
     elapsedSeconds?: number;
     continuationToken?: string;
-  }): Promise<{ list: ResultedDispatch[]; continuationToken?: string }> {
+  }): Promise<
+    SymbolStripped<{ list: ResultedDispatch[]; continuationToken?: string }>
+  > {
     return this.sink.markLostDispatches(args);
   }
 

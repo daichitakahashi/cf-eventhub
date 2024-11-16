@@ -117,13 +117,10 @@ export class EventSink {
     return result.value;
   }
 
-  async getEvent(eventId: string): Promise<Event> {
+  async getEvent(eventId: string): Promise<Event | null> {
     const result = await this.repo.getEvent(eventId);
     if (result.isErr()) {
       return Promise.reject(result.error);
-    }
-    if (result.value === null) {
-      return Promise.reject("event not found");
     }
     return result.value;
   }

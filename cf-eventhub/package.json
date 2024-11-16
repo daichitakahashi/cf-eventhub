@@ -1,14 +1,11 @@
 {
   "name": "cf-eventhub",
+  "type": "module",
   "version": "0.0.0",
-  "private": true,
   "scripts": {
-    "deploy": "wrangler deploy",
-    "dev": "wrangler dev",
-    "start": "wrangler dev",
+    "build": "tsup --external cloudflare:workers",
     "test": "vitest -c vitest.config.worker.mts",
     "test-node": "vitest -c vitest.config.node.mts",
-    "cf-typegen": "wrangler types",
     "migration:generate": "drizzle-kit generate"
   },
   "devDependencies": {
@@ -19,6 +16,7 @@
     "@types/node": "^22.7.4",
     "drizzle-kit": "^0.24.2",
     "testcontainers": "^10.13.1",
+    "tsup": "^8.3.5",
     "typescript": "^5.6.2",
     "vitest": "2.1.1",
     "wrangler": "^3.87.0"
@@ -31,5 +29,31 @@
     "neverthrow": "^8.0.0",
     "postgres": "^3.4.4",
     "valibot": "^0.42.0"
-  }
+  },
+  "tsup": {
+    "entry": [
+      "src/core/index.ts",
+      "src/dev/index.ts",
+      "src/postgres/postgresjs.ts"
+    ],
+    "splitting": true,
+    "sourcemap": true,
+    "format": ["esm"],
+    "dts": true
+  },
+  "exports": {
+    "core": {
+      "import": "./dist/core/index.js",
+      "types": "./dist/core/index.d.ts"
+    },
+    "dev": {
+      "import": "./dist/dev/index.js",
+      "types": "./dist/dev/index.d.ts"
+    },
+    "postgres": {
+      "import": "./dist/postgres/postgresjs.js",
+      "types": "./dist/postgres/postgresjs.d.ts"
+    }
+  },
+  "files": ["dist", "src/migration"]
 }

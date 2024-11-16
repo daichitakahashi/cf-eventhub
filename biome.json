@@ -33,7 +33,8 @@
       "QueueSendOptions",
       "QueueSendBatchOptions",
       "ExecutionContext",
-      "ScheduledController"
+      "ScheduledController",
+      "Service"
     ]
   }
 }

@@ -1,6 +1,6 @@
 import type { Executor as BaseExecutor } from "../core/executor";
 import { RpcExecutor } from "../core/executor/rpc";
-import { RpcEventHub } from "../core/hub/rpc";
+import { type RpcEnv, RpcEventHub } from "../core/hub/rpc";
 import type { Repository } from "../core/repository";
 import type { QueueMessage } from "../core/type";
 import { DevRepository } from "./repository";
@@ -14,9 +14,7 @@ class Executor<Env extends Record<string, unknown> = Record<string, unknown>>
   }
 }
 
-export class EventHub<
-  Env extends Record<string, unknown> = Record<string, unknown>,
-> extends RpcEventHub<Env> {
+export class EventHub<Env extends RpcEnv> extends RpcEventHub<Env> {
   private executor: Executor<Env>;
   constructor(ctx: ExecutionContext, env: Env) {
     super(ctx, env);

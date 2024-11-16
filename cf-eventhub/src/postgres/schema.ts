@@ -9,6 +9,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
+import type { EventPayload } from "../core";
 import type { DispatchExecution, ResultedDispatch } from "../core/model";
 
 const eventhub = pgSchema("eventhub");
@@ -24,7 +25,7 @@ export const events = eventhub.table(
     /**
      * Payload of the event
      */
-    payload: jsonb("payload").notNull().$type<Record<string, unknown>>(),
+    payload: jsonb("payload").notNull().$type<EventPayload>(),
 
     /**
      * Create time
