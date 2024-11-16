@@ -1,2 +1,3 @@
 packages:
   - cf-eventhub
+  - web-console
