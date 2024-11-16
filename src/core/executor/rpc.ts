@@ -35,7 +35,9 @@ export abstract class RpcExecutor<
             msg.ack();
             break;
           case "failed":
-            msg.retry();
+            msg.retry({
+              delaySeconds: msg.body.delaySeconds,
+            });
             break;
           default: {
             const _: never = result;

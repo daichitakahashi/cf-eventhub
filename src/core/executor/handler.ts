@@ -11,3 +11,10 @@ export interface Handler {
 export const isHandler = (dest: NonNullable<unknown>): dest is Handler => {
   return typeof dest === "object" && handler in dest && dest[handler] === true;
 };
+
+/** @internal */
+export const validHandlerResult = (
+  result: unknown,
+): result is "complete" | "ignored" | "failed" => {
+  return ["complete", "ignored", "failed"].includes(result as string);
+};
