@@ -186,7 +186,8 @@ export class EventSink {
     continuationToken?: string;
   }): Promise<{ list: ResultedDispatch[]; continuationToken?: string }> {
     const repo = this.repo;
-    const elapsedSeconds = args?.elapsedSeconds || 60 * 15; // Default value (15 min) is derived from duration limit of Queue Consumers.
+    const elapsedSeconds =
+      args?.elapsedSeconds !== undefined ? args.elapsedSeconds : 60 * 15; // Default value (15 min) is derived from duration limit of Queue Consumers.
 
     const result = await repo.enterTransactionalScope(async (tx) =>
       safeTry(async function* () {
@@ -213,7 +214,7 @@ export class EventSink {
         for (const d of lostDispatches) {
           const resulted = makeDispatchLost(d as OngoingDispatch, new Date());
           result.push(resulted);
-          yield* (await repo.saveDispatch(resulted)).safeUnwrap();
+          yield* (await tx.saveDispatch(resulted)).safeUnwrap();
         }
         return ok({
           list: result,

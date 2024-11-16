@@ -6,7 +6,7 @@ import { DefaultLogger } from "../logger";
 import type { Repository } from "../repository";
 import type { Config } from "./routing";
 import type { QueueMessage } from "./queue";
-import { makeDispatchLost } from "../model";
+import { appendExecutionLog, makeDispatchLost } from "../model";
 
 class QueueMock implements Queue<QueueMessage> {
   private _sentMessages: {
@@ -408,4 +408,217 @@ describe("retryDispatch", () => {
   });
 });
 
-// describe("markLostDispatches", () => {});
+describe("markLostDispatches", () => {
+  const route: Config = {
+    routes: [
+      {
+        conditions: [
+          {
+            path: "$.wait",
+            exact: 1,
+          },
+        ],
+        destination: "BLACK_HOLE",
+        delaySeconds: 1,
+      },
+      {
+        conditions: [
+          {
+            path: "$.wait",
+            exact: 2,
+          },
+        ],
+        destination: "BLACK_HOLE",
+        delaySeconds: 2,
+      },
+    ],
+  };
+  const sleepOneSec = (co?: number) =>
+    new Promise((resolve) => setTimeout(resolve, 1000 * (co || 1)));
+
+  test("no lost dispatches", async () => {
+    const repo = new DevRepository();
+    const sink = new EventSink(
+      repo,
+      new QueueMock(),
+      route,
+      new DefaultLogger("ERROR"),
+    );
+
+    await sink.putEvent([
+      {
+        wait: 1,
+      },
+    ]);
+
+    // without sleep...
+
+    const result = await sink.markLostDispatches({
+      elapsedSeconds: 30,
+    });
+    expect(result.list).toHaveLength(0);
+  });
+
+  test("detect lost dispatch with no execution", async () => {
+    const repo = new DevRepository();
+    const sink = new EventSink(
+      repo,
+      new QueueMock(),
+      route,
+      new DefaultLogger("ERROR"),
+    );
+
+    await sink.putEvent([
+      {
+        wait: 1,
+      },
+    ]);
+
+    const createdDispatches = await repo.listDispatches(100);
+    assert(createdDispatches.isOk());
+    expect(createdDispatches.value.list).toHaveLength(1);
+    const createdDispatch = createdDispatches.value.list[0];
+    assert(createdDispatch.status === "ongoing");
+
+    // Sleep for delaySeconds
+    await sleepOneSec(1.2);
+
+    const first = await sink.markLostDispatches({
+      elapsedSeconds: 1,
+    });
+    expect(first.list).toHaveLength(0);
+
+    // Sleep for elapsedSeconds
+    await sleepOneSec(1.2);
+
+    const second = await sink.markLostDispatches({
+      elapsedSeconds: 1,
+    });
+    expect(second.list).toHaveLength(1);
+    expect(second.list[0]).toMatchObject({
+      id: createdDispatch.id,
+      status: "lost",
+      destination: "BLACK_HOLE",
+      delaySeconds: 1,
+      maxRetries: 5,
+      executionLog: [],
+    });
+
+    // Check ongoing dispatch is lost.
+    const dispatches = await repo.listDispatches(100, undefined, ["ongoing"]);
+    assert(dispatches.isOk());
+    expect(dispatches.value.list).toHaveLength(0);
+  });
+
+  test("detect lost dispatch with failed execution", async () => {
+    const repo = new DevRepository();
+    const sink = new EventSink(
+      repo,
+      new QueueMock(),
+      route,
+      new DefaultLogger("ERROR"),
+    );
+
+    await sink.putEvent([
+      {
+        wait: 1,
+      },
+    ]);
+
+    const createdDispatches = await repo.listDispatches(100);
+    assert(createdDispatches.isOk());
+    expect(createdDispatches.value.list).toHaveLength(1);
+    const createdDispatch = createdDispatches.value.list[0];
+    assert(createdDispatch.status === "ongoing");
+
+    // Sleep for delaySeconds+elapsedSeconds
+    await sleepOneSec(2);
+
+    // Execute dispatch and fail.
+    const executed = appendExecutionLog(createdDispatch, {
+      result: "failed",
+      executedAt: new Date(),
+    });
+    const saved = await repo.saveDispatch(executed);
+    assert(saved.isOk());
+
+    // Sleep for delaySeconds.
+    await sleepOneSec(1.2);
+
+    // Not lost.
+    const first = await sink.markLostDispatches({
+      elapsedSeconds: 1,
+    });
+    expect(first.list).toHaveLength(0);
+
+    // Sleep for elapsedSeconds
+    await sleepOneSec(1.2);
+
+    const second = await sink.markLostDispatches({
+      elapsedSeconds: 1,
+    });
+    expect(second.list).toHaveLength(1);
+    expect(second.list[0]).toMatchObject({
+      id: createdDispatch.id,
+      status: "lost",
+      destination: "BLACK_HOLE",
+      delaySeconds: 1,
+      maxRetries: 5,
+      executionLog: [
+        {
+          result: "failed",
+        },
+      ],
+    });
+
+    // Check ongoing dispatch is lost.
+    const dispatches = await repo.listDispatches(100, undefined, ["ongoing"]);
+    assert(dispatches.isOk());
+    expect(dispatches.value.list).toHaveLength(0);
+  });
+
+  test("detect some lost dispatches using pagination", async () => {
+    const repo = new DevRepository();
+    const sink = new EventSink(
+      repo,
+      new QueueMock(),
+      route,
+      new DefaultLogger("ERROR"),
+    );
+
+    // Create dispatches.
+    await sink.putEvent([{ wait: 1 }]);
+    await sink.putEvent([{ wait: 2 }]);
+    await sink.putEvent([{ wait: 1 }]);
+    await sink.putEvent([{ wait: 2 }]);
+    await sink.putEvent([{ wait: 2 }]);
+    await sink.putEvent([{ wait: 2 }]);
+    await sink.putEvent([{ wait: 1 }]);
+    await sink.putEvent([{ wait: 2 }]);
+
+    // Wait for lost of wait:1 dispatches.
+    await sleepOneSec(2.2);
+
+    // Mark lost dispatches.
+    const first = await sink.markLostDispatches({
+      maxItems: 3,
+      elapsedSeconds: 1,
+    });
+    expect(first.list).toHaveLength(2);
+
+    const second = await sink.markLostDispatches({
+      maxItems: 3,
+      elapsedSeconds: 1,
+      continuationToken: first.continuationToken,
+    });
+    expect(second.list).toHaveLength(0);
+
+    const third = await sink.markLostDispatches({
+      maxItems: 3,
+      elapsedSeconds: 1,
+      continuationToken: second.continuationToken,
+    });
+    expect(third.list).toHaveLength(1);
+    expect(third.continuationToken).toBeUndefined();
+  });
+});
