@@ -4,7 +4,7 @@ import type { Logger } from "../logger";
 import { type DispatchExecution, appendExecutionLog } from "../model";
 import type { Repository } from "../repository";
 import type { QueueMessage } from "../type";
-import { type Handler, isHandler } from "./handler";
+import { type Handler, isHandler, validHandlerResult } from "./handler";
 
 export interface Executor {
   queue(batch: MessageBatch<QueueMessage>): Promise<void>;
@@ -42,9 +42,18 @@ export class Dispatcher {
       const handler = this.findDestinationHandler(dispatch.destination);
 
       const result = await fromAsyncThrowable(async () => {
-        return handler
-          ? handler.handle(event.payload)
-          : ("misconfigured" as const);
+        if (!handler) {
+          this.logger.error(`handler not found: ${dispatch.destination}`);
+          return "misconfigured" as const;
+        }
+        const result = await handler.handle(event.payload);
+        if (!validHandlerResult(result)) {
+          this.logger.error(
+            `got invalid result from handler ${dispatch.destination}: ${result}`,
+          );
+          return "failed" as const;
+        }
+        return result;
       })().unwrapOr("failed" as const);
 
       // Save execution result.
