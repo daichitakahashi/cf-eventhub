@@ -12,7 +12,7 @@ const MatchCondition = v.object({
     v.transform((s) => new RegExp(s)),
   ),
 });
-const Condition = v.variant("path", [ExactCondition, MatchCondition]);
+const Condition = v.union([ExactCondition, MatchCondition]);
 export type Condition = v.InferOutput<typeof Condition>;
 
 const Route = v.object({

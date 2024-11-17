@@ -20,7 +20,7 @@ const getQueue = (env: RpcEnv) => {
   if (!queue) {
     throw new Error("cf-eventhub: EVENTHUB_QUEUE not set");
   }
-  if (typeof queue !== "object" || "send" in queue) {
+  if (typeof queue !== "object" || !("send" in queue)) {
     throw new Error("cf-eventhub: value of EVENTHUB_QUEUE is not a Queue");
   }
   return queue as Queue;
@@ -31,11 +31,9 @@ const getRouteConfig = (env: RpcEnv) => {
   if (!routing) {
     throw new Error("cf-eventhub: EVENTHUB_ROUTING not set");
   }
-  if (typeof routing !== "string") {
-    throw new Error("cf-eventhub: value of EVENTHUB_Routing is not a string");
-  }
-
-  return v.parse(Config, JSON.parse(routing));
+  const maybeConfig =
+    typeof routing === "string" ? JSON.parse(routing) : routing;
+  return v.parse(Config, maybeConfig);
 };
 
 const getLostDetectionElapsedSeconds = (env: RpcEnv) => {

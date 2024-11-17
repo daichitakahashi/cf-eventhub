@@ -1,18 +1,17 @@
-/**
- * Welcome to Cloudflare Workers! This is your first worker.
- *
- * - Run `npm run dev` in your terminal to start a development server
- * - Open a browser tab at http://localhost:8787/ to see your worker in action
- * - Run `npm run deploy` to publish your worker
- *
- * Bind resources to your worker in `wrangler.toml`. After adding bindings, a type definition for the
- * `Env` object can be regenerated with `npm run cf-typegen`.
- *
- * Learn more at https://developers.cloudflare.com/workers/
- */
+import { RpcHandler } from "../../../cf-eventhub/src/core/executor/rpc";
+import type { EventPayload } from "../../../cf-eventhub/src/core/type";
 
-export default {
-	async fetch(request, env, ctx): Promise<Response> {
-		return new Response('Hello World!');
-	},
-} satisfies ExportedHandler<Env>;
+export default class FlakyHandler extends RpcHandler {
+  async handle(
+    _payload: EventPayload,
+  ): Promise<"complete" | "ignored" | "failed"> {
+    const n = Math.random();
+    if (n % 2 === 0) {
+      return "failed";
+    }
+    if (n % 3 === 0) {
+      return "ignored";
+    }
+    return "complete";
+  }
+}

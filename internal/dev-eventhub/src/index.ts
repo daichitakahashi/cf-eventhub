@@ -1,18 +1,9 @@
-/**
- * Welcome to Cloudflare Workers! This is your first worker.
- *
- * - Run `npm run dev` in your terminal to start a development server
- * - Open a browser tab at http://localhost:8787/ to see your worker in action
- * - Run `npm run deploy` to publish your worker
- *
- * Bind resources to your worker in `wrangler.toml`. After adding bindings, a type definition for the
- * `Env` object can be regenerated with `npm run cf-typegen`.
- *
- * Learn more at https://developers.cloudflare.com/workers/
- */
+import type { RpcEnv } from "../../../cf-eventhub/src/core/hub/rpc";
+import { EventHub } from "../../../cf-eventhub/src/dev";
 
-export default {
-	async fetch(request, env, ctx): Promise<Response> {
-		return new Response('Hello World!');
-	},
-} satisfies ExportedHandler<Env>;
+export default class Hub extends EventHub<RpcEnv> {
+  async fetch(_: Request): Promise<Response> {
+    const result = await this.listDispatches();
+    return new Response(JSON.stringify(result, null, 2));
+  }
+}
