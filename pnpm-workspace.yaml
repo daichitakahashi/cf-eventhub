@@ -1,3 +1,4 @@
 packages:
   - cf-eventhub
   - web-console
+  - internal/*
