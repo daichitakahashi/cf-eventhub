@@ -2,8 +2,8 @@ import { Style } from "hono/css";
 import { jsxRenderer } from "hono/jsx-renderer";
 import "typed-htmx";
 
+import { DispatchList } from "../components/DispatchList";
 import { factory } from "../factory";
-import { DispatchList } from "./DispatchList";
 
 declare module "hono/jsx" {
   // biome-ignore lint/style/noNamespace: <explanation>
@@ -43,7 +43,7 @@ const handler = factory
         initial={{
           list: [
             {
-              id: "1",
+              id: crypto.randomUUID(),
               eventId: "1",
               status: "ongoing",
               destination: "OKAYAMA",
@@ -53,9 +53,9 @@ const handler = factory
               createdAt: new Date(),
             },
             {
-              id: "2",
+              id: crypto.randomUUID(),
               eventId: "1",
-              status: "ongoing",
+              status: "ignored",
               destination: "OKAYAMA",
               delaySeconds: 55,
               maxRetries: 55,

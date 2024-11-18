@@ -29,17 +29,17 @@ const handler = factory
   )
   // Retry dispatch.
   .post(
-    "/dispatches/retry",
+    "/dispatches/:id/retry",
     vValidator(
-      "form",
+      "param",
       v.object({
-        dispatchIds: v.array(v.pipe(v.string(), v.minLength(1))),
+        id: v.pipe(v.string(), v.minLength(1)),
       }),
     ),
     async (c) => {
-      const { dispatchIds } = c.req.valid("form");
+      const { id } = c.req.valid("param");
       //await c.env.EVENT_HUB.retryDispatch({ dispatchId: dispatchIds });
-      console.log("dispatchIds:", dispatchIds);
+      console.log("dispatchId:", id);
       return c.newResponse(null, {
         status: 200,
         headers: {
