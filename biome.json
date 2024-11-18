@@ -34,7 +34,8 @@
       "QueueSendBatchOptions",
       "ExecutionContext",
       "ScheduledController",
-      "Service"
+      "Service",
+      "HtmxAttributes"
     ]
   }
 }
