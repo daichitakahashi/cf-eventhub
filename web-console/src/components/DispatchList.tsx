@@ -62,7 +62,7 @@ export const DispatchList: FC<Props> = ({ initial }) => {
                   <div>
                     <h1>{dispatch.id}</h1>
                     <button
-                      class="button is-text is-rounded"
+                      class="button is-text"
                       type="button"
                       _={`
                         on click set dialog to #dialog:${dispatch.id}
@@ -75,10 +75,11 @@ export const DispatchList: FC<Props> = ({ initial }) => {
                     </button>
                     {dispatch.status !== "ongoing" && (
                       <button
-                        class="button is-warning is-rounded"
+                        class="button is-warning"
                         type="button"
                         hx-post={`/api/dispatches/${dispatch.id}/retry`}
                         hx-confirm="Are you sure you wish to retry this dispatch?"
+                        _="on click add .is-loading then add @disabled='true'"
                       >
                         Retry
                       </button>

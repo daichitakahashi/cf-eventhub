@@ -39,6 +39,7 @@ const handler = factory
     async (c) => {
       const { id } = c.req.valid("param");
       //await c.env.EVENT_HUB.retryDispatch({ dispatchId: dispatchIds });
+      await new Promise((resolve) => setTimeout(resolve, 1000));
       console.log("dispatchId:", id);
       return c.newResponse(null, {
         status: 200,
@@ -64,6 +65,34 @@ const handler = factory
         return c.newResponse(null, 404);
       }
       return c.json(result.payload);
+    },
+  )
+  .post(
+    "/events",
+    vValidator(
+      "form",
+      v.object({
+        payload: v.string(),
+      }),
+    ),
+    async (c) => {
+      try {
+        const payload = JSON.parse(c.req.valid("form").payload);
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        return c.newResponse(null, {
+          status: 200,
+          headers: {
+            "HX-Redirect": "/", // Redirect to dispatches.
+          },
+        });
+      } catch {
+        return c.newResponse(null, {
+          status: 200,
+          headers: {
+            "HX-Refresh": "true",
+          },
+        });
+      }
     },
   );
 

@@ -4,6 +4,7 @@ import "typed-htmx";
 
 import { DispatchList } from "../components/DispatchList";
 import { factory } from "../factory";
+import { CreateEvent } from "../components/CreateEvent";
 
 declare module "hono/jsx" {
   // biome-ignore lint/style/noNamespace: <explanation>
@@ -163,7 +164,7 @@ const handler = factory
           </a>
           <span class="mx-2">/</span>Create new event
         </h2>
-        <b>publish page</b>
+        <CreateEvent />
       </div>,
     );
   });
