@@ -28,7 +28,7 @@ export const CreateEvent: FC = () => {
           class="button is-warning"
           hx-post="/api/events"
           hx-confirm="Are you sure you wish to create new event?"
-          _="on click add .is-loading then add @disabled='true'"
+          _="on htmx:beforeSend add .is-loading then add @disabled='true'"
         >
           Create event
         </button>

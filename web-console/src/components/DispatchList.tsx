@@ -58,7 +58,7 @@ export const DispatchList: FC<Props> = ({ initial }) => {
                 >
                   Open
                 </button>
-                <dialog id={`dialog:${dispatch.id}`}>
+                <dialog id={`dialog:${dispatch.id}`} class="container">
                   <div>
                     <h1>{dispatch.id}</h1>
                     <button
@@ -73,13 +73,21 @@ export const DispatchList: FC<Props> = ({ initial }) => {
                     >
                       Close
                     </button>
+                    <textarea
+                      name="payload"
+                      class="textarea is-dark mb-2"
+                      rows={10}
+                      readonly
+                    >
+                      {JSON.stringify(dispatch, null, 2)}
+                    </textarea>
                     {dispatch.status !== "ongoing" && (
                       <button
                         class="button is-warning"
                         type="button"
                         hx-post={`/api/dispatches/${dispatch.id}/retry`}
                         hx-confirm="Are you sure you wish to retry this dispatch?"
-                        _="on click add .is-loading then add @disabled='true'"
+                        _="on htmx:beforeSend add .is-loading then add @disabled='true'"
                       >
                         Retry
                       </button>
