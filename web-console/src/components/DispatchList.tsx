@@ -49,51 +49,60 @@ export const DispatchList: FC<Props> = ({ initial }) => {
                 <button
                   class="button is-small is-dark is-rounded"
                   type="button"
-                  _={`
-                      on click set dialog to #dialog:${dispatch.id}
-                      if dialog does not match @open
-                        call dialog.showModal()
-                      end
-                    `}
+                  _={`on click add .is-active to #dialog:${dispatch.id}`}
                 >
                   Open
                 </button>
-                <dialog id={`dialog:${dispatch.id}`} class="container">
-                  <div>
-                    <h1>{dispatch.id}</h1>
-                    <button
-                      class="button is-text"
-                      type="button"
-                      _={`
-                        on click set dialog to #dialog:${dispatch.id}
-                        if dialog matches @open
-                          call dialog.close()
-                        end
-                      `}
-                    >
-                      Close
-                    </button>
-                    <textarea
-                      name="payload"
-                      class="textarea is-dark mb-2"
-                      rows={10}
-                      readonly
-                    >
-                      {JSON.stringify(dispatch, null, 2)}
-                    </textarea>
-                    {dispatch.status !== "ongoing" && (
-                      <button
-                        class="button is-warning"
-                        type="button"
-                        hx-post={`/api/dispatches/${dispatch.id}/retry`}
-                        hx-confirm="Are you sure you wish to retry this dispatch?"
-                        _="on htmx:beforeSend add .is-loading then add @disabled='true'"
+                <div
+                  id={`dialog:${dispatch.id}`}
+                  class="modal"
+                  _={`
+                    on keydown[key is 'Escape'] from window
+                    if I match .is-active
+                      remove .is-active from me
+                    end
+                  `}
+                >
+                  <div
+                    class="modal-background"
+                    _={`on click remove .is-active from #dialog:${dispatch.id}`}
+                  />
+                  <div class="modal-content">
+                    <div class="card p-4">
+                      <h3 class="title is-5 has-text-weight-semibold">
+                        Dispatch details
+                      </h3>
+                      <h4 class="title is-6 has-text-weight-semibold my-2">
+                        Payload
+                      </h4>
+                      <textarea
+                        name="payload"
+                        class="textarea is-dark mb-2"
+                        rows={10}
+                        readonly
                       >
-                        Retry
-                      </button>
-                    )}
+                        {JSON.stringify(dispatch, null, 2)}
+                      </textarea>
+                      {dispatch.status !== "ongoing" && (
+                        <button
+                          class="button is-warning"
+                          type="button"
+                          hx-post={`/api/dispatches/${dispatch.id}/retry`}
+                          hx-confirm="Are you sure you wish to retry this dispatch?"
+                          _="on htmx:beforeSend add .is-loading then add @disabled='true'"
+                        >
+                          Retry
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </dialog>
+                  <button
+                    type="button"
+                    class="modal-close is-large"
+                    aria-label="close"
+                    _={`on click remove .is-active from #dialog:${dispatch.id}`}
+                  />
+                </div>
               </td>
             </tr>
           );

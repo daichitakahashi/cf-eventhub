@@ -13,7 +13,7 @@ export const CreateEvent: FC = () => {
   );
   return (
     <div>
-      <h3 class="title is-6 has-text-weight-semibold">
+      <h3 class="title is-6 has-text-weight-semibold my-2">
         Enter your payload here:
       </h3>
       <form>
