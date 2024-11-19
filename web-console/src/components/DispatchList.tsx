@@ -1,6 +1,6 @@
 import { type FC, Fragment } from "hono/jsx";
 
-import type { ListDispatchesResult } from "./types";
+import type { Dispatch, ListDispatchesResult } from "./types";
 
 interface Props {
   initial: ListDispatchesResult;
@@ -15,13 +15,14 @@ interface Props {
 export const DispatchList: FC<Props> = ({ initial }) => {
   const lastIndex = initial.list.length - 1;
   return (
-    <table>
+    <table class="table is-striped is-fullwidth is-hoverable">
       <thead>
         <tr>
           <th>Destination</th>
           <th>Created at</th>
+          <th>Last execution</th>
           <th>Status</th>
-          <th>Retry</th>
+          <th>Details</th>
         </tr>
       </thead>
       <tbody>
@@ -29,18 +30,61 @@ export const DispatchList: FC<Props> = ({ initial }) => {
           const item = () => (
             <tr>
               <td>{dispatch.destination}</td>
-              <td>{dispatch.createdAt}</td>
-              <td>{dispatch.status}</td>
+              <td>{dispatch.createdAt.toISOString()}</td>
               <td>
-                {dispatch.status !== "ongoing" && (
-                  <button
-                    type="button"
-                    hx-post={`/api/dispatches/${dispatch.id}/retry`}
-                    hx-confirm="Are you sure you wish to retry selected dispatch?"
-                  >
-                    Retry
-                  </button>
-                )}
+                {dispatch.executionLog.length > 0
+                  ? dispatch.executionLog[
+                      dispatch.executionLog.length - 1
+                    ].executedAt.toISOString()
+                  : "-"}
+              </td>
+              <td>
+                <span
+                  class={`tag ${statusColor(dispatch.status)} is-medium has-text-weight-medium`}
+                >
+                  {dispatch.status}
+                </span>
+              </td>
+              <td>
+                <button
+                  class="button is-small is-dark is-rounded"
+                  type="button"
+                  _={`
+                      on click set dialog to #dialog:${dispatch.id}
+                      if dialog does not match @open
+                        call dialog.showModal()
+                      end
+                    `}
+                >
+                  Open
+                </button>
+                <dialog id={`dialog:${dispatch.id}`}>
+                  <div>
+                    <h1>{dispatch.id}</h1>
+                    <button
+                      class="button is-text is-rounded"
+                      type="button"
+                      _={`
+                        on click set dialog to #dialog:${dispatch.id}
+                        if dialog matches @open
+                          call dialog.close()
+                        end
+                      `}
+                    >
+                      Close
+                    </button>
+                    {dispatch.status !== "ongoing" && (
+                      <button
+                        class="button is-warning is-rounded"
+                        type="button"
+                        hx-post={`/api/dispatches/${dispatch.id}/retry`}
+                        hx-confirm="Are you sure you wish to retry this dispatch?"
+                      >
+                        Retry
+                      </button>
+                    )}
+                  </div>
+                </dialog>
               </td>
             </tr>
           );
@@ -50,12 +94,15 @@ export const DispatchList: FC<Props> = ({ initial }) => {
               {i === lastIndex && initial.continuationToken && (
                 <tr>
                   <td
-                    colspan={3}
+                    colspan={5}
                     hx-get={`/api/dispatches?token=${encodeURIComponent(initial.continuationToken)}`}
                     hx-trigger="intersect"
                     hx-swap="afterend"
                   >
-                    Loading...
+                    <progress
+                      class="progress is-small is-light my-4"
+                      max="100"
+                    />
                   </td>
                 </tr>
               )}
@@ -65,4 +112,23 @@ export const DispatchList: FC<Props> = ({ initial }) => {
       </tbody>
     </table>
   );
+};
+
+const statusColor = (status: Dispatch["status"]) => {
+  switch (status) {
+    case "ongoing":
+      return "is-info is-light";
+    case "ignored":
+      return "is-white";
+    case "complete":
+      return "is-success is-light";
+    case "failed":
+      return "is-danger";
+    case "lost":
+      return "is-danger";
+    case "misconfigured":
+      return "is-danger";
+    default:
+      return "is-light";
+  }
 };
