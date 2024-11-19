@@ -11,12 +11,14 @@ export type EventPayload = JSONObject;
 
 type StructuredClonable = Date;
 
-export type SymbolStripped<T> = {
-  [K in keyof T as K extends string ? K : never]: T[K] extends (infer E)[]
-    ? SymbolStripped<E>[]
+export type RpcSerializable<T> = {
+  [K in keyof T as K extends string
+    ? K
+    : never]: T[K] extends readonly (infer E)[]
+    ? readonly RpcSerializable<E>[]
     : T[K] extends StructuredClonable
       ? T[K]
       : T[K] extends object
-        ? SymbolStripped<T[K]>
+        ? RpcSerializable<T[K]>
         : T[K];
 };
