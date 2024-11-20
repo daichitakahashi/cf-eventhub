@@ -52,11 +52,11 @@ const handler = factory
   .use(renderer)
   .get("/", async (c) => {
     const initial = await c.env.EVENT_HUB.listDispatches({
-      maxItems: 50,
+      maxItems: 20,
       continuationToken: undefined,
       filterByStatus: undefined,
+      orderBy: "CREATED_AT_DESC",
     });
-    console.log("initial:", initial);
 
     return c.render(
       <div>

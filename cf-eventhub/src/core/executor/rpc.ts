@@ -4,7 +4,7 @@ import { Dispatcher, type Executor } from ".";
 import { DefaultLogger, type LogLevel, type Logger } from "../logger";
 import type { Repository } from "../repository";
 import type { EventPayload, QueueMessage } from "../type";
-import { type Handler, handler } from "./handler";
+import type { Handler } from "./handler";
 
 const getLogLevel = (env: Record<string, unknown>) =>
   (env.EVNTHUB_LOG_LEVEL as LogLevel) || "INFO";
@@ -24,6 +24,7 @@ export abstract class RpcExecutor<
   }
 
   private async dispatch(msg: Message<QueueMessage>) {
+    const logger = this.getLogger();
     return this.dispatcher
       .dispatch(msg.body)
       .then((result) => {
@@ -44,7 +45,8 @@ export abstract class RpcExecutor<
           }
         }
       })
-      .catch(() => {
+      .catch((e) => {
+        logger.error("dispatch rejected:", e);
         msg.retry({
           delaySeconds: msg.body.delaySeconds,
         });
@@ -70,8 +72,6 @@ export abstract class RpcHandler<
   extends WorkerEntrypoint<Env>
   implements Handler
 {
-  [handler] = true as const;
-
   abstract handle(
     payload: EventPayload,
   ): Promise<"complete" | "ignored" | "failed">;

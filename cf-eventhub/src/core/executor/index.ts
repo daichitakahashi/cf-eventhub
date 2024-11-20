@@ -41,20 +41,26 @@ export class Dispatcher {
       const { event, dispatch } = dispatchResult.value;
       const handler = this.findDestinationHandler(dispatch.destination);
 
-      const result = await fromAsyncThrowable(async () => {
-        if (!handler) {
-          this.logger.error(`handler not found: ${dispatch.destination}`);
-          return "misconfigured" as const;
-        }
-        const result = await handler.handle(event.payload);
-        if (!validHandlerResult(result)) {
-          this.logger.error(
-            `got invalid result from handler ${dispatch.destination}: ${result}`,
-          );
+      const result = await fromAsyncThrowable(
+        async () => {
+          if (!handler) {
+            this.logger.error(`handler not found: ${dispatch.destination}`);
+            return "misconfigured" as const;
+          }
+          const result = await handler.handle(event.payload);
+          if (!validHandlerResult(result)) {
+            this.logger.error(
+              `got invalid result from handler ${dispatch.destination}: ${result}`,
+            );
+            return "failed" as const;
+          }
+          return result;
+        },
+        (e) => {
+          this.logger.error(`handler ${dispatch.destination} rejected: ${e}`);
           return "failed" as const;
-        }
-        return result;
-      })().unwrapOr("failed" as const);
+        },
+      )().unwrapOr("failed" as const); // impossible path
 
       // Save execution result.
       const appendedDispatch = appendExecutionLog(dispatch, {
