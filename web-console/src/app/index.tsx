@@ -2,9 +2,9 @@ import { Style } from "hono/css";
 import { jsxRenderer } from "hono/jsx-renderer";
 import "typed-htmx";
 
+import { CreateEvent } from "../components/CreateEvent";
 import { DispatchList } from "../components/DispatchList";
 import { factory } from "../factory";
-import { CreateEvent } from "../components/CreateEvent";
 
 declare module "hono/jsx" {
   // biome-ignore lint/style/noNamespace: <explanation>
@@ -56,6 +56,7 @@ const handler = factory
       continuationToken: undefined,
       filterByStatus: undefined,
     });
+    console.log("initial:", initial);
 
     return c.render(
       <div>
@@ -65,93 +66,7 @@ const handler = factory
             Create new event
           </a>
         </h2>
-        <DispatchList
-          initial={{
-            list: [
-              {
-                id: crypto.randomUUID(),
-                eventId: "1",
-                status: "ongoing",
-                destination: "OKAYAMA",
-                delaySeconds: 55,
-                maxRetries: 55,
-                executionLog: [],
-                createdAt: new Date(),
-              },
-              {
-                id: crypto.randomUUID(),
-                eventId: "1",
-                status: "ignored",
-                destination: "OKAYAMA",
-                delaySeconds: 55,
-                maxRetries: 55,
-                executionLog: [],
-                createdAt: new Date(),
-              },
-              {
-                id: crypto.randomUUID(),
-                eventId: "1",
-                status: "failed",
-                destination: "OKAYAMA",
-                delaySeconds: 55,
-                maxRetries: 55,
-                executionLog: [],
-                createdAt: new Date(),
-              },
-              {
-                id: crypto.randomUUID(),
-                eventId: "1",
-                status: "complete",
-                destination: "OKAYAMA",
-                delaySeconds: 55,
-                maxRetries: 55,
-                executionLog: [],
-                createdAt: new Date(),
-              },
-              {
-                id: crypto.randomUUID(),
-                eventId: "1",
-                status: "ongoing",
-                destination: "OKAYAMA",
-                delaySeconds: 55,
-                maxRetries: 55,
-                executionLog: [],
-                createdAt: new Date(),
-              },
-              {
-                id: crypto.randomUUID(),
-                eventId: "1",
-                status: "ignored",
-                destination: "OKAYAMA",
-                delaySeconds: 55,
-                maxRetries: 55,
-                executionLog: [],
-                createdAt: new Date(),
-              },
-              {
-                id: crypto.randomUUID(),
-                eventId: "1",
-                status: "failed",
-                destination: "OKAYAMA",
-                delaySeconds: 55,
-                maxRetries: 55,
-                executionLog: [],
-                createdAt: new Date(),
-              },
-              {
-                id: crypto.randomUUID(),
-                eventId: "1",
-                status: "complete",
-                destination: "OKAYAMA",
-                delaySeconds: 55,
-                maxRetries: 55,
-                executionLog: [],
-                createdAt: new Date(),
-              },
-            ],
-            continuationToken: "asdfafdasdf",
-          }}
-        />
+        <DispatchList initial={initial} />
       </div>,
     );
   })

@@ -38,9 +38,7 @@ const handler = factory
     ),
     async (c) => {
       const { id } = c.req.valid("param");
-      //await c.env.EVENT_HUB.retryDispatch({ dispatchId: dispatchIds });
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      console.log("dispatchId:", id);
+      await c.env.EVENT_HUB.retryDispatch({ dispatchId: id });
       return c.newResponse(null, {
         status: 200,
         headers: {
@@ -64,7 +62,7 @@ const handler = factory
       if (!result) {
         return c.newResponse(null, 404);
       }
-      return c.json(result.payload);
+      return c.text(JSON.stringify(result.payload, null, 2));
     },
   )
   .post(
@@ -78,7 +76,7 @@ const handler = factory
     async (c) => {
       try {
         const payload = JSON.parse(c.req.valid("form").payload);
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+        await c.env.EVENT_HUB.putEvent([payload]);
         return c.newResponse(null, {
           status: 200,
           headers: {

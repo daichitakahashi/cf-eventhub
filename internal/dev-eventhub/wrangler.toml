@@ -22,6 +22,9 @@ destination = "FLAKY_HANDLER"
 binding = "EVENTHUB_QUEUE"
 queue = "eventhub-queue"
 
+[[queues.consumers]]
+queue = "eventhub-queue"
+
 [[services]]
 binding = "STABLE_HANDLER"
 service = "stable-handler"
