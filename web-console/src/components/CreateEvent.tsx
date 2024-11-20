@@ -22,13 +22,24 @@ export const CreateEvent: FC = () => {
           class="textarea is-dark mb-2"
           placeholder={placeholder}
           rows={10}
+          minlength={1}
+          _="
+            on input
+            if event.target.value != ''
+              remove @disabled from #submit
+            else
+              add @disabled='true' to #submit
+            end
+          "
         />
         <button
+          id="submit"
           type="submit"
           class="button is-warning"
           hx-post="/api/events"
           hx-confirm="Are you sure you wish to create new event?"
           _="on htmx:beforeSend add .is-loading then add @disabled='true'"
+          disabled
         >
           Create event
         </button>
