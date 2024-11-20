@@ -65,7 +65,7 @@ const handler = factory
   })
   .get("/", async (c) => {
     const initial = await c.env.EVENT_HUB.listDispatches({
-      maxItems: 20,
+      maxItems: 5,
       continuationToken: undefined,
       filterByStatus: undefined,
       orderBy: "CREATED_AT_DESC",

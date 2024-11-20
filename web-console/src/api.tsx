@@ -1,6 +1,8 @@
 import { vValidator } from "@hono/valibot-validator";
+import { Fragment } from "hono/jsx";
 import * as v from "valibot";
 
+import { DispatchRow, LoadNextDispatches } from "./components/DispatchList";
 import { factory } from "./factory";
 
 const handler = factory
@@ -17,14 +19,28 @@ const handler = factory
     async (c) => {
       const { token } = c.req.valid("query");
       const result = await c.env.EVENT_HUB.listDispatches({
-        maxItems: 20,
-        orderBy: "CREATED_AT_DESC",
+        maxItems: 5,
         continuationToken: token || undefined,
+        filterByStatus: undefined,
+        orderBy: "CREATED_AT_DESC",
       });
-
-      // FIXME: Return HTML
-
-      return c.json(result);
+      return c.html(
+        <Fragment>
+          {result.list.map((dispatch, i) => (
+            <Fragment key={dispatch.id}>
+              <DispatchRow
+                dispatch={dispatch}
+                formatDate={c.get("dateFormatter")}
+              />
+              {i === result.list.length - 1 && result.continuationToken && (
+                <LoadNextDispatches
+                  continuationToken={result.continuationToken}
+                />
+              )}
+            </Fragment>
+          ))}
+        </Fragment>,
+      );
     },
   )
   // Retry dispatch.

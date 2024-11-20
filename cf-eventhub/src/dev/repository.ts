@@ -18,7 +18,7 @@ import type { Repository } from "../core/repository";
 export class DevRepository implements Repository {
   private mu: Mutex;
   private events: Map<string, CreatedEvent>;
-  private dispatches: Map<string, { index: number; dispatch: Dispatch }>;
+  private dispatches: Map<string, Dispatch>;
 
   constructor(repo?: DevRepository) {
     this.mu = new Mutex();
@@ -87,10 +87,7 @@ export class DevRepository implements Repository {
         return ongoingDispatch(id, d);
       });
       for (const d of created) {
-        this.dispatches.set(d.id, {
-          index: this.dispatches.size,
-          dispatch: d,
-        });
+        this.dispatches.set(d.id, d);
       }
 
       return ok(created);
@@ -118,10 +115,7 @@ export class DevRepository implements Repository {
         }
       });
 
-      this.dispatches.set(clone.id, {
-        index: v.index,
-        dispatch: clone,
-      });
+      this.dispatches.set(clone.id, clone);
       return ok((() => {})());
     });
   }
@@ -138,11 +132,11 @@ export class DevRepository implements Repository {
     if (!v) {
       return ok(null);
     }
-    const event = this.events.get(v.dispatch.eventId);
+    const event = this.events.get(v.eventId);
     if (!event) {
       throw new Error("event not found");
     }
-    return ok({ event, dispatch: v.dispatch });
+    return ok({ event, dispatch: v });
   }
 
   async getEvent(
@@ -171,19 +165,18 @@ export class DevRepository implements Repository {
 
     let lastIndex = 0;
     if (continuationToken) {
-      const last = this.dispatches.get(
-        decodeContinuationToken(continuationToken),
-      );
-      if (!last) {
+      const lastId = decodeContinuationToken(continuationToken);
+      const last = values.findIndex((v) => v.id === lastId);
+      if (last < 0) {
         return err("INVALID_CONTINUATION_TOKEN");
       }
-      lastIndex = last.index;
+      lastIndex = last;
     }
 
     const list = lastIndex ? values.slice(lastIndex + 1) : values;
     const filter = filterByStatus ? new Set(filterByStatus) : undefined;
     const result: Dispatch[] = [];
-    for (const { dispatch } of list) {
+    for (const dispatch of list) {
       if (filter && !filter.has(dispatch.status)) {
         continue;
       }
