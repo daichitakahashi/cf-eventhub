@@ -35,6 +35,7 @@
       "ExecutionContext",
       "ScheduledController",
       "Service",
+      "Rpc",
       "HtmxAttributes"
     ]
   }

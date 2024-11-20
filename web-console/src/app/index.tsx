@@ -47,9 +47,22 @@ const renderer = jsxRenderer(({ children }, _options) => (
   </html>
 ));
 
+// TODO: localize
+const f = new Intl.DateTimeFormat("ja", {
+  dateStyle: "full",
+  timeStyle: "long",
+});
+const dateFormatter = (d: Date | Rpc.Provider<Date>) => {
+  return f.format(d as unknown as Date);
+};
+
 const handler = factory
   .createApp()
   .use(renderer)
+  .use((c, next) => {
+    c.set("dateFormatter", dateFormatter);
+    return next();
+  })
   .get("/", async (c) => {
     const initial = await c.env.EVENT_HUB.listDispatches({
       maxItems: 20,
@@ -66,7 +79,7 @@ const handler = factory
             Create new event
           </a>
         </h2>
-        <DispatchList initial={initial} />
+        <DispatchList initial={initial} formatDate={c.get("dateFormatter")} />
       </div>,
     );
   })

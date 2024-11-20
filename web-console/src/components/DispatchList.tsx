@@ -1,22 +1,19 @@
 import { type FC, Fragment } from "hono/jsx";
 
 import { DispatchStatus } from "./DispatchStatus";
-import type { Dispatch, ListDispatchesResult } from "./types";
+import type { ListDispatchesResult } from "./types";
 
 interface Props {
   initial: ListDispatchesResult;
+  formatDate: (d: Date | Rpc.Provider<Date>) => string;
 }
 
 // TODO: Dispatch details(Component).
 //    Component is reused in tha /api/dispatches
 // TODO: InfiniteScrollTrigger component
 //    Also, it is reused in the /api/dispatches
-// TODO: How to see event payload.
 
-// FIXME:
-// 過去の実行
-
-export const DispatchList: FC<Props> = ({ initial }) => {
+export const DispatchList: FC<Props> = ({ initial, formatDate }) => {
   const lastIndex = initial.list.length - 1;
   return (
     <table class="table is-striped is-fullwidth is-hoverable">
@@ -34,12 +31,13 @@ export const DispatchList: FC<Props> = ({ initial }) => {
           const item = () => (
             <tr>
               <td>{dispatch.destination}</td>
-              <td>{dispatch.createdAt.toISOString()}</td>
+              <td>{formatDate(dispatch.createdAt)}</td>
               <td>
                 {dispatch.executionLog.length > 0
-                  ? dispatch.executionLog[
-                      dispatch.executionLog.length - 1
-                    ].executedAt.toISOString()
+                  ? formatDate(
+                      dispatch.executionLog[dispatch.executionLog.length - 1]
+                        .executedAt,
+                    )
                   : "-"}
               </td>
               <td>
@@ -109,7 +107,7 @@ export const DispatchList: FC<Props> = ({ initial }) => {
                               Created at:
                             </div>
                             <div class="cell is-col-span-3">
-                              {dispatch.createdAt.toISOString()}
+                              {formatDate(dispatch.createdAt)}
                             </div>
                             <div class="cell has-text-weight-semibold">
                               Status:
@@ -150,7 +148,7 @@ export const DispatchList: FC<Props> = ({ initial }) => {
                                     </div>
                                     <div>at</div>
                                     <div>
-                                      {execution.executedAt.toISOString()}
+                                      {formatDate(execution.executedAt)}
                                     </div>
                                   </div>
                                 </Fragment>
