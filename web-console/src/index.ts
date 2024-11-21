@@ -1,9 +1,19 @@
 import { Hono } from "hono";
 
-import type { Env } from "./factory";
 import api from "./api";
-import app from "./app";
+import { createHandler } from "./app";
+import type { Env } from "./factory";
 
-const webConsole = new Hono<Env>().route("/", app).route("/api", api);
-
-export default webConsole;
+export const createWebConsole = ({
+  dateFormatter,
+}: {
+  dateFormatter: Intl.DateTimeFormat;
+}) =>
+  new Hono<Env>()
+    .route(
+      "/",
+      createHandler({
+        dateFormatter,
+      }),
+    )
+    .route("/api", api);

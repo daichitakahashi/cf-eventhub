@@ -1,5 +1,5 @@
 name = "web-console"
-main = "src/index.ts"
+main = "src/dev.ts"
 compatibility_date = "2024-11-16"
 compatibility_flags = [ "nodejs_compat" ]
 

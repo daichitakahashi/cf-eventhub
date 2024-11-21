@@ -47,54 +47,50 @@ const renderer = jsxRenderer(({ children }, _options) => (
   </html>
 ));
 
-// TODO: localize
-const f = new Intl.DateTimeFormat("ja", {
-  dateStyle: "full",
-  timeStyle: "long",
-});
-const dateFormatter = (d: Date | Rpc.Provider<Date>) => {
-  return f.format(d as unknown as Date);
-};
+export const createHandler = ({
+  dateFormatter,
+}: {
+  dateFormatter: Intl.DateTimeFormat;
+}) =>
+  factory
+    .createApp()
+    .use(renderer)
+    .use((c, next) => {
+      c.set("dateFormatter", (d: Date | Rpc.Provider<Date>) => {
+        return dateFormatter.format(d as unknown as Date);
+      });
+      return next();
+    })
+    .get("/", async (c) => {
+      const initial = await c.env.EVENT_HUB.listDispatches({
+        maxItems: 5,
+        continuationToken: undefined,
+        filterByStatus: undefined,
+        orderBy: "CREATED_AT_DESC",
+      });
 
-const handler = factory
-  .createApp()
-  .use(renderer)
-  .use((c, next) => {
-    c.set("dateFormatter", dateFormatter);
-    return next();
-  })
-  .get("/", async (c) => {
-    const initial = await c.env.EVENT_HUB.listDispatches({
-      maxItems: 5,
-      continuationToken: undefined,
-      filterByStatus: undefined,
-      orderBy: "CREATED_AT_DESC",
+      return c.render(
+        <div>
+          <h2 class="subtitle is-4 has-text-weight-semibold">
+            Dispatches<span class="mx-2">/</span>
+            <a class="has-text-grey is-underlined" href="/publish">
+              Create new event
+            </a>
+          </h2>
+          <DispatchList initial={initial} formatDate={c.get("dateFormatter")} />
+        </div>,
+      );
+    })
+    .get("/publish", async (c) => {
+      return c.render(
+        <div>
+          <h2 class="subtitle is-4 has-text-weight-semibold">
+            <a class="has-text-grey is-underlined" href="/">
+              Dispatches
+            </a>
+            <span class="mx-2">/</span>Create new event
+          </h2>
+          <CreateEvent />
+        </div>,
+      );
     });
-
-    return c.render(
-      <div>
-        <h2 class="subtitle is-4 has-text-weight-semibold">
-          Dispatches<span class="mx-2">/</span>
-          <a class="has-text-grey is-underlined" href="/publish">
-            Create new event
-          </a>
-        </h2>
-        <DispatchList initial={initial} formatDate={c.get("dateFormatter")} />
-      </div>,
-    );
-  })
-  .get("/publish", async (c) => {
-    return c.render(
-      <div>
-        <h2 class="subtitle is-4 has-text-weight-semibold">
-          <a class="has-text-grey is-underlined" href="/">
-            Dispatches
-          </a>
-          <span class="mx-2">/</span>Create new event
-        </h2>
-        <CreateEvent />
-      </div>,
-    );
-  });
-
-export default handler;
