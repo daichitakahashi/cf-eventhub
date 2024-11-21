@@ -1,22 +1,41 @@
 import * as jsonpath from "jsonpath";
 import * as v from "valibot";
 
-const ExactCondition = v.object({
+const BaseCondition = v.object({
   path: v.pipe(v.string(), v.minLength(1)),
-  exact: v.unknown(),
+});
+const JSONPrimitive = v.union([v.string(), v.number(), v.boolean(), v.null()]);
+
+const ExactCondition = v.object({
+  ...BaseCondition.entries,
+  exact: JSONPrimitive,
 });
 const MatchCondition = v.object({
-  path: v.pipe(v.string(), v.minLength(1)),
+  ...BaseCondition.entries,
   match: v.pipe(
     v.string(),
     v.transform((s) => new RegExp(s)),
   ),
 });
-const Condition = v.union([ExactCondition, MatchCondition]);
+const ArrayIncludesCondition = v.object({
+  ...BaseCondition.entries,
+  includes: JSONPrimitive,
+});
+const HasCondition = v.object({
+  ...BaseCondition.entries,
+  has: v.string(),
+});
+const Condition = v.union([
+  ExactCondition,
+  MatchCondition,
+  ArrayIncludesCondition,
+  HasCondition,
+]);
 export type Condition = v.InferOutput<typeof Condition>;
 
 const Route = v.object({
   conditions: v.array(Condition),
+  operator: v.optional(v.union([v.literal("AND"), v.literal("OR")]), "AND"),
   destination: v.pipe(v.string(), v.minLength(1)),
   delaySeconds: v.optional(v.number()),
   maxRetries: v.optional(v.number()),
@@ -45,17 +64,24 @@ const matchCond = (message: unknown) => (cond: Condition) => {
   }
 
   // Construct matchers
-  const matchers: ((v: unknown) => boolean)[] = [];
+  let match: (v: unknown) => boolean = () => false;
   if ("exact" in cond) {
-    matchers.push((v: unknown) => v === cond.exact);
-  } else {
+    match = (v: unknown) => v === cond.exact;
+  } else if ("match" in cond) {
     const pattern = cond.match;
-    matchers.push((v: unknown) => typeof v === "string" && pattern.test(v));
+    match = (v: unknown) => typeof v === "string" && pattern.test(v);
+  } else if ("includes" in cond) {
+    match = (v: unknown) => Array.isArray(v) && v.includes(cond.includes);
+  } else if ("has" in cond) {
+    match = (v: unknown) => typeof v === "object" && !!v && cond.has in v;
   }
 
-  // Apply matchers (AND)
-  return values.every((v) => matchers.every((match) => match(v)));
+  return values.some(match);
 };
 
 export const findRoutes = (c: Config, message: unknown): Route[] =>
-  c.routes.filter((r) => r.conditions.every(matchCond(message)));
+  c.routes.filter((r) =>
+    r.operator === "AND"
+      ? r.conditions.every(matchCond(message))
+      : r.conditions.some(matchCond(message)),
+  );
