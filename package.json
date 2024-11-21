@@ -1,36 +1,18 @@
 {
   "name": "cf-eventhub",
-  "version": "0.0.0",
-  "private": true,
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
   "scripts": {
-    "deploy": "wrangler deploy",
-    "dev": "wrangler dev",
-    "start": "wrangler dev",
-    "test": "vitest -c vitest.config.worker.mts",
-    "test-node": "vitest -c vitest.config.node.mts",
-    "cf-typegen": "wrangler types",
-    "migration:generate": "drizzle-kit generate"
+    "dev": "node dev/index.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@biomejs/biome": "^1.9.1"
   },
   "devDependencies": {
-    "@biomejs/biome": "^1.9.1",
-    "@cloudflare/vitest-pool-workers": "^0.5.28",
-    "@cloudflare/workers-types": "^4.20240925.0",
-    "@pulumi/cloudflare": "^5.40.0",
-    "@types/jsonpath": "^0.2.4",
-    "@types/node": "^22.7.4",
-    "drizzle-kit": "^0.24.2",
-    "testcontainers": "^10.13.1",
-    "typescript": "^5.6.2",
-    "vitest": "2.1.1",
-    "wrangler": "^3.87.0"
-  },
-  "dependencies": {
-    "@pulumi/pulumi": "^3.135.1",
-    "async-mutex": "^0.5.0",
-    "drizzle-orm": "^0.33.0",
-    "jsonpath": "^1.1.1",
-    "neverthrow": "^8.0.0",
-    "postgres": "^3.4.4",
-    "valibot": "^0.42.0"
+    "chalk": "^5.3.0"
   }
 }

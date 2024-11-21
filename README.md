@@ -61,3 +61,10 @@ sequenceDiagram
     deactivate Queue
   end
 ```
+
+## To run demo
+1. Launch demo workers
+    ```shell
+    $ pnpm dev
+    ```
+2. Open `http://localhost:3041` in your browser

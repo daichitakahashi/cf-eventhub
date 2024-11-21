@@ -1,0 +1,34 @@
+{
+  "name": "@cf-eventhub/web-console",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy --minify",
+    "build": "tsup"
+  },
+  "dependencies": {
+    "@hono/valibot-validator": "^0.5.1",
+    "hono": "^4.6.10",
+    "valibot": "^0.42.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241022.0",
+    "tsup": "^8.3.5",
+    "typed-htmx": "^0.3.1",
+    "typescript": "^5.6.2",
+    "wrangler": "^3.83.0"
+  },
+  "tsup": {
+    "entry": ["src/index.ts"],
+    "splitting": true,
+    "sourcemap": true,
+    "format": ["esm"],
+    "dts": true
+  },
+  "exports": {
+    "/": {
+      "import": "./dist/index.mjs",
+      "types": "./dist/index.d.mts"
+    }
+  },
+  "files": ["dist"]
+}
