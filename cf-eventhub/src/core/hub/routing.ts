@@ -1,8 +1,6 @@
 import * as jsonpath from "jsonpath";
 import * as v from "valibot";
 
-// TODO: lte, gte, lt, gt
-
 const Path = v.pipe(v.string(), v.minLength(1));
 const JSONPrimitive = v.union([v.string(), v.number(), v.boolean(), v.null()]);
 
@@ -21,10 +19,30 @@ const ExistsComparator = v.object({
   path: Path,
   exists: v.literal(true),
 });
+const LteComparator = v.object({
+  path: Path,
+  lte: v.number(),
+});
+const GteComparator = v.object({
+  path: Path,
+  gte: v.number(),
+});
+const LtComparator = v.object({
+  path: Path,
+  lt: v.number(),
+});
+const GtComparator = v.object({
+  path: Path,
+  gt: v.number(),
+});
 const Comparator = v.union([
   ExactComparator,
   MatchComparator,
   ExistsComparator,
+  LteComparator,
+  GteComparator,
+  LtComparator,
+  GtComparator,
 ]);
 type ComparatorInput = v.InferInput<typeof Comparator>;
 type Comparator = v.InferOutput<typeof Comparator>;
@@ -108,8 +126,16 @@ const match = (message: unknown, cond: Comparator) => {
   } else if ("match" in cond) {
     const pattern = cond.match;
     match = (v: unknown) => typeof v === "string" && pattern.test(v);
-  } else if (cond.exists === true) {
+  } else if ("exists" in cond && cond.exists === true) {
     match = () => true;
+  } else if ("lte" in cond) {
+    match = (v: unknown) => typeof v === "number" && v <= cond.lte;
+  } else if ("gte" in cond) {
+    match = (v: unknown) => typeof v === "number" && v >= cond.gte;
+  } else if ("lt" in cond) {
+    match = (v: unknown) => typeof v === "number" && v < cond.lt;
+  } else if ("gt" in cond) {
+    match = (v: unknown) => typeof v === "number" && v > cond.gt;
   }
 
   return values.some(match);

@@ -145,6 +145,172 @@ describe("findRoutes", () => {
     });
   });
 
+  describe("lte comparator", () => {
+    const config = v.parse(Config, {
+      routes: [
+        {
+          condition: {
+            path: "$.value",
+            lte: 100,
+          },
+          destination: "HANDLER",
+          delaySeconds: 10,
+          maxRetries: 3,
+        },
+      ],
+    } satisfies ConfigInput);
+
+    test.for([
+      {
+        value: 99,
+        expected: {
+          destination: "HANDLER",
+          delaySeconds: 10,
+          maxRetries: 3,
+        },
+      },
+      {
+        value: 100,
+        expected: {
+          destination: "HANDLER",
+          delaySeconds: 10,
+          maxRetries: 3,
+        },
+      },
+      { value: 101, expected: undefined },
+    ])(
+      "the destination of payload with value $value is $expected",
+      ({ value, expected }) => {
+        const routes = findRoutes(config, { value });
+        expect(routes[0]).toStrictEqual(expected);
+      },
+    );
+  });
+
+  describe("gte comparator", () => {
+    const config = v.parse(Config, {
+      routes: [
+        {
+          condition: {
+            path: "$.value",
+            gte: 100,
+          },
+          destination: "HANDLER",
+          delaySeconds: 10,
+          maxRetries: 3,
+        },
+      ],
+    } satisfies ConfigInput);
+
+    test.for([
+      {
+        value: 99,
+        expected: undefined,
+      },
+      {
+        value: 100,
+        expected: {
+          destination: "HANDLER",
+          delaySeconds: 10,
+          maxRetries: 3,
+        },
+      },
+      {
+        value: 101,
+        expected: {
+          destination: "HANDLER",
+          delaySeconds: 10,
+          maxRetries: 3,
+        },
+      },
+    ])(
+      "the destination of payload with value $value is $expected",
+      ({ value, expected }) => {
+        const routes = findRoutes(config, { value });
+        expect(routes[0]).toStrictEqual(expected);
+      },
+    );
+  });
+
+  describe("lt comparator", () => {
+    const config = v.parse(Config, {
+      routes: [
+        {
+          condition: {
+            path: "$.value",
+            lt: 100,
+          },
+          destination: "HANDLER",
+          delaySeconds: 10,
+          maxRetries: 3,
+        },
+      ],
+    } satisfies ConfigInput);
+
+    test.for([
+      {
+        value: 99,
+        expected: {
+          destination: "HANDLER",
+          delaySeconds: 10,
+          maxRetries: 3,
+        },
+      },
+      {
+        value: 100,
+        expected: undefined,
+      },
+      { value: 101, expected: undefined },
+    ])(
+      "the destination of payload with value $value is $expected",
+      ({ value, expected }) => {
+        const routes = findRoutes(config, { value });
+        expect(routes[0]).toStrictEqual(expected);
+      },
+    );
+  });
+
+  describe("gt comparator", () => {
+    const config = v.parse(Config, {
+      routes: [
+        {
+          condition: {
+            path: "$.value",
+            gt: 100,
+          },
+          destination: "HANDLER",
+          delaySeconds: 10,
+          maxRetries: 3,
+        },
+      ],
+    } satisfies ConfigInput);
+
+    test.for([
+      {
+        value: 99,
+        expected: undefined,
+      },
+      {
+        value: 100,
+        expected: undefined,
+      },
+      {
+        value: 101,
+        expected: {
+          destination: "HANDLER",
+          delaySeconds: 10,
+          maxRetries: 3,
+        },
+      },
+    ])(
+      "the destination of payload with value $value is $expected",
+      ({ value, expected }) => {
+        const routes = findRoutes(config, { value });
+        expect(routes[0]).toStrictEqual(expected);
+      },
+    );
+  });
+
   describe("'allOf' operator", () => {
     const config = v.parse(Config, {
       routes: [
