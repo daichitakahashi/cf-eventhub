@@ -4,45 +4,45 @@ import * as v from "valibot";
 const Path = v.pipe(v.string(), v.minLength(1));
 const JSONPrimitive = v.union([v.string(), v.number(), v.boolean(), v.null()]);
 
-const ExactComparator = v.object({
-  path: Path,
-  exact: JSONPrimitive,
-});
-const MatchComparator = v.object({
-  path: Path,
-  match: v.pipe(
-    v.string(),
-    v.transform((s) => new RegExp(s)),
-  ),
-});
-const ExistsComparator = v.object({
-  path: Path,
-  exists: v.literal(true),
-});
-const LteComparator = v.object({
-  path: Path,
-  lte: v.number(),
-});
-const GteComparator = v.object({
-  path: Path,
-  gte: v.number(),
-});
-const LtComparator = v.object({
-  path: Path,
-  lt: v.number(),
-});
-const GtComparator = v.object({
-  path: Path,
-  gt: v.number(),
-});
 const Comparator = v.union([
-  ExactComparator,
-  MatchComparator,
-  ExistsComparator,
-  LteComparator,
-  GteComparator,
-  LtComparator,
-  GtComparator,
+  // exact
+  v.object({
+    path: Path,
+    exact: JSONPrimitive,
+  }),
+  // match
+  v.object({
+    path: Path,
+    match: v.pipe(
+      v.string(),
+      v.transform((s) => new RegExp(s)),
+    ),
+  }),
+  // exists
+  v.object({
+    path: Path,
+    exists: v.literal(true),
+  }),
+  // number comparison(lte)
+  v.object({
+    path: Path,
+    lte: v.number(),
+  }),
+  // number comparison(gte)
+  v.object({
+    path: Path,
+    gte: v.number(),
+  }),
+  // number comparison(lt)
+  v.object({
+    path: Path,
+    lt: v.number(),
+  }),
+  // number comparison(gt)
+  v.object({
+    path: Path,
+    gt: v.number(),
+  }),
 ]);
 type ComparatorInput = v.InferInput<typeof Comparator>;
 type Comparator = v.InferOutput<typeof Comparator>;
