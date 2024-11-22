@@ -6,11 +6,11 @@ import { DefaultLogger, type LogLevel, type Logger } from "../logger";
 import type { Dispatch, Event, ResultedDispatch } from "../model";
 import type { Repository } from "../repository";
 import type { EventPayload, RpcSerializable } from "../type";
-import { Config } from "./routing";
+import { Config, type ConfigInput } from "./routing";
 
 export type RpcEnv = Record<string, unknown> & {
   EVENTHUB_QUEUE: Queue;
-  EVENTHUB_ROUTING: string;
+  EVENTHUB_ROUTING: string | ConfigInput;
   EVENTHUB_LOG_LEVEL?: string;
   EVENTHUB_LOST_DETECTION_ELAPSED_SECONDS?: string;
 };

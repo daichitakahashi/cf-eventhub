@@ -1,7 +1,7 @@
 import { Queue, WorkersCronTrigger } from "@pulumi/cloudflare";
 import { type Input, jsonStringify } from "@pulumi/pulumi";
 
-import type { Config, Route } from "../../core/hub/routing";
+import type { Config, ConfigInput } from "../../core/hub/routing";
 
 export type HandlerWorkerScriptBinding = {
   readonly name: Input<string>;
@@ -66,7 +66,7 @@ export const handlerWorkerScriptRef = <W>(
   };
 };
 
-type HandlerRoute<W> = Omit<Route, "destination"> & {
+type HandlerRoute<W> = Omit<ConfigInput["routes"][number], "destination"> & {
   destination: HandlerWorkerScript<W>;
 };
 

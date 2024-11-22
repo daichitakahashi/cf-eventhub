@@ -1,30 +1,96 @@
 import * as jsonpath from "jsonpath";
 import * as v from "valibot";
 
-const ExactCondition = v.object({
-  path: v.pipe(v.string(), v.minLength(1)),
-  exact: v.unknown(),
-});
-const MatchCondition = v.object({
-  path: v.pipe(v.string(), v.minLength(1)),
-  match: v.pipe(
-    v.string(),
-    v.transform((s) => new RegExp(s)),
-  ),
-});
-const Condition = v.union([ExactCondition, MatchCondition]);
-export type Condition = v.InferOutput<typeof Condition>;
+const Path = v.pipe(v.string(), v.minLength(1));
+const JSONPrimitive = v.union([v.string(), v.number(), v.boolean(), v.null()]);
+
+const Comparator = v.union([
+  // exact
+  v.object({
+    path: Path,
+    exact: JSONPrimitive,
+  }),
+  // match
+  v.object({
+    path: Path,
+    match: v.pipe(
+      v.string(),
+      v.transform((s) => new RegExp(s)),
+    ),
+  }),
+  // exists
+  v.object({
+    path: Path,
+    exists: v.literal(true),
+  }),
+  // number comparison(lte)
+  v.object({
+    path: Path,
+    lte: v.number(),
+  }),
+  // number comparison(gte)
+  v.object({
+    path: Path,
+    gte: v.number(),
+  }),
+  // number comparison(lt)
+  v.object({
+    path: Path,
+    lt: v.number(),
+  }),
+  // number comparison(gt)
+  v.object({
+    path: Path,
+    gt: v.number(),
+  }),
+]);
+type ComparatorInput = v.InferInput<typeof Comparator>;
+type Comparator = v.InferOutput<typeof Comparator>;
+
+type LogicalOperatorInput =
+  | {
+      allOf: ConditionInput[];
+    }
+  | {
+      anyOf: ConditionInput[];
+    }
+  | {
+      not: ConditionInput;
+    };
+type LogicalOperator =
+  | {
+      allOf: Condition[];
+    }
+  | {
+      anyOf: Condition[];
+    }
+  | {
+      not: Condition;
+    };
+type ConditionInput = ComparatorInput | LogicalOperatorInput;
+type Condition = Comparator | LogicalOperator;
+
+const LogicalOperator: v.GenericSchema<LogicalOperatorInput, LogicalOperator> =
+  v.union([
+    v.object({
+      allOf: v.lazy(() => v.array(Condition)),
+    }),
+    v.object({
+      anyOf: v.lazy(() => v.array(Condition)),
+    }),
+    v.object({
+      not: v.lazy(() => Condition),
+    }),
+  ]);
+
+const Condition = v.union([Comparator, LogicalOperator]);
 
 const Route = v.object({
-  conditions: v.array(Condition),
+  condition: Condition,
   destination: v.pipe(v.string(), v.minLength(1)),
   delaySeconds: v.optional(v.number()),
   maxRetries: v.optional(v.number()),
 });
-export type Route = v.InferOutput<typeof Route>;
-
-export const RouteConfig = v.array(Route);
-export type RouteConfig = v.InferOutput<typeof RouteConfig>;
 
 /**
  * Route configuration schema.
@@ -34,28 +100,76 @@ export const Config = v.object({
     v.pipe(v.number(), v.integer(), v.minValue(0)),
   ),
   defaultMaxRetries: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0))),
-  routes: RouteConfig,
+  routes: v.array(Route),
 });
+export type ConfigInput = v.InferInput<typeof Config>;
 export type Config = v.InferOutput<typeof Config>;
 
-const matchCond = (message: unknown) => (cond: Condition) => {
-  const values = jsonpath.query(message, cond.path);
+const immediate = <T>(f: () => T) => f();
+
+const match = (message: unknown, cond: Comparator) => {
+  const values = immediate(() => {
+    try {
+      return jsonpath.query(message, cond.path);
+    } catch {
+      return [];
+    }
+  });
   if (values.length === 0) {
     return false;
   }
 
   // Construct matchers
-  const matchers: ((v: unknown) => boolean)[] = [];
+  let match: (v: unknown) => boolean = () => false;
   if ("exact" in cond) {
-    matchers.push((v: unknown) => v === cond.exact);
-  } else {
+    match = (v: unknown) => v === cond.exact;
+  } else if ("match" in cond) {
     const pattern = cond.match;
-    matchers.push((v: unknown) => typeof v === "string" && pattern.test(v));
+    match = (v: unknown) => typeof v === "string" && pattern.test(v);
+  } else if ("exists" in cond && cond.exists === true) {
+    match = () => true;
+  } else if ("lte" in cond) {
+    match = (v: unknown) => typeof v === "number" && v <= cond.lte;
+  } else if ("gte" in cond) {
+    match = (v: unknown) => typeof v === "number" && v >= cond.gte;
+  } else if ("lt" in cond) {
+    match = (v: unknown) => typeof v === "number" && v < cond.lt;
+  } else if ("gt" in cond) {
+    match = (v: unknown) => typeof v === "number" && v > cond.gt;
   }
 
-  // Apply matchers (AND)
-  return values.every((v) => matchers.every((match) => match(v)));
+  return values.some(match);
 };
 
-export const findRoutes = (c: Config, message: unknown): Route[] =>
-  c.routes.filter((r) => r.conditions.every(matchCond(message)));
+const matchCond =
+  (message: unknown) =>
+  (cond: Condition): boolean => {
+    if ("path" in cond) {
+      return match(message, cond);
+    }
+    if ("not" in cond) {
+      return !matchCond(message)(cond.not);
+    }
+    if ("allOf" in cond) {
+      return cond.allOf.every(matchCond(message));
+    }
+    return cond.anyOf.some(matchCond(message));
+  };
+
+type FoundRoute = {
+  destination: string;
+  delaySeconds: number | null;
+  maxRetries: number | null;
+};
+
+export const findRoutes = (c: Config, message: unknown): FoundRoute[] => {
+  const matcher = matchCond(message);
+
+  return c.routes
+    .filter((r) => matcher(r.condition))
+    .map(({ destination, delaySeconds, maxRetries }) => ({
+      destination,
+      delaySeconds: delaySeconds || c.defaultDelaySeconds || null,
+      maxRetries: maxRetries || c.defaultMaxRetries || null,
+    }));
+};
