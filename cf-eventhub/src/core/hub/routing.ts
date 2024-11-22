@@ -1,49 +1,78 @@
 import * as jsonpath from "jsonpath";
 import * as v from "valibot";
 
-const BaseCondition = v.object({
-  path: v.pipe(v.string(), v.minLength(1)),
-});
+// TODO: lte, gte, lt, gt
+
+const Path = v.pipe(v.string(), v.minLength(1));
 const JSONPrimitive = v.union([v.string(), v.number(), v.boolean(), v.null()]);
 
-const ExactCondition = v.object({
-  ...BaseCondition.entries,
+const ExactComparator = v.object({
+  path: Path,
   exact: JSONPrimitive,
 });
-const MatchCondition = v.object({
-  ...BaseCondition.entries,
+const MatchComparator = v.object({
+  path: Path,
   match: v.pipe(
     v.string(),
     v.transform((s) => new RegExp(s)),
   ),
 });
-const ArrayIncludesCondition = v.object({
-  ...BaseCondition.entries,
-  includes: JSONPrimitive,
+const ExistsComparator = v.object({
+  path: Path,
+  exists: v.literal(true),
 });
-const HasCondition = v.object({
-  ...BaseCondition.entries,
-  has: v.string(),
-});
-const Condition = v.union([
-  ExactCondition,
-  MatchCondition,
-  ArrayIncludesCondition,
-  HasCondition,
+const Comparator = v.union([
+  ExactComparator,
+  MatchComparator,
+  ExistsComparator,
 ]);
-export type Condition = v.InferOutput<typeof Condition>;
+type ComparatorInput = v.InferInput<typeof Comparator>;
+type Comparator = v.InferOutput<typeof Comparator>;
+
+type LogicalOperatorInput =
+  | {
+      allOf: ConditionInput[];
+    }
+  | {
+      anyOf: ConditionInput[];
+    }
+  | {
+      not: ConditionInput;
+    };
+type LogicalOperator =
+  | {
+      allOf: Condition[];
+    }
+  | {
+      anyOf: Condition[];
+    }
+  | {
+      not: Condition;
+    };
+type ConditionInput = ComparatorInput | LogicalOperatorInput;
+type Condition = Comparator | LogicalOperator;
+
+const LogicalOperator: v.GenericSchema<LogicalOperatorInput, LogicalOperator> =
+  v.union([
+    v.object({
+      allOf: v.lazy(() => v.array(Condition)),
+    }),
+    v.object({
+      anyOf: v.lazy(() => v.array(Condition)),
+    }),
+    v.object({
+      not: v.lazy(() => Condition),
+    }),
+  ]);
+
+const Condition = v.union([Comparator, LogicalOperator]);
 
 const Route = v.object({
-  conditions: v.array(Condition),
-  operator: v.optional(v.union([v.literal("AND"), v.literal("OR")]), "AND"),
+  condition: Condition,
   destination: v.pipe(v.string(), v.minLength(1)),
   delaySeconds: v.optional(v.number()),
   maxRetries: v.optional(v.number()),
 });
-export type Route = v.InferOutput<typeof Route>;
-
-export const RouteConfig = v.array(Route);
-export type RouteConfig = v.InferOutput<typeof RouteConfig>;
 
 /**
  * Route configuration schema.
@@ -53,12 +82,21 @@ export const Config = v.object({
     v.pipe(v.number(), v.integer(), v.minValue(0)),
   ),
   defaultMaxRetries: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0))),
-  routes: RouteConfig,
+  routes: v.array(Route),
 });
+export type ConfigInput = v.InferInput<typeof Config>;
 export type Config = v.InferOutput<typeof Config>;
 
-const matchCond = (message: unknown) => (cond: Condition) => {
-  const values = jsonpath.query(message, cond.path);
+const immediate = <T>(f: () => T) => f();
+
+const match = (message: unknown, cond: Comparator) => {
+  const values = immediate(() => {
+    try {
+      return jsonpath.query(message, cond.path);
+    } catch {
+      return [];
+    }
+  });
   if (values.length === 0) {
     return false;
   }
@@ -70,18 +108,42 @@ const matchCond = (message: unknown) => (cond: Condition) => {
   } else if ("match" in cond) {
     const pattern = cond.match;
     match = (v: unknown) => typeof v === "string" && pattern.test(v);
-  } else if ("includes" in cond) {
-    match = (v: unknown) => Array.isArray(v) && v.includes(cond.includes);
-  } else if ("has" in cond) {
-    match = (v: unknown) => typeof v === "object" && !!v && cond.has in v;
+  } else if (cond.exists === true) {
+    match = () => true;
   }
 
   return values.some(match);
 };
 
-export const findRoutes = (c: Config, message: unknown): Route[] =>
-  c.routes.filter((r) =>
-    r.operator === "AND"
-      ? r.conditions.every(matchCond(message))
-      : r.conditions.some(matchCond(message)),
-  );
+const matchCond =
+  (message: unknown) =>
+  (cond: Condition): boolean => {
+    if ("path" in cond) {
+      return match(message, cond);
+    }
+    if ("not" in cond) {
+      return !matchCond(message)(cond.not);
+    }
+    if ("allOf" in cond) {
+      return cond.allOf.every(matchCond(message));
+    }
+    return cond.anyOf.some(matchCond(message));
+  };
+
+type FoundRoute = {
+  destination: string;
+  delaySeconds: number | null;
+  maxRetries: number | null;
+};
+
+export const findRoutes = (c: Config, message: unknown): FoundRoute[] => {
+  const matcher = matchCond(message);
+
+  return c.routes
+    .filter((r) => matcher(r.condition))
+    .map(({ destination, delaySeconds, maxRetries }) => ({
+      destination,
+      delaySeconds: delaySeconds || c.defaultDelaySeconds || null,
+      maxRetries: maxRetries || c.defaultMaxRetries || null,
+    }));
+};

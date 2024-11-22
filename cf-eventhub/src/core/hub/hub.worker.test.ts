@@ -3,10 +3,10 @@ import { assert, describe, expect, test } from "vitest";
 import { EventSink } from ".";
 import { DevRepository } from "../../dev/repository";
 import { DefaultLogger } from "../logger";
-import type { Repository } from "../repository";
-import type { Config } from "./routing";
-import type { QueueMessage } from "./queue";
 import { appendExecutionLog, makeDispatchLost } from "../model";
+import type { Repository } from "../repository";
+import type { QueueMessage } from "./queue";
+import type { Config } from "./routing";
 
 class QueueMock implements Queue<QueueMessage> {
   private _sentMessages: {
@@ -57,49 +57,45 @@ const executor =
 const route: Config = {
   routes: [
     {
-      conditions: [
-        {
-          path: "$.like",
-          exact: "culture",
-        },
-        {
-          path: "$.avoidUrban",
-          exact: false,
-        },
-      ],
+      condition: {
+        allOf: [
+          {
+            path: "$.like",
+            exact: "culture",
+          },
+          {
+            path: "$.avoidUrban",
+            exact: false,
+          },
+        ],
+      },
       destination: "TOKYO",
       maxRetries: 11,
       delaySeconds: 11,
     },
     {
-      conditions: [
-        {
-          path: "$.like",
-          exact: "culture",
-        },
-      ],
+      condition: {
+        path: "$.like",
+        exact: "culture",
+      },
       destination: "OKAYAMA",
       maxRetries: 33,
       delaySeconds: 33,
     },
     {
-      conditions: [
-        {
-          path: "$.like",
-          exact: "nature",
-        },
-      ],
+      condition: {
+        path: "$.like",
+        exact: "nature",
+      },
       destination: "HOkKAIDO",
       maxRetries: 66,
       delaySeconds: 66,
     },
     {
-      conditions: [
-        {
-          path: "$.like",
-          exact: "nature",
-        },
-      ],
+      condition: {
+        path: "$.like",
+        exact: "nature",
+      },
       destination: "OKINAWA",
     },
   ],
@@ -412,22 +408,18 @@ describe("markLostDispatches", () => {
   const route: Config = {
     routes: [
       {
-        conditions: [
-          {
-            path: "$.wait",
-            exact: 1,
-          },
-        ],
+        condition: {
+          path: "$.wait",
+          exact: 1,
+        },
         destination: "BLACK_HOLE",
         delaySeconds: 1,
       },
       {
-        conditions: [
-          {
-            path: "$.wait",
-            exact: 2,
-          },
-        ],
+        condition: {
+          path: "$.wait",
+          exact: 2,
+        },
         destination: "BLACK_HOLE",
         delaySeconds: 2,
       },
