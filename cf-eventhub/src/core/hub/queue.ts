@@ -16,7 +16,7 @@ export const enqueue = (
   fromAsyncThrowable(
     () => queue.sendBatch(messages),
     (e) => {
-      logger.error("failed to Queue.sendBatch", e);
+      logger.error("failed to Queue.sendBatch", { error: e });
       return "INTERNAL_SERVER_ERROR" as const;
     },
   )();

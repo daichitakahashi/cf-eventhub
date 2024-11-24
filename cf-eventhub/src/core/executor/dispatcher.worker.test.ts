@@ -7,10 +7,9 @@ import { DefaultLogger } from "../logger";
 import { appendExecutionLog } from "../model";
 import type { Repository } from "../repository";
 import type { EventPayload } from "../type";
-import { type Handler, handler } from "./handler";
+import type { Handler } from "./handler";
 
 const handlerFunc = (fn: Handler["handle"]): Handler => ({
-  [handler]: true,
   handle: (p) => fn(p),
 });
 

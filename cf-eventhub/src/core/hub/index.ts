@@ -2,6 +2,7 @@ import { err, ok, safeTry } from "neverthrow";
 
 import type { Logger } from "../logger";
 import {
+  type CreatedEvent,
   type Dispatch,
   type Event,
   type NewDispatch,
@@ -43,7 +44,7 @@ export class EventSink {
       safeTry(async function* () {
         const createdAt = new Date();
 
-        logger.debug(`put ${events.length} events`);
+        logger.info(`put ${events.length} events`, { events });
 
         // Create events.
         const newEvents = events.map(
@@ -68,7 +69,18 @@ export class EventSink {
         );
 
         if (dispatches.length > 0) {
-          logger.debug(`create ${dispatches.length} dispatches`);
+          logger.info(`create ${dispatches.length} dispatches`, () => {
+            const eventMap = created.reduce((acc, e) => {
+              acc.set(e.id, e);
+              return acc;
+            }, new Map<string, CreatedEvent>());
+            return {
+              dispatches: dispatches.map((d) => ({
+                destination: d.destination,
+                event: eventMap.get(d.eventId)?.payload,
+              })),
+            };
+          });
 
           // Create dispatches.
           const createdDispatches = yield* (
@@ -88,7 +100,7 @@ export class EventSink {
           );
           yield* enqueue(queue, messages, logger).safeUnwrap();
         } else {
-          logger.debug("no dispatches created");
+          logger.info("no dispatches created");
         }
         return ok(constVoid);
       }),

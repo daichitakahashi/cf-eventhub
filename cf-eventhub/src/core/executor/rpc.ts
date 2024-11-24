@@ -46,7 +46,7 @@ export abstract class RpcExecutor<
         }
       })
       .catch((e) => {
-        logger.error("dispatch rejected:", e);
+        logger.error("dispatch rejected", { error: e });
         msg.retry({
           delaySeconds: msg.body.delaySeconds,
         });
