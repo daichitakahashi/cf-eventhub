@@ -97,7 +97,7 @@ export class PgRepository implements Repository {
         );
       },
       (e) => {
-        this.logger.error("createEvents:", e);
+        this.logger.error("error on createEvents", { error: e });
         return "INTERNAL_SERVER_ERROR" as const;
       },
     )();
@@ -134,7 +134,7 @@ export class PgRepository implements Repository {
         );
       },
       (e) => {
-        this.logger.error("createDispatches:", e);
+        this.logger.error("error on createDispatches", { error: e });
         return "INTERNAL_SERVER_ERROR" as const;
       },
     )();
@@ -166,7 +166,7 @@ export class PgRepository implements Repository {
         }
       },
       (e) => {
-        this.logger.error("saveDispatch:", e);
+        this.logger.error("error on saveDispatch", { error: e });
         return "INTERNAL_SERVER_ERROR" as const;
       },
     )();
@@ -263,7 +263,7 @@ export class PgRepository implements Repository {
         return { event, dispatch };
       },
       (e) => {
-        logger.error("getDispatch:", e);
+        logger.error("error on getDispatch", { error: e });
         return "INTERNAL_SERVER_ERROR" as const;
       },
     )();
@@ -293,7 +293,7 @@ export class PgRepository implements Repository {
         });
       },
       (e) => {
-        logger.error("getEvent:", e);
+        logger.error("error on getEvent", { error: e });
         return "INTERNAL_SERVER_ERROR" as const;
       },
     )();
@@ -450,7 +450,7 @@ export class PgRepository implements Repository {
         };
       },
       (e) => {
-        logger.error("listDispatches:", e);
+        logger.error("error on listDispatches", { error: e });
         return "INTERNAL_SERVER_ERROR" as const;
       },
     )();

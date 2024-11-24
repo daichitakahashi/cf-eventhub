@@ -57,7 +57,9 @@ export class Dispatcher {
           return result;
         },
         (e) => {
-          this.logger.error(`handler ${dispatch.destination} rejected: ${e}`);
+          this.logger.error(`handler ${dispatch.destination} rejected`, {
+            error: e,
+          });
           return "failed" as const;
         },
       )().unwrapOr("failed" as const); // impossible path
@@ -77,7 +79,7 @@ export class Dispatcher {
     return result.match(
       (result) => result,
       (e) => {
-        this.logger.error("error on dispatch:", e);
+        this.logger.error("error on dispatch", { error: e });
         return "failed";
       },
     );

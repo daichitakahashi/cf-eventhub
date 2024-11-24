@@ -1,13 +1,14 @@
+type LogData = unknown | (() => unknown);
 export interface Logger {
-  debug(...data: unknown[]): void;
-  info(...data: unknown[]): void;
-  error(...data: unknown[]): void;
+  debug(message: string, data?: LogData): void;
+  info(message: string, data?: LogData): void;
+  error(message: string, data?: LogData): void;
 }
 
 export class NopLogger implements Logger {
-  debug(..._data: unknown[]) {}
-  info(..._data: unknown[]) {}
-  error(..._data: unknown[]) {}
+  debug(_: string, __?: LogData) {}
+  info(_: string, __?: LogData) {}
+  error(_: string, __?: LogData) {}
 }
 
 export type LogLevel = "DEBUG" | "INFO" | "ERROR";
@@ -34,19 +35,31 @@ export class DefaultLogger implements Logger {
     this.outputLogLevel = outputLogLevel(level);
   }
 
-  debug(...data: unknown[]) {
+  debug(message: string, data?: LogData) {
     if (this.outputLogLevel("DEBUG")) {
-      console.log("[DEBUG]:", ...data);
+      console.log({
+        logLevel: "DEBUG",
+        message,
+        data: typeof data === "function" ? data() : data,
+      });
     }
   }
-  info(...data: unknown[]) {
+  info(message: string, data?: LogData) {
     if (this.outputLogLevel("INFO")) {
-      console.log("[INFO]:", ...data);
+      console.log({
+        logLevel: "INFO",
+        message,
+        data: typeof data === "function" ? data() : data,
+      });
     }
   }
-  error(...data: unknown[]) {
+  error(message: string, data?: LogData) {
     if (this.outputLogLevel("ERROR")) {
-      console.error("[ERROR]", ...data);
+      console.log({
+        logLevel: "ERROR",
+        message,
+        data: typeof data === "function" ? data() : data,
+      });
     }
   }
 }

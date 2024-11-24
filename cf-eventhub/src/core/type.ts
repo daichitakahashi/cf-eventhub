@@ -1,4 +1,4 @@
-export { Config, RouteConfig } from "./hub/routing";
+export { Config } from "./hub/routing";
 export type { QueueMessage } from "./hub/queue";
 
 type JSONPrimitive = string | boolean | number | null;
