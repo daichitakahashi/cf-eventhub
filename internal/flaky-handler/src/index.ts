@@ -1,5 +1,5 @@
-import { RpcHandler } from "../../../cf-eventhub/src/core/executor/rpc";
-import type { EventPayload } from "../../../cf-eventhub/src/core/type";
+import { RpcHandler } from "cf-eventhub";
+import type { EventPayload } from "cf-eventhub/core";
 
 export default class FlakyHandler extends RpcHandler {
   async handle(

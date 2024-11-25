@@ -1,12 +1,12 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import * as v from "valibot";
 
-import { type EventHub, EventSink } from ".";
-import { DefaultLogger, type LogLevel, type Logger } from "../logger";
-import type { Dispatch, Event, ResultedDispatch } from "../model";
-import type { Repository } from "../repository";
-import type { EventPayload, RpcSerializable } from "../type";
-import { Config, type ConfigInput } from "./routing";
+import { EventSink } from "./core/hub";
+import { Config, type ConfigInput } from "./core/hub/routing";
+import { DefaultLogger, type LogLevel, type Logger } from "./core/logger";
+import type { Dispatch, Event, ResultedDispatch } from "./core/model";
+import type { Repository } from "./core/repository";
+import type { EventPayload, RpcSerializable } from "./core/type";
 
 export type RpcEnv = Record<string, unknown> & {
   EVENTHUB_QUEUE: Queue;
@@ -54,10 +54,9 @@ const getLostDetectionElapsedSeconds = (env: RpcEnv) => {
 const getLogLevel = (env: RpcEnv) =>
   (env.EVNTHUB_LOG_LEVEL as LogLevel) || "INFO";
 
-export abstract class RpcEventHub<Env extends RpcEnv = RpcEnv>
-  extends WorkerEntrypoint<Env>
-  implements EventHub
-{
+export abstract class RpcEventHub<
+  Env extends RpcEnv = RpcEnv,
+> extends WorkerEntrypoint<Env> {
   private sink: EventSink;
   private lostDetectionElapsedSeconds: number | undefined;
 

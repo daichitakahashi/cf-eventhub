@@ -1,7 +1,7 @@
-import { RpcExecutor } from "../core/executor/rpc";
-import { type RpcEnv, RpcEventHub } from "../core/hub/rpc";
 import type { Logger } from "../core/logger";
 import type { Repository } from "../core/repository";
+import { type RpcEnv, RpcEventHub } from "../eventhub";
+import { RpcExecutor } from "../executor";
 import { createRepository } from "./postgresjs-repository";
 
 export class Executor<
@@ -17,3 +17,5 @@ export class EventHub<Env extends RpcEnv = RpcEnv> extends RpcEventHub<Env> {
     return createRepository(this.env, logger);
   }
 }
+
+export { createRepository } from "./postgresjs-repository";

@@ -1,20 +1,17 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 
-import { Dispatcher, type Executor } from ".";
-import { DefaultLogger, type LogLevel, type Logger } from "../logger";
-import type { Repository } from "../repository";
-import type { EventPayload, QueueMessage } from "../type";
-import type { Handler } from "./handler";
+import { Dispatcher } from "./core/executor";
+import type { Handler } from "./core/executor/handler";
+import { DefaultLogger, type LogLevel, type Logger } from "./core/logger";
+import type { Repository } from "./core/repository";
+import type { EventPayload, QueueMessage } from "./core/type";
 
 const getLogLevel = (env: Record<string, unknown>) =>
   (env.EVNTHUB_LOG_LEVEL as LogLevel) || "INFO";
 
 export abstract class RpcExecutor<
-    Env extends Record<string, unknown> = Record<string, unknown>,
-  >
-  extends WorkerEntrypoint<Env>
-  implements Executor
-{
+  Env extends Record<string, unknown> = Record<string, unknown>,
+> extends WorkerEntrypoint<Env> {
   private dispatcher: Dispatcher;
 
   constructor(ctx: ExecutionContext, env: Env) {

@@ -18,10 +18,6 @@ import { type Config, findRoutes } from "./routing";
 
 const constVoid = (() => {})();
 
-export interface EventHub {
-  putEvent(events: EventPayload[]): Promise<void>;
-}
-
 export class EventSink {
   constructor(
     private repo: Repository,

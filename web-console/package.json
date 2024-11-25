@@ -10,7 +10,8 @@
   "dependencies": {
     "@hono/valibot-validator": "^0.5.1",
     "hono": "^4.6.10",
-    "valibot": "^0.42.0"
+    "valibot": "^0.42.0",
+    "cf-eventhub": "workspace:../cf-eventhub"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241022.0",
@@ -20,14 +21,10 @@
     "wrangler": "^3.83.0"
   },
   "tsup": {
-    "entry": [
-      "src/index.ts"
-    ],
+    "entry": ["src/index.ts"],
     "splitting": true,
     "sourcemap": true,
-    "format": [
-      "esm"
-    ],
+    "format": ["esm"],
     "dts": true
   },
   "exports": {
@@ -36,7 +33,5 @@
       "types": "./dist/index.d.mts"
     }
   },
-  "files": [
-    "dist"
-  ]
+  "files": ["dist"]
 }

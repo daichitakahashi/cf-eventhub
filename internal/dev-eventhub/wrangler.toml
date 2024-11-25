@@ -8,14 +8,10 @@ compatibility_flags = ["nodejs_compat"]
 defaultDelaySeconds = 9
 defaultMaxRetries = 5
 [[vars.EVENTHUB_ROUTING.routes]]
-conditions = [
-    { path = "$.flaky", exact = false }
-]
+condition = { path = "$.flaky", exact = false }
 destination = "STABLE_HANDLER"
 [[vars.EVENTHUB_ROUTING.routes]]
-conditions = [
-    { path = "$.flaky", exact = true }
-]
+condition = { path = "$.flaky", exact = true }
 destination = "FLAKY_HANDLER"
 
 [[queues.producers]]
