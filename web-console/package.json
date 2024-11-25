@@ -1,7 +1,7 @@
 {
   "name": "@cf-eventhub/web-console",
   "type": "module",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy --minify",
@@ -11,7 +11,7 @@
     "@hono/valibot-validator": "^0.5.1",
     "hono": "^4.6.10",
     "valibot": "^0.42.0",
-    "cf-eventhub": "workspace:../cf-eventhub"
+    "cf-eventhub": "^0.0.2"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241022.0",
@@ -22,10 +22,11 @@
   },
   "tsup": {
     "entry": ["src/index.ts"],
-    "splitting": true,
+    "splitting": false,
     "sourcemap": true,
     "format": ["esm"],
-    "dts": true
+    "dts": true,
+    "clean": true
   },
   "exports": {
     "/": {
