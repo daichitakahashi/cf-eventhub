@@ -1,0 +1,24 @@
+name: Test cf-eventhub
+on:
+  pull_request:
+    branches:
+      - main
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 9
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+      - run: pnpm install
+      - run: docker pull postgres:16.1
+      - run: pnpm test
+        working-directory: cf-eventhub
+      - run: pnpm test-node
+        working-directory: cf-eventhub
