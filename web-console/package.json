@@ -1,7 +1,7 @@
 {
   "name": "@cf-eventhub/web-console",
   "type": "module",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy --minify",
@@ -10,21 +10,25 @@
   "dependencies": {
     "@hono/valibot-validator": "^0.5.1",
     "hono": "^4.6.10",
-    "valibot": "^0.42.0",
-    "cf-eventhub": "^0.0.2"
+    "valibot": "^0.42.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241022.0",
     "tsup": "^8.3.5",
     "typed-htmx": "^0.3.1",
     "typescript": "^5.6.2",
-    "wrangler": "^3.83.0"
+    "wrangler": "^3.83.0",
+    "cf-eventhub": "^0.0.3"
   },
   "tsup": {
-    "entry": ["src/index.ts"],
+    "entry": [
+      "src/index.ts"
+    ],
     "splitting": false,
     "sourcemap": true,
-    "format": ["esm"],
+    "format": [
+      "esm"
+    ],
     "dts": true,
     "clean": true
   },
@@ -34,5 +38,7 @@
       "types": "./dist/index.d.mts"
     }
   },
-  "files": ["dist"]
+  "files": [
+    "dist"
+  ]
 }
