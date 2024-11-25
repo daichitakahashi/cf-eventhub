@@ -1,5 +1,7 @@
 {
   "name": "@cf-eventhub/web-console",
+  "type": "module",
+  "version": "0.0.1",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy --minify",
@@ -18,10 +20,14 @@
     "wrangler": "^3.83.0"
   },
   "tsup": {
-    "entry": ["src/index.ts"],
+    "entry": [
+      "src/index.ts"
+    ],
     "splitting": true,
     "sourcemap": true,
-    "format": ["esm"],
+    "format": [
+      "esm"
+    ],
     "dts": true
   },
   "exports": {
@@ -30,5 +36,7 @@
       "types": "./dist/index.d.mts"
     }
   },
-  "files": ["dist"]
+  "files": [
+    "dist"
+  ]
 }
