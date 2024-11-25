@@ -39,7 +39,10 @@ jobs:
           node-version: 22
           cache: "pnpm"
       - run: pnpm install
-      - run: echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > .npmrc
+      - run: pnpm build
+        working-directory: cf-eventhub
+      - run: pnpm build
+        working-directory: web-console
       - uses: changesets/action@v1
         with:
           publish: pnpm ci:publish
@@ -47,3 +50,4 @@ jobs:
           title: Release npm packages
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
