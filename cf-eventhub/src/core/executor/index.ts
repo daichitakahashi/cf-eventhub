@@ -6,10 +6,6 @@ import type { Repository } from "../repository";
 import type { QueueMessage } from "../type";
 import { type Handler, isHandler, validHandlerResult } from "./handler";
 
-export interface Executor {
-  queue(batch: MessageBatch<QueueMessage>): Promise<void>;
-}
-
 export class Dispatcher {
   constructor(
     private repo: Repository,

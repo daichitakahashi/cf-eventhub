@@ -1,6 +1,5 @@
+import type { RpcEventHub } from "cf-eventhub";
 import { createFactory } from "hono/factory";
-
-import type { RpcEventHub } from "../../cf-eventhub/src/core/hub/rpc";
 
 export type Env = {
   Bindings: {

@@ -1,12 +1,6 @@
-import { RpcExecutor } from "../../../cf-eventhub/src/core/executor/rpc";
-import {
-  type RpcEnv,
-  RpcEventHub,
-} from "../../../cf-eventhub/src/core/hub/rpc";
-import type { Logger } from "../../../cf-eventhub/src/core/logger";
-import type { Repository } from "../../../cf-eventhub/src/core/repository";
-import type { QueueMessage } from "../../../cf-eventhub/src/core/type";
-import { DevRepository } from "../../../cf-eventhub/src/dev/repository";
+import { type RpcEnv, RpcEventHub, RpcExecutor } from "cf-eventhub";
+import type { Logger, QueueMessage, Repository } from "cf-eventhub/core";
+import { DevRepository } from "cf-eventhub/dev";
 
 const repo = new DevRepository();
 

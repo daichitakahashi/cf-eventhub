@@ -6,7 +6,6 @@ import type { Repository } from "../core/repository";
 import { PgRepository } from "./repository";
 import * as schema from "./schema";
 
-/** @internal */
 export const createRepository = (
   env: Record<string, unknown>,
   logger: Logger,
