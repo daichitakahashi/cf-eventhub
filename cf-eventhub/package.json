@@ -1,8 +1,10 @@
 {
   "name": "cf-eventhub",
   "type": "module",
-  "version": "0.0.3",
-  "keywords": ["cloudflare"],
+  "version": "0.0.4",
+  "keywords": [
+    "cloudflare"
+  ],
   "scripts": {
     "build": "tsup --external cloudflare:workers",
     "test": "vitest -c vitest.config.worker.mts",
@@ -39,7 +41,10 @@
     ],
     "splitting": false,
     "sourcemap": true,
-    "format": ["esm", "cjs"],
+    "format": [
+      "esm",
+      "cjs"
+    ],
     "dts": true,
     "clean": true
   },
@@ -65,5 +70,8 @@
       "types": "./dist/postgres/postgresjs.d.ts"
     }
   },
-  "files": ["dist", "src/migration"]
+  "files": [
+    "dist",
+    "src/migration"
+  ]
 }

@@ -1,5 +1,11 @@
 # cf-eventhub
 
+## 0.0.4
+
+### Patch Changes
+
+- 9a22301: New separated "@cf-eventhub/pulumi" package
+
 ## 0.0.3
 
 ### Patch Changes
