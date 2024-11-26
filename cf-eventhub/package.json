@@ -2,6 +2,7 @@
   "name": "cf-eventhub",
   "type": "module",
   "version": "0.0.3",
+  "keywords": ["cloudflare"],
   "scripts": {
     "build": "tsup --external cloudflare:workers",
     "test": "vitest -c vitest.config.worker.mts",
@@ -33,36 +34,36 @@
   "tsup": {
     "entry": [
       "src/**/*.ts",
-      "!src/**/*.test.ts"
+      "!src/**/*.test.ts",
+      "!src/repositorytest/**/*.ts"
     ],
     "splitting": false,
     "sourcemap": true,
-    "format": [
-      "esm"
-    ],
+    "format": ["esm", "cjs"],
     "dts": true,
     "clean": true
   },
   "exports": {
     ".": {
       "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
       "types": "./dist/index.d.ts"
     },
     "./core": {
       "import": "./dist/core/index.js",
+      "require": "./dist/core/index.cjs",
       "types": "./dist/core/index.d.ts"
     },
     "./dev": {
       "import": "./dist/dev/index.js",
+      "require": "./dist/dev/index.cjs",
       "types": "./dist/dev/index.d.ts"
     },
     "./postgresjs": {
       "import": "./dist/postgres/postgresjs.js",
+      "require": "./dist/postgres/index.cjs",
       "types": "./dist/postgres/postgresjs.d.ts"
     }
   },
-  "files": [
-    "dist",
-    "src/migration"
-  ]
+  "files": ["dist", "src/migration"]
 }
