@@ -1,0 +1,42 @@
+{
+  "name": "@cf-eventhub/pulumi",
+  "main": "src/index.ts",
+  "type": "commonjs",
+  "version": "0.0.1",
+  "keywords": [
+    "pulumi",
+    "cloudflare"
+  ],
+  "scripts": {
+    "build": "tsup"
+  },
+  "devDependencies": {
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "@pulumi/cloudflare": "^5.40.0",
+    "@pulumi/pulumi": "^3.113.0",
+    "cf-eventhub": "^0.0.4"
+  },
+  "tsup": {
+    "entry": [
+      "src/index.ts"
+    ],
+    "splitting": false,
+    "sourcemap": true,
+    "format": [
+      "esm",
+      "cjs"
+    ],
+    "dts": true,
+    "clean": true
+  },
+  "exports": {
+    "import": "./dist/index.mjs",
+    "require": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ]
+}

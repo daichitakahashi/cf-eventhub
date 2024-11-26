@@ -1,7 +1,6 @@
 import { Queue, WorkersCronTrigger } from "@pulumi/cloudflare";
 import { type Input, jsonStringify } from "@pulumi/pulumi";
-
-import type { Config, ConfigInput } from "../../core/hub/routing";
+import type { Config, ConfigInput } from "cf-eventhub/core";
 
 export type HandlerWorkerScriptBinding = {
   readonly name: Input<string>;
@@ -238,12 +237,12 @@ export abstract class EventHub<
     this.handlers = handlers;
   }
 
-  abstract createEventHubWorkerScript(
+  protected abstract createEventHubWorkerScript(
     name: string,
     args: CreateEventHubWorkerScriptArgs,
   ): _WorkerScript;
 
-  abstract createExecutorWorkerScript(
+  protected abstract createExecutorWorkerScript(
     name: string,
     args: CreateExecutorWorkerScriptArgs,
   ): _WorkerScript;
