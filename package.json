@@ -5,7 +5,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "node dev/index.mjs",
+    "dev": "node internal/index.mjs",
     "ci:publish": "pnpm publish -r"
   },
   "keywords": [],
