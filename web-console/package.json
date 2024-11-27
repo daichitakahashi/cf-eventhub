@@ -1,7 +1,7 @@
 {
   "name": "@cf-eventhub/web-console",
   "type": "module",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy --minify",
@@ -21,10 +21,15 @@
     "cf-eventhub": "^0.0.4"
   },
   "tsup": {
-    "entry": ["src/index.ts"],
+    "entry": [
+      "src/index.ts"
+    ],
     "splitting": false,
     "sourcemap": true,
-    "format": ["esm", "cjs"],
+    "format": [
+      "esm",
+      "cjs"
+    ],
     "dts": true,
     "clean": true
   },
@@ -32,5 +37,7 @@
     "import": "./dist/index.js",
     "require": "./dist/index.cjs"
   },
-  "files": ["dist"]
+  "files": [
+    "dist"
+  ]
 }
