@@ -43,6 +43,8 @@ jobs:
         working-directory: cf-eventhub
       - run: pnpm build
         working-directory: web-console
+      - run: pnpm build
+        working-directory: iac/pulumi
       - uses: changesets/action@v1
         with:
           publish: pnpm ci:publish
