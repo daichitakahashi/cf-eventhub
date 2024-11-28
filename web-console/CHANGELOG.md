@@ -1,5 +1,11 @@
 # @cf-eventhub/web-console
 
+## 0.0.5
+
+### Patch Changes
+
+- bonsai
+
 ## 0.0.4
 
 ### Patch Changes

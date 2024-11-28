@@ -1,5 +1,12 @@
 # @cf-eventhub/pulumi
 
+## 0.0.2
+
+### Patch Changes
+
+- Updated dependencies
+  - cf-eventhub@0.0.5
+
 ## 0.0.1
 
 ### Patch Changes
