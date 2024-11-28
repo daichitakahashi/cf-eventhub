@@ -1,7 +1,7 @@
 {
   "name": "cf-eventhub",
   "type": "module",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "keywords": [
     "cloudflare"
   ],
@@ -49,23 +49,19 @@
   "exports": {
     ".": {
       "import": "./dist/index.js",
-      "require": "./dist/index.cjs",
-      "types": "./dist/index.d.ts"
+      "require": "./dist/index.cjs"
     },
     "./core": {
       "import": "./dist/core/index.js",
-      "require": "./dist/core/index.cjs",
-      "types": "./dist/core/index.d.ts"
+      "require": "./dist/core/index.cjs"
     },
     "./dev": {
       "import": "./dist/dev/index.js",
-      "require": "./dist/dev/index.cjs",
-      "types": "./dist/dev/index.d.ts"
+      "require": "./dist/dev/index.cjs"
     },
     "./postgresjs": {
       "import": "./dist/postgres/postgresjs.js",
-      "require": "./dist/postgres/index.cjs",
-      "types": "./dist/postgres/postgresjs.d.ts"
+      "require": "./dist/postgres/index.cjs"
     }
   },
   "files": [
