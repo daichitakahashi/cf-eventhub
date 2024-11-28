@@ -35,51 +35,53 @@ export const events = eventhub.table(
       withTimezone: true,
     }).notNull(),
   },
-  (t) => ({
-    createdAtIndex: index().on(t.createdAt),
-  }),
+  (t) => [index().on(t.createdAt)],
 );
 
 export const eventsRelations = relations(events, ({ many }) => ({
   dispatches: many(dispatches),
 }));
 
-export const dispatches = eventhub.table("dispatches", {
-  /**
-   * Dispatch ID
-   */
-  id: uuid("id").primaryKey().defaultRandom(),
+export const dispatches = eventhub.table(
+  "dispatches",
+  {
+    /**
+     * Dispatch ID
+     */
+    id: uuid("id").primaryKey().defaultRandom(),
 
-  /**
-   * Event ID
-   */
-  eventId: uuid("event_id")
-    .notNull()
-    .references(() => events.id),
+    /**
+     * Event ID
+     */
+    eventId: uuid("event_id")
+      .notNull()
+      .references(() => events.id),
 
-  /**
-   * Dispatch destination
-   */
-  destination: text("destination").notNull(),
+    /**
+     * Dispatch destination
+     */
+    destination: text("destination").notNull(),
 
-  /**
-   * Create time
-   */
-  createdAt: timestamp("created_at", {
-    mode: "date",
-    withTimezone: true,
-  }).notNull(),
+    /**
+     * Create time
+     */
+    createdAt: timestamp("created_at", {
+      mode: "date",
+      withTimezone: true,
+    }).notNull(),
 
-  /**
-   * First delay seconds
-   */
-  delaySeconds: integer("delay_seconds"),
+    /**
+     * First delay seconds
+     */
+    delaySeconds: integer("delay_seconds"),
 
-  /**
-   * Max retry count
-   */
-  maxRetries: integer("max_retries").notNull(),
-});
+    /**
+     * Max retry count
+     */
+    maxRetries: integer("max_retries").notNull(),
+  },
+  (t) => [index().on(t.createdAt)],
+);
 
 export const dispatchesRelations = relations(dispatches, ({ one, many }) => ({
   event: one(events, {
@@ -90,32 +92,36 @@ export const dispatchesRelations = relations(dispatches, ({ one, many }) => ({
   result: one(dispatchResults),
 }));
 
-export const dispatchExecutions = eventhub.table("dispatch_executions", {
-  /**
-   * Execution ID
-   */
-  id: uuid("id").primaryKey().defaultRandom(),
+export const dispatchExecutions = eventhub.table(
+  "dispatch_executions",
+  {
+    /**
+     * Execution ID
+     */
+    id: uuid("id").primaryKey().defaultRandom(),
 
-  /**
-   * Dispatch ID
-   */
-  dispatchId: uuid("dispatch_id")
-    .notNull()
-    .references(() => dispatches.id),
+    /**
+     * Dispatch ID
+     */
+    dispatchId: uuid("dispatch_id")
+      .notNull()
+      .references(() => dispatches.id),
 
-  /**
-   * Result of the execution
-   */
-  result: text("result").notNull().$type<DispatchExecution["result"]>(),
+    /**
+     * Result of the execution
+     */
+    result: text("result").notNull().$type<DispatchExecution["result"]>(),
 
-  /**
-   * Execute time
-   */
-  executedAt: timestamp("executed_at", {
-    mode: "date",
-    withTimezone: true,
-  }).notNull(),
-});
+    /**
+     * Execute time
+     */
+    executedAt: timestamp("executed_at", {
+      mode: "date",
+      withTimezone: true,
+    }).notNull(),
+  },
+  (t) => [index().on(t.executedAt)],
+);
 
 export const dispatchExecutionsRelations = relations(
   dispatchExecutions,
@@ -127,27 +133,31 @@ export const dispatchExecutionsRelations = relations(
   }),
 );
 
-export const dispatchResults = eventhub.table("dispatch_results", {
-  /**
-   * Dispatch ID
-   */
-  dispatchId: uuid("dispatch_id")
-    .primaryKey()
-    .references(() => dispatches.id),
+export const dispatchResults = eventhub.table(
+  "dispatch_results",
+  {
+    /**
+     * Dispatch ID
+     */
+    dispatchId: uuid("dispatch_id")
+      .primaryKey()
+      .references(() => dispatches.id),
 
-  /**
-   * Result of the dispatch
-   */
-  result: text("result").notNull().$type<ResultedDispatch["status"]>(),
+    /**
+     * Result of the dispatch
+     */
+    result: text("result").notNull().$type<ResultedDispatch["status"]>(),
 
-  /**
-   * Resulted time
-   */
-  resultedAt: timestamp("resulted_at", {
-    mode: "date",
-    withTimezone: true,
-  }).notNull(),
-});
+    /**
+     * Resulted time
+     */
+    resultedAt: timestamp("resulted_at", {
+      mode: "date",
+      withTimezone: true,
+    }).notNull(),
+  },
+  (t) => [index().on(t.resultedAt)],
+);
 
 export const dispatchResultsRelations = relations(
   dispatchResults,
