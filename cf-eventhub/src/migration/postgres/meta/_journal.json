@@ -8,6 +8,13 @@
       "when": 1728054415580,
       "tag": "0000_busy_pestilence",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1732801167132,
+      "tag": "0001_misty_black_cat",
+      "breakpoints": true
     }
   ]
 }
