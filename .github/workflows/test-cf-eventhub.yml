@@ -17,6 +17,15 @@ jobs:
           node-version: 22
           cache: "pnpm"
       - run: pnpm install
+      - name: Build for type checking cf-eventhub
+        run: pnpm build
+        working-directory: cf-eventhub
+      - name: Build for type checking web-console
+        run: pnpm build
+        working-directory: web-console
+      - name: Build for type checking iac/pulumi
+        run: pnpm build
+        working-directory: iac/pulumi
       - run: docker pull postgres:16.1
       - run: pnpm test
         working-directory: cf-eventhub
