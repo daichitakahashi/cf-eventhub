@@ -2,7 +2,7 @@ import { createWebConsole } from ".";
 
 const handler = createWebConsole({
   dateFormatter: new Intl.DateTimeFormat("ja", {
-    dateStyle: "full",
+    dateStyle: "short",
     timeStyle: "long",
   }),
 });

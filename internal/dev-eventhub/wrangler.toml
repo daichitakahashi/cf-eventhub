@@ -5,7 +5,7 @@ compatibility_date = "2024-11-12"
 compatibility_flags = ["nodejs_compat"]
 
 [vars.EVENTHUB_ROUTING]
-defaultDelaySeconds = 9
+defaultDelaySeconds = 3
 defaultMaxRetries = 5
 [[vars.EVENTHUB_ROUTING.routes]]
 condition = { path = "$.flaky", exact = false }
@@ -20,6 +20,7 @@ queue = "eventhub-queue"
 
 [[queues.consumers]]
 queue = "eventhub-queue"
+max_retries = 10
 
 [[services]]
 binding = "STABLE_HANDLER"

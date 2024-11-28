@@ -182,7 +182,7 @@ export const DispatchRow: FC<{
                   hx-confirm="Are you sure you wish to retry this dispatch?"
                   _="on htmx:beforeSend add .is-loading then add @disabled='true'"
                 >
-                  Retry
+                  Retry as new dispatch
                 </button>
               )}
             </div>
