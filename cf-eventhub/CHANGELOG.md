@@ -1,5 +1,11 @@
 # cf-eventhub
 
+## 0.0.7
+
+### Patch Changes
+
+- 9a96d47: Add indices and change index style
+
 ## 0.0.6
 
 ### Patch Changes
