@@ -1,5 +1,11 @@
 # cf-eventhub
 
+## 0.0.12
+
+### Patch Changes
+
+- 368754c: Fix PgRepository.listDispatches
+
 ## 0.0.11
 
 ### Patch Changes

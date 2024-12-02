@@ -414,7 +414,11 @@ export class PgRepository implements Repository {
           .from(d)
           .innerJoin(targetDispatches, eq(d.id, targetDispatches.id))
           .leftJoin(executions, eq(d.id, executions.dispatchId))
-          .orderBy(d.createdAt, d.id);
+          .orderBy(
+            ...(order === "CREATED_AT_ASC"
+              ? [d.createdAt, d.id]
+              : [desc(d.createdAt), desc(d.id)]),
+          );
         logger.debug("listDispatches: got rows", { rows });
 
         const hasNextPage = rows.length > maxItems;
