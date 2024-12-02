@@ -3,7 +3,7 @@ import { createFactory } from "hono/factory";
 
 export type Env = {
   Bindings: {
-    EVENT_HUB: Service<RpcEventHub>;
+    EVENTHUB: Service<RpcEventHub>;
   };
   Variables: {
     dateFormatter: (d: Date | Rpc.Provider<Date>) => string;

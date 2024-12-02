@@ -62,7 +62,7 @@ export const createHandler = ({
       return next();
     })
     .get("/", async (c) => {
-      const initial = await c.env.EVENT_HUB.listDispatches({
+      const initial = await c.env.EVENTHUB.listDispatches({
         maxItems: 5,
         continuationToken: undefined,
         filterByStatus: undefined,
