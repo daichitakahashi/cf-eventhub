@@ -1,5 +1,11 @@
 # cf-eventhub
 
+## 0.0.9
+
+### Patch Changes
+
+- 2a8ca9c: Fix log level
+
 ## 0.0.8
 
 ### Patch Changes
