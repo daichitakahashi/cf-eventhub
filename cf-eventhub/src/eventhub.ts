@@ -52,7 +52,7 @@ const getLostDetectionElapsedSeconds = (env: RpcEnv) => {
 };
 
 const getLogLevel = (env: RpcEnv) =>
-  (env.EVNTHUB_LOG_LEVEL as LogLevel) || "INFO";
+  (env.EVENTHUB_LOG_LEVEL as LogLevel) || "INFO";
 
 export abstract class RpcEventHub<
   Env extends RpcEnv = RpcEnv,
