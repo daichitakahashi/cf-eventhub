@@ -329,7 +329,7 @@ export class PgRepository implements Repository {
       async () => {
         // Lock non-resulted rows for update.
         const d = aliasedTable(schema.dispatches, "d");
-        const dispatches = db.$with("dispatches").as(
+        const targetDispatches = db.$with("target_dispatches").as(
           db
             .select({
               id: d.id,
@@ -370,7 +370,7 @@ export class PgRepository implements Repository {
         const aliasedExecutions = aliasedTable(schema.dispatchExecutions, "ex");
         const executions = db.$with("executions").as(
           db
-            .with(dispatches)
+            .with(targetDispatches)
             .select({
               dispatchId: aliasedExecutions.dispatchId,
               data: sql<
@@ -389,17 +389,17 @@ export class PgRepository implements Repository {
                 "data",
               ),
             })
-            .from(aliasedExecutions)
+            .from(targetDispatches)
             //.where(eq(aliasedExecutions.dispatchId, dispatches.id))
             .innerJoin(
-              dispatches,
-              eq(aliasedExecutions.dispatchId, dispatches.id),
+              aliasedExecutions,
+              eq(targetDispatches.id, aliasedExecutions.dispatchId),
             )
             .groupBy(aliasedExecutions.dispatchId),
         );
 
         const rows = await db
-          .with(executions)
+          .with(targetDispatches, executions)
           .select({
             dispatch: {
               id: d.id,
@@ -412,7 +412,8 @@ export class PgRepository implements Repository {
             executions: executions.data,
           })
           .from(d)
-          .innerJoin(executions, eq(d.id, executions.dispatchId))
+          .innerJoin(targetDispatches, eq(d.id, targetDispatches.id))
+          .leftJoin(executions, eq(d.id, executions.dispatchId))
           .orderBy(d.createdAt, d.id);
         logger.debug("listDispatches: got rows", { rows });
 
