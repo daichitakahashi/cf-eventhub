@@ -333,6 +333,8 @@ export class PgRepository implements Repository {
           db
             .select({
               id: d.id,
+              result: schema.dispatchResults.result,
+              resultedAt: schema.dispatchResults.resultedAt,
             })
             .from(d)
             .leftJoin(
@@ -410,6 +412,8 @@ export class PgRepository implements Repository {
               createdAt: d.createdAt,
             },
             executions: executions.data,
+            result: targetDispatches.result,
+            resultedAt: targetDispatches.resultedAt,
           })
           .from(d)
           .innerJoin(targetDispatches, eq(d.id, targetDispatches.id))
@@ -439,6 +443,13 @@ export class PgRepository implements Repository {
                 );
               }
             }
+          }
+          if (
+            row.result === "lost" &&
+            row.resultedAt &&
+            dispatch.status === "ongoing"
+          ) {
+            dispatch = makeDispatchLost(dispatch, row.resultedAt);
           }
           return dispatch;
         });

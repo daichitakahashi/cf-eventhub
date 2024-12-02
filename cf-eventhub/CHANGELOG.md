@@ -1,5 +1,11 @@
 # cf-eventhub
 
+## 0.0.14
+
+### Patch Changes
+
+- fb0d41a: Fix PgRepository.listDispatches to list lost dispatches
+
 ## 0.0.13
 
 ### Patch Changes
