@@ -414,6 +414,7 @@ export class PgRepository implements Repository {
           .from(d)
           .innerJoin(executions, eq(d.id, executions.dispatchId))
           .orderBy(d.createdAt, d.id);
+        logger.debug("listDispatches: got rows", { rows });
 
         const hasNextPage = rows.length > maxItems;
         const list = (hasNextPage ? rows.slice(0, -1) : rows).flatMap((row) => {
@@ -439,7 +440,7 @@ export class PgRepository implements Repository {
         });
         const last = hasNextPage ? list[list.length - 1] : undefined;
 
-        return {
+        const result = {
           list,
           continuationToken: last
             ? encodeContinuationToken({
@@ -448,6 +449,8 @@ export class PgRepository implements Repository {
               })
             : undefined,
         };
+        logger.debug("listDispatches: result", { result });
+        return result;
       },
       (e) => {
         logger.error("error on listDispatches", { error: e });
