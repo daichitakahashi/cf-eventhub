@@ -418,7 +418,7 @@ export class PgRepository implements Repository {
         logger.debug("listDispatches: got rows", { rows });
 
         const hasNextPage = rows.length > maxItems;
-        const list = (hasNextPage ? rows.slice(0, -1) : rows).flatMap((row) => {
+        const list = (hasNextPage ? rows.slice(0, -1) : rows).map((row) => {
           let dispatch: Dispatch = ongoingDispatch(row.dispatch.id, {
             eventId: row.dispatch.eventId,
             destination: row.dispatch.destination,
@@ -436,8 +436,7 @@ export class PgRepository implements Repository {
               }
             }
           }
-
-          return dispatch.status === "ongoing" ? [dispatch] : [];
+          return dispatch;
         });
         const last = hasNextPage ? list[list.length - 1] : undefined;
 
