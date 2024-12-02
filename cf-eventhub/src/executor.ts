@@ -7,7 +7,7 @@ import type { Repository } from "./core/repository";
 import type { EventPayload, QueueMessage } from "./core/type";
 
 const getLogLevel = (env: Record<string, unknown>) =>
-  (env.EVNTHUB_LOG_LEVEL as LogLevel) || "INFO";
+  (env.EVENTHUB_LOG_LEVEL as LogLevel) || "INFO";
 
 export abstract class RpcExecutor<
   Env extends Record<string, unknown> = Record<string, unknown>,
