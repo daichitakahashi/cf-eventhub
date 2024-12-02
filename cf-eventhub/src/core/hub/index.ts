@@ -191,8 +191,8 @@ export class EventSink {
     continuationToken?: string;
   }): Promise<{ list: ResultedDispatch[]; continuationToken?: string }> {
     const repo = this.repo;
-    const elapsedSeconds =
-      args?.elapsedSeconds !== undefined ? args.elapsedSeconds : 60 * 15; // Default value (15 min) is derived from duration limit of Queue Consumers.
+    const logger = this.logger;
+    const elapsedSeconds = args?.elapsedSeconds || 60 * 15; // Default value (15 min) is derived from duration limit of Queue Consumers.
 
     const result = await repo.enterTransactionalScope(async (tx) =>
       safeTry(async function* () {
@@ -205,24 +205,32 @@ export class EventSink {
           )
         ).safeUnwrap();
 
-        const lostDispatches = listResult.list.filter((d) => {
+        const lostDispatches = listResult.list.flatMap((d) => {
+          if (d.status !== "ongoing") {
+            return [];
+          }
           const lastTime =
             d.executionLog.length > 0
               ? d.executionLog[d.executionLog.length - 1].executedAt
               : d.createdAt;
-          const elapsed = Date.now() - lastTime.getTime();
+          const elapsed = (Date.now() - lastTime.getTime()) / 1000;
 
-          return elapsed > ((d.delaySeconds || 0) + elapsedSeconds) * 1000; // elapsed from last execution or its creation.
+          return elapsed > (d.delaySeconds || 0) + elapsedSeconds // elapsed from last execution or its creation.
+            ? [makeDispatchLost(d, new Date())]
+            : [];
         });
 
-        const result: ResultedDispatch[] = [];
-        for (const d of lostDispatches) {
-          const resulted = makeDispatchLost(d as OngoingDispatch, new Date());
-          result.push(resulted);
-          yield* (await tx.saveDispatch(resulted)).safeUnwrap();
+        logger.debug("markLostDispatches", {
+          ongoingDispatches: listResult.list,
+          lostDispatches,
+          elapsedSeconds,
+        });
+
+        for (const lost of lostDispatches) {
+          yield* (await tx.saveDispatch(lost)).safeUnwrap();
         }
         return ok({
-          list: result,
+          list: lostDispatches,
           continuationToken: listResult.continuationToken,
         });
       }),
