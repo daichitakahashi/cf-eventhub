@@ -18,7 +18,7 @@ const handler = factory
     ),
     async (c) => {
       const { token } = c.req.valid("query");
-      const result = await c.env.EVENT_HUB.listDispatches({
+      const result = await c.env.EVENTHUB.listDispatches({
         maxItems: 5,
         continuationToken: token || undefined,
         filterByStatus: undefined,
@@ -54,7 +54,7 @@ const handler = factory
     ),
     async (c) => {
       const { id } = c.req.valid("param");
-      await c.env.EVENT_HUB.retryDispatch({ dispatchId: id });
+      await c.env.EVENTHUB.retryDispatch({ dispatchId: id });
       return c.newResponse(null, {
         status: 200,
         headers: {
@@ -74,7 +74,7 @@ const handler = factory
     ),
     async (c) => {
       const { id } = c.req.valid("param");
-      const result = await c.env.EVENT_HUB.getEvent(id);
+      const result = await c.env.EVENTHUB.getEvent(id);
       if (!result) {
         return c.newResponse(null, 404);
       }
@@ -92,7 +92,7 @@ const handler = factory
     async (c) => {
       try {
         const payload = JSON.parse(c.req.valid("form").payload);
-        await c.env.EVENT_HUB.putEvent([payload]);
+        await c.env.EVENTHUB.putEvent([payload]);
         return c.newResponse(null, {
           status: 200,
           headers: {

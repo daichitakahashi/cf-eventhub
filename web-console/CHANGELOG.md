@@ -1,5 +1,11 @@
 # @cf-eventhub/web-console
 
+## 0.0.6
+
+### Patch Changes
+
+- 98cc4f3: Change binding name
+
 ## 0.0.5
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # cf-eventhub
 
+## 0.0.8
+
+### Patch Changes
+
+- 47a871d: add debug log for PgRepository
+
 ## 0.0.7
 
 ### Patch Changes

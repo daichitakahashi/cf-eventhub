@@ -2,7 +2,7 @@
   "name": "@cf-eventhub/pulumi",
   "main": "src/index.ts",
   "type": "commonjs",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "keywords": [
     "pulumi",
     "cloudflare"
@@ -17,7 +17,7 @@
   "dependencies": {
     "@pulumi/cloudflare": "^5.40.0",
     "@pulumi/pulumi": "^3.113.0",
-    "cf-eventhub": "^0.0.7"
+    "cf-eventhub": "^0.0.8"
   },
   "tsup": {
     "entry": [
