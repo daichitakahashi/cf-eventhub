@@ -1,5 +1,11 @@
 # cf-eventhub
 
+## 0.0.13
+
+### Patch Changes
+
+- be464f4: Add debug log for markLostDispatches
+
 ## 0.0.12
 
 ### Patch Changes
