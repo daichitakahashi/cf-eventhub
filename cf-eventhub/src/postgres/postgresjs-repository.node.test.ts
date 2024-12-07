@@ -1,4 +1,5 @@
 import * as path from "node:path";
+import postgres from "postgres";
 import {
   GenericContainer,
   type StartedTestContainer,
@@ -41,20 +42,30 @@ const preparePostgres = () =>
     ])
     .start();
 
+const prepareDatabase = async (dsn: URL) => {
+  const template = dsn.pathname.replaceAll("/", "");
+  const sql = postgres(dsn.toString());
+  const database = crypto.randomUUID().toLowerCase().replaceAll("-", "");
+  await sql.unsafe(`create database "${database}" TEMPLATE ${template}`);
+  await sql.end();
+  const newDSN = new URL(dsn);
+  newDSN.pathname = database;
+  return newDSN.toString();
+};
+
 describe("repositorytest", () => {
   let container: StartedTestContainer;
-  let dsn: string;
+  let templateDsn: URL;
   beforeAll(async () => {
     // launch postgres container
     container = await preparePostgres();
 
-    const u = new URL("", "postgresql://");
-    u.hostname = container.getHost();
-    u.port = container.getMappedPort(5432).toString();
-    u.pathname = "test";
-    u.username = "test";
-    u.password = "test";
-    dsn = u.toString();
+    templateDsn = new URL("", "postgresql://");
+    templateDsn.hostname = container.getHost();
+    templateDsn.port = container.getMappedPort(5432).toString();
+    templateDsn.pathname = "test";
+    templateDsn.username = "test";
+    templateDsn.password = "test";
   });
   afterAll(async () => {
     await container.stop();
@@ -63,7 +74,7 @@ describe("repositorytest", () => {
   test("Persists complete dispatch", async () => {
     const repo = createRepository(
       {
-        EVENTHUB_DSN: dsn,
+        EVENTHUB_DSN: await prepareDatabase(templateDsn),
       },
       new DefaultLogger("DEBUG"),
     );
@@ -73,7 +84,7 @@ describe("repositorytest", () => {
   test("Persists failed dispatch", async () => {
     const repo = createRepository(
       {
-        EVENTHUB_DSN: dsn,
+        EVENTHUB_DSN: await prepareDatabase(templateDsn),
       },
       new DefaultLogger("DEBUG"),
     );
@@ -83,7 +94,7 @@ describe("repositorytest", () => {
   test("Persists ignored dispatch", async () => {
     const repo = createRepository(
       {
-        EVENTHUB_DSN: dsn,
+        EVENTHUB_DSN: await prepareDatabase(templateDsn),
       },
       new DefaultLogger("DEBUG"),
     );
@@ -93,7 +104,7 @@ describe("repositorytest", () => {
   test("Persists misconfigured dispatch", async () => {
     const repo = createRepository(
       {
-        EVENTHUB_DSN: dsn,
+        EVENTHUB_DSN: await prepareDatabase(templateDsn),
       },
       new DefaultLogger("DEBUG"),
     );
@@ -103,7 +114,7 @@ describe("repositorytest", () => {
   test("Persists lost dispatch", async () => {
     const repo = createRepository(
       {
-        EVENTHUB_DSN: dsn,
+        EVENTHUB_DSN: await prepareDatabase(templateDsn),
       },
       new DefaultLogger("DEBUG"),
     );
@@ -113,7 +124,7 @@ describe("repositorytest", () => {
   test("Rollback by Result(Err)", async () => {
     const repo = createRepository(
       {
-        EVENTHUB_DSN: dsn,
+        EVENTHUB_DSN: await prepareDatabase(templateDsn),
       },
       new DefaultLogger("DEBUG"),
     );
@@ -123,37 +134,17 @@ describe("repositorytest", () => {
   test("Rollback by exception", async () => {
     const repo = createRepository(
       {
-        EVENTHUB_DSN: dsn,
+        EVENTHUB_DSN: await prepareDatabase(templateDsn),
       },
       new DefaultLogger("DEBUG"),
     );
     await testRepositoryRollback(repo, "THROW");
   });
-});
-
-describe("repositorytest.testRepositoryListOngoingDispatches", () => {
-  let container: StartedTestContainer;
-  let dsn: string;
-  beforeAll(async () => {
-    // launch postgres container
-    container = await preparePostgres();
-
-    const u = new URL("", "postgresql://");
-    u.hostname = container.getHost();
-    u.port = container.getMappedPort(5432).toString();
-    u.pathname = "test";
-    u.username = "test";
-    u.password = "test";
-    dsn = u.toString();
-  });
-  afterAll(async () => {
-    await container.stop();
-  });
 
   test("List ongoing dispatches", async () => {
     const repo = createRepository(
       {
-        EVENTHUB_DSN: dsn,
+        EVENTHUB_DSN: await prepareDatabase(templateDsn),
       },
       new DefaultLogger("DEBUG"),
     );
