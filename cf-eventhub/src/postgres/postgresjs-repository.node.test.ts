@@ -5,10 +5,15 @@ import {
   type StartedTestContainer,
   Wait,
 } from "testcontainers";
-import { afterAll, beforeAll, describe, test } from "vitest";
+import { assert, afterAll, beforeAll, describe, test } from "vitest";
 
 import { DefaultLogger } from "../core/logger";
+import type { CreatedEvent } from "../core/model";
 import {
+  nextDate,
+  testRepositoryListEventDispatches,
+  testRepositoryListEventsAsc,
+  testRepositoryListEventsDesc,
   testRepositoryListOngoingDispatches,
   testRepositoryPersistsCompleteDispatch,
   testRepositoryPersistsFailedDispatch,
@@ -53,6 +58,14 @@ const prepareDatabase = async (dsn: URL) => {
   return newDSN.toString();
 };
 
+const prepareRepository = async (dsn: URL) =>
+  createRepository(
+    {
+      EVENTHUB_DSN: await prepareDatabase(dsn),
+    },
+    new DefaultLogger("DEBUG"),
+  );
+
 describe("repositorytest", () => {
   let container: StartedTestContainer;
   let templateDsn: URL;
@@ -72,82 +85,77 @@ describe("repositorytest", () => {
   });
 
   test("Persists complete dispatch", async () => {
-    const repo = createRepository(
-      {
-        EVENTHUB_DSN: await prepareDatabase(templateDsn),
-      },
-      new DefaultLogger("DEBUG"),
-    );
+    const repo = await prepareRepository(templateDsn);
     await testRepositoryPersistsCompleteDispatch(repo);
   });
 
   test("Persists failed dispatch", async () => {
-    const repo = createRepository(
-      {
-        EVENTHUB_DSN: await prepareDatabase(templateDsn),
-      },
-      new DefaultLogger("DEBUG"),
-    );
+    const repo = await prepareRepository(templateDsn);
     await testRepositoryPersistsFailedDispatch(repo);
   });
 
   test("Persists ignored dispatch", async () => {
-    const repo = createRepository(
-      {
-        EVENTHUB_DSN: await prepareDatabase(templateDsn),
-      },
-      new DefaultLogger("DEBUG"),
-    );
+    const repo = await prepareRepository(templateDsn);
     await testRepositoryPersistsIgnoredDispatch(repo);
   });
 
   test("Persists misconfigured dispatch", async () => {
-    const repo = createRepository(
-      {
-        EVENTHUB_DSN: await prepareDatabase(templateDsn),
-      },
-      new DefaultLogger("DEBUG"),
-    );
+    const repo = await prepareRepository(templateDsn);
     await testRepositoryPersistsMisconfiguredDispatch(repo);
   });
 
   test("Persists lost dispatch", async () => {
-    const repo = createRepository(
-      {
-        EVENTHUB_DSN: await prepareDatabase(templateDsn),
-      },
-      new DefaultLogger("DEBUG"),
-    );
+    const repo = await prepareRepository(templateDsn);
     await testRepositoryPersistsLostDispatch(repo);
   });
 
   test("Rollback by Result(Err)", async () => {
-    const repo = createRepository(
-      {
-        EVENTHUB_DSN: await prepareDatabase(templateDsn),
-      },
-      new DefaultLogger("DEBUG"),
-    );
+    const repo = await prepareRepository(templateDsn);
     await testRepositoryRollback(repo, "RESULT");
   });
 
   test("Rollback by exception", async () => {
-    const repo = createRepository(
-      {
-        EVENTHUB_DSN: await prepareDatabase(templateDsn),
-      },
-      new DefaultLogger("DEBUG"),
-    );
+    const repo = await prepareRepository(templateDsn);
     await testRepositoryRollback(repo, "THROW");
   });
 
   test("List ongoing dispatches", async () => {
-    const repo = createRepository(
-      {
-        EVENTHUB_DSN: await prepareDatabase(templateDsn),
-      },
-      new DefaultLogger("DEBUG"),
-    );
+    const repo = await prepareRepository(templateDsn);
     await testRepositoryListOngoingDispatches(repo);
+  });
+
+  test("List events", async () => {
+    const repo = await prepareRepository(templateDsn);
+    const result = await repo.createEvents([
+      {
+        payload: {
+          id: crypto.randomUUID(),
+        },
+        createdAt: await nextDate(),
+      },
+      {
+        payload: {
+          id: crypto.randomUUID(),
+        },
+        createdAt: await nextDate(),
+      },
+      {
+        payload: {
+          id: crypto.randomUUID(),
+        },
+        createdAt: await nextDate(),
+      },
+    ]);
+    assert(result.isOk());
+    assert(result.value.length === 3);
+    const events = result.value as [CreatedEvent, CreatedEvent, CreatedEvent];
+
+    await testRepositoryListEventsAsc(repo, events);
+    await testRepositoryListEventsDesc(repo, events);
+  });
+
+  test("Dispatch and execution order of events", async () => {
+    const repo = await prepareRepository(templateDsn);
+    await testRepositoryListEventDispatches(repo);
   });
 });
