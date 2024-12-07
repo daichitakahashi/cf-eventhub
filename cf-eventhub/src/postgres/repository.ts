@@ -6,6 +6,7 @@ import {
   desc,
   eq,
   isNull,
+  max,
   or,
   sql,
 } from "drizzle-orm";
@@ -19,6 +20,7 @@ import {
   err,
   fromAsyncThrowable,
   fromThrowable,
+  ok,
 } from "neverthrow";
 
 import type { Logger } from "../core/logger";
@@ -37,7 +39,7 @@ import {
   makeDispatchLost,
   ongoingDispatch,
 } from "../core/model";
-import type { Repository } from "../core/repository";
+import type { EventWithDispatches, Repository } from "../core/repository";
 import * as schema from "./schema";
 
 type Db = PostgresJsDatabase<typeof schema>;
@@ -472,6 +474,116 @@ export class PgRepository implements Repository {
         return "INTERNAL_SERVER_ERROR" as const;
       },
     )();
+  }
+
+  async listEvents(
+    maxItems: number,
+    continuationToken?: string,
+    orderBy?: "CREATED_AT_ASC" | "CREATED_AT_DESC",
+  ): Promise<
+    Result<
+      { list: EventWithDispatches[]; continuationToken?: string },
+      "INTERNAL_SERVER_ERROR" | "INVALID_CONTINUATION_TOKEN"
+    >
+  > {
+    const db = this.db;
+    const logger = this.logger;
+    const order = orderBy || "CREATED_AT_ASC";
+
+    let token: { id: string; createdAt: Date } | undefined;
+    if (continuationToken) {
+      const result = decodeContinuationToken(continuationToken);
+      if (result.isErr()) {
+        return err(result.error);
+      }
+      token = result.value;
+    }
+
+    const events = await fromAsyncThrowable(
+      () =>
+        db.query.events.findMany({
+          with: {
+            dispatches: {
+              with: {
+                executions: {
+                  orderBy: schema.dispatchExecutions.executedAt,
+                },
+                result: true,
+              },
+              orderBy: schema.dispatches.createdAt,
+            },
+          },
+          where: token
+            ? order === "CREATED_AT_ASC"
+              ? sql`(${schema.events.createdAt}, ${schema.events.id}) > (${token.createdAt.toISOString()}, ${token.id})`
+              : sql`(${schema.events.createdAt}, ${schema.events.id}) < (${token.createdAt.toISOString()}, ${token.id})`
+            : undefined,
+          orderBy:
+            order === "CREATED_AT_ASC"
+              ? [schema.events.createdAt, schema.events.id]
+              : [desc(schema.events.createdAt), desc(schema.events.id)],
+          limit: maxItems + 1,
+        }),
+      (e) => {
+        logger.error("error on listEvents", { error: e });
+        return "INTERNAL_SERVER_ERROR" as const;
+      },
+    )();
+    if (events.isErr()) {
+      return err(events.error);
+    }
+    const hasNextPage = events.value.length > maxItems;
+
+    const list = (hasNextPage ? events.value.slice(0, -1) : events.value).map(
+      (e): EventWithDispatches => {
+        const event = createdEvent(e.id, {
+          payload: e.payload,
+          createdAt: e.createdAt,
+        });
+        const dispatches = e.dispatches.map(
+          ({ executions, result, ...dispatch }) => {
+            let d: Dispatch = ongoingDispatch(dispatch.id, {
+              eventId: dispatch.eventId,
+              destination: dispatch.destination,
+              createdAt: dispatch.createdAt,
+              delaySeconds: dispatch.delaySeconds,
+              maxRetries: dispatch.maxRetries,
+            });
+            if (executions) {
+              for (const ex of executions) {
+                if (d.status === "ongoing") {
+                  d = appendExecutionLog(
+                    d,
+                    dispatchExecution(
+                      ex.id,
+                      ex.result,
+                      new Date(ex.executedAt),
+                    ),
+                  );
+                }
+              }
+            }
+            if (result?.result === "lost" && d.status === "ongoing") {
+              d = makeDispatchLost(d, e.createdAt);
+            }
+            return d;
+          },
+        );
+
+        return { ...event, dispatches };
+      },
+    );
+    const last = hasNextPage ? list[list.length - 1] : undefined;
+
+    return ok({
+      list,
+      continuationToken: last
+        ? encodeContinuationToken({
+            id: last.id,
+            createdAt: last.createdAt,
+          })
+        : undefined,
+    });
   }
 }
 
