@@ -13,7 +13,7 @@ import {
   isNewDispatchExecution,
   ongoingDispatch,
 } from "../core/model";
-import type { Repository } from "../core/repository";
+import type { EventWithDispatches, Repository } from "../core/repository";
 
 export class DevRepository implements Repository {
   private mu: Mutex;
@@ -181,6 +181,60 @@ export class DevRepository implements Repository {
         continue;
       }
       result.push(dispatch);
+      if (result.length > maxItems) {
+        break;
+      }
+    }
+
+    if (result.length > maxItems) {
+      return ok({
+        list: result.slice(0, -1),
+        continuationToken: encodeContinuationToken(
+          result[result.length - 2].id,
+        ),
+      });
+    }
+    return ok({
+      list: result,
+      continuationToken: undefined,
+    });
+  }
+
+  async listEvents(
+    maxItems: number,
+    continuationToken?: string,
+    orderBy?: "CREATED_AT_ASC" | "CREATED_AT_DESC",
+  ): Promise<
+    Result<
+      { list: EventWithDispatches[]; continuationToken?: string },
+      "INTERNAL_SERVER_ERROR" | "INVALID_CONTINUATION_TOKEN"
+    >
+  > {
+    const order = orderBy || "CREATED_AT_ASC";
+    const values = [...this.events.values()];
+    if (order === "CREATED_AT_DESC") {
+      values.reverse();
+    }
+
+    let lastIndex = 0;
+    if (continuationToken) {
+      const lastId = decodeContinuationToken(continuationToken);
+      const last = values.findIndex((v) => v.id === lastId);
+      if (last < 0) {
+        return err("INVALID_CONTINUATION_TOKEN");
+      }
+      lastIndex = last;
+    }
+
+    const list = lastIndex ? values.slice(lastIndex + 1) : values;
+    const dispatches = [...this.dispatches.values()];
+    const result: EventWithDispatches[] = [];
+    for (const event of list) {
+      const eventDispatches = dispatches.filter((d) => d.eventId === event.id);
+      result.push({
+        ...event,
+        dispatches: eventDispatches,
+      });
       if (result.length > maxItems) {
         break;
       }

@@ -1,6 +1,11 @@
-import { beforeAll, describe, test } from "vitest";
+import { assert, beforeAll, describe, test } from "vitest";
 
+import type { CreatedEvent } from "../core/model";
 import {
+  nextDate,
+  testRepositoryListEventDispatches,
+  testRepositoryListEventsAsc,
+  testRepositoryListEventsDesc,
   testRepositoryListOngoingDispatches,
   testRepositoryPersistsCompleteDispatch,
   testRepositoryPersistsFailedDispatch,
@@ -43,10 +48,42 @@ describe("repositorytest", () => {
   test("Rollback by exception", async () => {
     await testRepositoryRollback(repo, "THROW");
   });
-});
 
-describe("repositorytest.testRepositoryListOngoingDispatches", () => {
   test("List ongoing dispatches", async () => {
     await testRepositoryListOngoingDispatches(new DevRepository());
+  });
+
+  test("List events", async () => {
+    const repo = new DevRepository();
+    const result = await repo.createEvents([
+      {
+        payload: {
+          id: crypto.randomUUID(),
+        },
+        createdAt: await nextDate(),
+      },
+      {
+        payload: {
+          id: crypto.randomUUID(),
+        },
+        createdAt: await nextDate(),
+      },
+      {
+        payload: {
+          id: crypto.randomUUID(),
+        },
+        createdAt: await nextDate(),
+      },
+    ]);
+    assert(result.isOk());
+    assert(result.value.length === 3);
+    const events = result.value as [CreatedEvent, CreatedEvent, CreatedEvent];
+
+    await testRepositoryListEventsAsc(repo, events);
+    await testRepositoryListEventsDesc(repo, events);
+  });
+
+  test("Dispatch and execution order of events", async () => {
+    await testRepositoryListEventDispatches(new DevRepository());
   });
 });

@@ -1,7 +1,11 @@
 import { err, ok, safeTry } from "neverthrow";
 import { assert, expect } from "vitest";
 
-import { appendExecutionLog, makeDispatchLost } from "../core/model";
+import {
+  type CreatedEvent,
+  appendExecutionLog,
+  makeDispatchLost,
+} from "../core/model";
 import type { Repository } from "../core/repository";
 
 const eventPayload = {
@@ -15,34 +19,32 @@ const createEvent = (repo: Repository) =>
     async (tx) =>
       await safeTry(async function* () {
         // Create events.
-        const eventCreatedAt = new Date();
         const [createdEvent] = yield* (
           await tx.createEvents([
             {
               payload: eventPayload,
-              createdAt: eventCreatedAt,
+              createdAt: await nextDate(),
             },
             {
               payload: { key: "value" },
-              createdAt: eventCreatedAt,
+              createdAt: await nextDate(),
             },
           ])
         ).safeUnwrap();
 
-        const dispatchesCreatedAt = new Date();
         const created = yield* (
           await tx.createDispatches([
             {
               eventId: createdEvent.id,
               destination: "WORKER_1",
-              createdAt: dispatchesCreatedAt,
+              createdAt: await nextDate(),
               delaySeconds: null,
               maxRetries: 5,
             },
             {
               eventId: createdEvent.id,
               destination: "WORKER_2",
-              createdAt: dispatchesCreatedAt,
+              createdAt: await nextDate(),
               delaySeconds: 5,
               maxRetries: 10,
             },
@@ -377,7 +379,7 @@ export const testRepositoryPersistsLostDispatch = async (repo: Repository) => {
   });
 };
 
-const nextDate = async () => {
+export const nextDate = async () => {
   await new Promise((resolve) => setTimeout(resolve, 1));
   return new Date();
 };
@@ -621,6 +623,207 @@ export const testRepositoryListOngoingDispatches = async (repo: Repository) => {
       },
     ],
     continuationToken: undefined,
+  });
+};
+
+/** @internal */
+export const testRepositoryListEventsAsc = async (
+  repo: Repository,
+  events: [CreatedEvent, CreatedEvent, CreatedEvent],
+) => {
+  const result = await repo.listEvents(2);
+  assert(result.isOk(), "listEvents must be succeeded");
+  expect(result.value.list).toMatchObject([
+    {
+      id: events[0].id,
+      payload: events[0].payload,
+      createdAt: expect.any(Date),
+    },
+    {
+      id: events[1].id,
+      payload: events[1].payload,
+      createdAt: expect.any(Date),
+    },
+  ]);
+  assert(result.value.continuationToken !== undefined);
+
+  const result2 = await repo.listEvents(2, result.value.continuationToken);
+  assert(result2.isOk(), "listEvents must be succeeded");
+  expect(result2.value.list).toMatchObject([
+    {
+      id: events[2].id,
+      payload: events[2].payload,
+      createdAt: expect.any(Date),
+    },
+  ]);
+  expect(result2.value.continuationToken).toBeUndefined();
+};
+
+/** @internal */
+export const testRepositoryListEventsDesc = async (
+  repo: Repository,
+  events: [CreatedEvent, CreatedEvent, CreatedEvent],
+) => {
+  const result = await repo.listEvents(2, undefined, "CREATED_AT_DESC");
+  assert(result.isOk(), "listEvents must be succeeded");
+  expect(result.value.list).toMatchObject([
+    {
+      id: events[2].id,
+      payload: events[2].payload,
+      createdAt: expect.any(Date),
+    },
+    {
+      id: events[1].id,
+      payload: events[1].payload,
+      createdAt: expect.any(Date),
+    },
+  ]);
+  assert(result.value.continuationToken !== undefined);
+
+  const result2 = await repo.listEvents(
+    2,
+    result.value.continuationToken,
+    "CREATED_AT_DESC",
+  );
+  assert(result2.isOk(), "listEvents must be succeeded");
+  expect(result2.value.list).toMatchObject([
+    {
+      id: events[0].id,
+      payload: events[0].payload,
+      createdAt: expect.any(Date),
+    },
+  ]);
+  expect(result2.value.continuationToken).toBeUndefined();
+};
+
+export const testRepositoryListEventDispatches = async (repo: Repository) => {
+  const result = await safeTry(async function* () {
+    const { eventId, dispatchId } = yield* (
+      await createEvent(repo)
+    ).safeUnwrap();
+    const got = yield* (await repo.getDispatch(dispatchId)).safeUnwrap();
+    assert(got !== null);
+    let dispatch = got.dispatch;
+    assert(dispatch.status === "ongoing");
+    dispatch = appendExecutionLog(dispatch, {
+      result: "failed",
+      executedAt: await nextDate(),
+    });
+    assert(dispatch.status === "ongoing");
+    dispatch = appendExecutionLog(dispatch, {
+      result: "failed",
+      executedAt: await nextDate(),
+    });
+    assert(dispatch.status === "ongoing");
+    dispatch = appendExecutionLog(dispatch, {
+      result: "complete",
+      executedAt: await nextDate(),
+    });
+    yield* (await repo.saveDispatch(dispatch)).safeUnwrap();
+    return ok(eventId);
+  });
+  assert(result.isOk());
+
+  const eventId = result.value;
+
+  const ascResult = await repo.listEvents(2);
+  assert(ascResult.isOk(), "listEvents must be succeeded");
+  expect(ascResult.value.list[0]).toMatchObject({
+    id: eventId,
+    payload: eventPayload,
+    dispatches: [
+      {
+        eventId,
+        status: "complete",
+        destination: "WORKER_1",
+        createdAt: expect.any(Date),
+        delaySeconds: null,
+        maxRetries: 5,
+        executionLog: [
+          {
+            id: expect.any(String),
+            result: "failed",
+            executedAt: expect.any(Date),
+          },
+          {
+            id: expect.any(String),
+            result: "failed",
+            executedAt: expect.any(Date),
+          },
+          {
+            id: expect.any(String),
+            result: "complete",
+            executedAt: expect.any(Date),
+          },
+        ],
+      },
+      {
+        eventId,
+        status: "ongoing",
+        destination: "WORKER_2",
+        createdAt: expect.any(Date),
+        delaySeconds: 5,
+        maxRetries: 10,
+        executionLog: [],
+      },
+    ],
+    createdAt: expect.any(Date),
+  });
+  expect(ascResult.value.list[1]).toMatchObject({
+    id: expect.any(String),
+    payload: { key: "value" },
+    dispatches: [],
+    createdAt: expect.any(Date),
+  });
+
+  const descResult = await repo.listEvents(2, undefined, "CREATED_AT_DESC");
+  assert(descResult.isOk(), "listEvents must be succeeded");
+  expect(descResult.value.list[0]).toMatchObject({
+    id: expect.any(String),
+    payload: { key: "value" },
+    dispatches: [],
+    createdAt: expect.any(Date),
+  });
+  expect(descResult.value.list[1]).toMatchObject({
+    id: eventId,
+    payload: eventPayload,
+    dispatches: [
+      {
+        eventId,
+        status: "complete",
+        destination: "WORKER_1",
+        createdAt: expect.any(Date),
+        delaySeconds: null,
+        maxRetries: 5,
+        executionLog: [
+          {
+            id: expect.any(String),
+            result: "failed",
+            executedAt: expect.any(Date),
+          },
+          {
+            id: expect.any(String),
+            result: "failed",
+            executedAt: expect.any(Date),
+          },
+          {
+            id: expect.any(String),
+            result: "complete",
+            executedAt: expect.any(Date),
+          },
+        ],
+      },
+      {
+        eventId,
+        status: "ongoing",
+        destination: "WORKER_2",
+        createdAt: expect.any(Date),
+        delaySeconds: 5,
+        maxRetries: 10,
+        executionLog: [],
+      },
+    ],
+    createdAt: expect.any(Date),
   });
 };
 

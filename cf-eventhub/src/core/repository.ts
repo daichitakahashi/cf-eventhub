@@ -9,6 +9,10 @@ import type {
   OngoingDispatch,
 } from "./model";
 
+export type EventWithDispatches = Event & {
+  readonly dispatches: readonly Dispatch[];
+};
+
 export interface Repository {
   /**
    * Enter transactional scope and call `fn`.
@@ -84,6 +88,23 @@ export interface Repository {
   ) => Promise<
     Result<
       { list: Dispatch[]; continuationToken?: string },
+      "INTERNAL_SERVER_ERROR" | "INVALID_CONTINUATION_TOKEN"
+    >
+  >;
+
+  /**
+   * Get events and these dispatches.
+   * @param maxItems maximum number of items to be fetched
+   * @param continuationToken token returned in last call
+   * @param orderBy
+   */
+  listEvents(
+    maxItems: number,
+    continuationToken?: string,
+    orderBy?: "CREATED_AT_ASC" | "CREATED_AT_DESC",
+  ): Promise<
+    Result<
+      { list: EventWithDispatches[]; continuationToken?: string },
       "INTERNAL_SERVER_ERROR" | "INVALID_CONTINUATION_TOKEN"
     >
   >;
