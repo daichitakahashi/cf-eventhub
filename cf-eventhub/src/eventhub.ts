@@ -5,7 +5,7 @@ import { EventSink } from "./core/hub";
 import { Config, type ConfigInput } from "./core/hub/routing";
 import { DefaultLogger, type LogLevel, type Logger } from "./core/logger";
 import type { Dispatch, Event, ResultedDispatch } from "./core/model";
-import type { Repository } from "./core/repository";
+import type { EventWithDispatches, Repository } from "./core/repository";
 import type { EventPayload, RpcSerializable } from "./core/type";
 
 export type RpcEnv = Record<string, unknown> & {
@@ -108,6 +108,23 @@ export abstract class RpcEventHub<
    */
   async getEvent(eventId: string): Promise<RpcSerializable<Event> | null> {
     return this.sink.getEvent(eventId);
+  }
+
+  /**
+   * List events.
+   * @param args.maxItems Maximum number of events to list. Default is 10.
+   * @param args.continuationToken Continuation token for pagination.
+   * @param args.orderBy Sort order. Default is "CREATED_AT_ASC".
+   * @returns List of events and continuation token.
+   */
+  async listEvents(args?: {
+    maxItems?: number;
+    continuationToken?: string;
+    orderBy?: "CREATED_AT_ASC" | "CREATED_AT_DESC";
+  }): Promise<
+    RpcSerializable<{ list: EventWithDispatches[]; continuationToken?: string }>
+  > {
+    return this.sink.listEvents(args);
   }
 
   /**
