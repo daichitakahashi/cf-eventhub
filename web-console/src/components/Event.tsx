@@ -1,8 +1,11 @@
 import type { FC } from "hono/jsx";
 
-import { ScanSearch, Sunrise } from "../components/Icon";
-import { Modal } from "../components/Modal";
-import { StatusIndicator } from "../components/StatusIndicator";
+import type { DateTime } from "../factory";
+import { Button } from "./Button";
+import { Description, DescriptionList } from "./DescriptionList";
+import { ScanSearch, Sunrise } from "./Icon";
+import { Modal } from "./Modal";
+import { StatusIndicator } from "./StatusIndicator";
 import {
   Table,
   TableBody,
@@ -10,15 +13,13 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "../components/Table";
-import { Textarea } from "../components/Textarea";
-import type { EventWithDispatches } from "../components/types";
-import { Button } from "./Button";
-import { Description, DescriptionList } from "./DescriptionList";
+} from "./Table";
+import { Textarea } from "./Textarea";
+import type { EventWithDispatches } from "./types";
 
 export const Event: FC<{
   event: EventWithDispatches;
-  formatDate: (d: Date | Rpc.Provider<Date>) => string;
+  formatDate: (d: DateTime) => string;
 }> = ({ event, formatDate }) => (
   <div class="mx-16 rounded-lg bg-white px-6 py-4 ring-1 ring-gray-900/20 drop-shadow">
     <div class="flex justify-between font-semibold leading-7">
@@ -64,7 +65,7 @@ export const Event: FC<{
 
 export const Dispatch: FC<{
   dispatch: EventWithDispatches["dispatches"][number];
-  formatDate: (d: Date | Rpc.Provider<Date>) => string;
+  formatDate: (d: DateTime) => string;
 }> = ({ dispatch, formatDate }) => (
   <TableRow>
     <TableCell>
@@ -109,7 +110,7 @@ export const Dispatch: FC<{
 const DispatchDetails: FC<{
   dispatch: EventWithDispatches["dispatches"][number];
   closeModal: string;
-  formatDate: (d: Date | Rpc.Provider<Date>) => string;
+  formatDate: (d: DateTime) => string;
 }> = ({ dispatch, closeModal, formatDate }) => (
   <div>
     <h2 class="text-2xl font-semibold">

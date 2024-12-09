@@ -1,5 +1,6 @@
 import type { FC } from "hono/jsx";
 
+import type { DateTime } from "../factory";
 import { ChevronRight, ChevronsLeft } from "./Icon";
 import type { ElementProps } from "./types";
 
@@ -34,10 +35,29 @@ const PaginationLink: FC<ElementProps<"a">> = (props) => (
   />
 );
 
+const PaginationLabel: FC<ElementProps<"span">> = (props) => (
+  <span
+    class="
+      h-10
+      px-4
+      py-2
+      border
+      rounded-md
+      flex
+      gap-1
+      items-center
+      select-none
+    "
+    {...props}
+  />
+);
+
 export const Pagination: FC<{
   topUrl?: string;
   nextUrl?: string;
-}> = ({ topUrl, nextUrl }) => (
+  range?: [Date] | [Date, Date];
+  formatDateRange: (d1: DateTime, d2: DateTime) => string;
+}> = ({ topUrl, nextUrl, range, formatDateRange }) => (
   <PaginationSection>
     <PaginationContent>
       <PaginationItem>
@@ -45,6 +65,15 @@ export const Pagination: FC<{
           <ChevronsLeft class="size-4" title="" />
           <span>Latest</span>
         </PaginationLink>
+      </PaginationItem>
+      <PaginationItem>
+        {range && (
+          <PaginationLabel>
+            {range.length === 1
+              ? formatDateRange(range[0], range[0])
+              : formatDateRange(range[0], range[1])}
+          </PaginationLabel>
+        )}
       </PaginationItem>
       <PaginationItem>
         <PaginationLink aria-label="Go to next page" href={nextUrl}>

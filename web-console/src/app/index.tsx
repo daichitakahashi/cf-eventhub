@@ -10,7 +10,7 @@ import { Event } from "../components/Event";
 import { SunMedium } from "../components/Icon";
 import { Modal } from "../components/Modal";
 import { Pagination } from "../components/Pagination";
-import { factory } from "../factory";
+import { type DateTime, factory } from "../factory";
 
 declare module "hono/jsx" {
   // biome-ignore lint/style/noNamespace: <explanation>
@@ -49,8 +49,14 @@ export const createHandler = ({
     .createApp()
     .use(renderer)
     .use((c, next) => {
-      c.set("dateFormatter", (d: Date | Rpc.Provider<Date>) => {
+      c.set("dateFormatter", (d: DateTime) => {
         return dateFormatter.format(d as unknown as Date);
+      });
+      c.set("dateRangeFormatter", (d1: DateTime, d2: DateTime) => {
+        return dateFormatter.formatRange(
+          d1 as unknown as Date,
+          d2 as unknown as Date,
+        );
       });
       return next();
     })
@@ -169,6 +175,17 @@ export const createHandler = ({
                 <Pagination
                   topUrl={currentCursor ? "/" : undefined}
                   nextUrl={nextUrl}
+                  range={
+                    events.length === 0
+                      ? undefined
+                      : events.length === 1
+                        ? ([events[0].createdAt] as unknown as [Date])
+                        : ([
+                            events[events.length - 1].createdAt,
+                            events[0].createdAt,
+                          ] as unknown as [Date, Date])
+                  }
+                  formatDateRange={c.var.dateRangeFormatter}
                 />
               </div>
             </div>
