@@ -20,48 +20,63 @@ import type { EventWithDispatches } from "./types";
 export const Event: FC<{
   event: EventWithDispatches;
   formatDate: (d: DateTime) => string;
-}> = ({ event, formatDate }) => (
-  <div class="mx-16 rounded-lg bg-white px-6 py-4 ring-1 ring-gray-900/20 drop-shadow">
-    <div class="flex justify-between font-semibold leading-7">
-      <div class="flex place-items-center gap-2">
-        <StatusIndicator status="complete" />
-        <p class="text-gray-900">{formatDate(event.createdAt)}</p>
+}> = ({ event, formatDate }) => {
+  let eventStatus: "ongoing" | "complete" | "ignored" | "failed" = "ongoing";
+  const statuses = event.dispatches
+    .map((d) => d.status)
+    .filter((s) => s !== "ignored");
+  if (statuses.length === 0) {
+    eventStatus = "ignored";
+  } else if (statuses.some((s) => s === "ongoing")) {
+    eventStatus = "ongoing";
+  } else if (statuses.every((s) => s === "complete")) {
+    eventStatus = "complete";
+  } else if (statuses.some((s) => s === "failed")) {
+    eventStatus = "failed";
+  }
+  return (
+    <div class="mx-16 rounded-lg bg-white px-6 py-4 ring-1 ring-gray-900/20 drop-shadow">
+      <div class="flex justify-between font-semibold leading-7">
+        <div class="flex place-items-center gap-2">
+          <StatusIndicator status={eventStatus} />
+          <p class="text-gray-900">{formatDate(event.createdAt)}</p>
+        </div>
+        <p class="text-gray-500">{event.id}</p>
       </div>
-      <p class="text-gray-500">{event.id}</p>
-    </div>
-    <div class="my-4 text-gray-500">
-      <Textarea readonly>{JSON.stringify(event.payload, null, 4)}</Textarea>
-    </div>
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Destination</TableHead>
-          <TableHead>Status</TableHead>
-          <TableHead>Attempts</TableHead>
-          <TableHead>Last updated at</TableHead>
-          <TableHead>Details</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {event.dispatches.length > 0 ? (
-          event.dispatches.map((dispatch) => (
-            <Dispatch
-              key={dispatch.id}
-              dispatch={dispatch}
-              formatDate={formatDate}
-            />
-          ))
-        ) : (
+      <div class="my-4 text-gray-500">
+        <Textarea readonly>{JSON.stringify(event.payload, null, 4)}</Textarea>
+      </div>
+      <Table>
+        <TableHeader>
           <TableRow>
-            <TableCell class="text-center pt-6 pb-2" colspan={5}>
-              no dispatches.
-            </TableCell>
+            <TableHead>Destination</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead>Attempts</TableHead>
+            <TableHead>Last updated at</TableHead>
+            <TableHead>Details</TableHead>
           </TableRow>
-        )}
-      </TableBody>
-    </Table>
-  </div>
-);
+        </TableHeader>
+        <TableBody>
+          {event.dispatches.length > 0 ? (
+            event.dispatches.map((dispatch) => (
+              <Dispatch
+                key={dispatch.id}
+                dispatch={dispatch}
+                formatDate={formatDate}
+              />
+            ))
+          ) : (
+            <TableRow>
+              <TableCell class="text-center pt-6 pb-2" colspan={5}>
+                no dispatches.
+              </TableCell>
+            </TableRow>
+          )}
+        </TableBody>
+      </Table>
+    </div>
+  );
+};
 
 export const Dispatch: FC<{
   dispatch: EventWithDispatches["dispatches"][number];
@@ -73,7 +88,7 @@ export const Dispatch: FC<{
     </TableCell>
     <TableCell>
       <div class="flex gap-1 items-center">
-        <StatusIndicator status="complete" />
+        <StatusIndicator status={dispatch.status} />
         {dispatch.status}
       </div>
     </TableCell>
@@ -129,7 +144,7 @@ const DispatchDetails: FC<{
         </Description>
         <Description title="Status">
           <div class="flex gap-1 items-center">
-            <StatusIndicator status="complete" />
+            <StatusIndicator status={dispatch.status} />
             {dispatch.status}
           </div>
         </Description>
