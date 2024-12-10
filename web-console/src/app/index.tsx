@@ -40,10 +40,18 @@ const renderer = jsxRenderer(({ children }, _options) => (
   </html>
 ));
 
+/**
+ * Creates a handler for the web console.
+ * @returns Hono handler.
+ */
 export const createHandler = ({
   dateFormatter,
+  refreshIntervalSeconds = 5,
 }: {
+  /** Date formatter for displaying date and time. */
   dateFormatter: Intl.DateTimeFormat;
+  /** Interval seconds of auto-refreshing event list. */
+  refreshIntervalSeconds?: number;
 }) =>
   factory
     .createApp()
@@ -124,6 +132,16 @@ export const createHandler = ({
         //   },
         // ];
         const events = list.list;
+        const refreshUrl = (() => {
+          const query = new URLSearchParams();
+          if (currentCursor) {
+            query.set("cursor", currentCursor);
+          }
+          if (maxItems !== 5) {
+            query.set("pageSize", maxItems.toString());
+          }
+          return `/?${query.toString()}`;
+        })();
         const nextUrl = list.continuationToken
           ? (() => {
               const query = new URLSearchParams();
@@ -189,6 +207,12 @@ export const createHandler = ({
                 />
               </div>
             </div>
+            <div
+              class="invisible"
+              hx-get={refreshUrl}
+              hx-trigger={`every ${refreshIntervalSeconds}s[document.visibilityState === 'visible']`}
+              aria-hidden
+            />
           </div>,
         );
       },

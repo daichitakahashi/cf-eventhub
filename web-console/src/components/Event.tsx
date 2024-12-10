@@ -35,7 +35,11 @@ export const Event: FC<{
     eventStatus = "failed";
   }
   return (
-    <div class="mx-16 rounded-lg bg-white px-6 py-4 ring-1 ring-gray-900/20 drop-shadow">
+    <div
+      id={`event-${event.id}`}
+      class="mx-16 rounded-lg bg-white px-6 py-4 ring-1 ring-gray-900/20 drop-shadow"
+      hx-swap-oob={`#event-${event.id}`}
+    >
       <div class="flex justify-between font-semibold leading-7">
         <div class="flex place-items-center gap-2">
           <StatusIndicator status={eventStatus} />
