@@ -1,5 +1,11 @@
 # @cf-eventhub/web-console
 
+## 0.0.8
+
+### Patch Changes
+
+- b1de929: Fix event status
+
 ## 0.0.7
 
 ### Patch Changes
