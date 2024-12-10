@@ -4,7 +4,7 @@ import type { DateTime } from "../factory";
 import { Button } from "./Button";
 import { Description, DescriptionList } from "./DescriptionList";
 import { ScanSearch, Sunrise } from "./Icon";
-import { Modal } from "./Modal";
+import { SharedModalContent, type SharedModalData } from "./Modal";
 import { StatusIndicator } from "./StatusIndicator";
 import {
   Table,
@@ -20,7 +20,8 @@ import type { EventWithDispatches } from "./types";
 export const Event: FC<{
   event: EventWithDispatches;
   formatDate: (d: DateTime) => string;
-}> = ({ event, formatDate }) => {
+  sharedModal: SharedModalData;
+}> = ({ event, formatDate, sharedModal }) => {
   let eventStatus: "ongoing" | "complete" | "ignored" | "failed" = "ongoing";
   const statuses = event.dispatches
     .map((d) => d.status)
@@ -71,6 +72,7 @@ export const Event: FC<{
                 key={dispatch.id}
                 dispatch={dispatch}
                 formatDate={formatDate}
+                sharedModal={sharedModal}
               />
             ))
           ) : (
@@ -89,7 +91,8 @@ export const Event: FC<{
 export const Dispatch: FC<{
   dispatch: EventWithDispatches["dispatches"][number];
   formatDate: (d: DateTime) => string;
-}> = ({ dispatch, formatDate }) => (
+  sharedModal: SharedModalData;
+}> = ({ dispatch, formatDate, sharedModal }) => (
   <TableRow>
     <TableCell>
       <code>{dispatch.destination}</code>
@@ -111,21 +114,27 @@ export const Dispatch: FC<{
       )}
     </TableCell>
     <TableCell>
-      <Modal
-        target={(_: string) => (
-          <div class="w-fit cursor-pointer hover:text-gray-500" _={_}>
+      <SharedModalContent
+        sharedModal={sharedModal}
+        contentFrameId={`dispatch-${dispatch.id}`}
+        trigger={(openModal) => (
+          <div
+            class="w-fit cursor-pointer hover:text-gray-500"
+            hx-swap-oob={`.dispatch-${dispatch.id}`}
+            _={openModal}
+          >
             <ScanSearch title="Show detail" />
           </div>
         )}
       >
-        {(_) => (
+        {(closeModal) => (
           <DispatchDetails
             dispatch={dispatch}
-            closeModal={_}
+            closeModal={closeModal}
             formatDate={formatDate}
           />
         )}
-      </Modal>
+      </SharedModalContent>
     </TableCell>
   </TableRow>
 );
@@ -135,7 +144,7 @@ const DispatchDetails: FC<{
   closeModal: string;
   formatDate: (d: DateTime) => string;
 }> = ({ dispatch, closeModal, formatDate }) => (
-  <div>
+  <div class={`dispatch-${dispatch.id}`}>
     <h2 class="text-2xl font-semibold">
       <span class="flex gap-2 items-center">
         <Sunrise title="" /> Dispatch details
@@ -145,6 +154,7 @@ const DispatchDetails: FC<{
       <DescriptionList>
         <Description title="Destination">
           <code>{dispatch.destination}</code>
+          {new Date().toISOString()}
         </Description>
         <Description title="Max retries">{dispatch.maxRetries}</Description>
         <Description title="Delay seconds">
