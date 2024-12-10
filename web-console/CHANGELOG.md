@@ -1,5 +1,11 @@
 # @cf-eventhub/web-console
 
+## 0.0.9
+
+### Patch Changes
+
+- 261c207: Use shared modal for dispatch details
+
 ## 0.0.8
 
 ### Patch Changes

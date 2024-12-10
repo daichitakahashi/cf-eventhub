@@ -8,7 +8,7 @@ import { Button } from "../components/Button";
 import { CreateEvent } from "../components/CreateEvent";
 import { Event } from "../components/Event";
 import { SunMedium } from "../components/Icon";
-import { Modal } from "../components/Modal";
+import { Modal, useSharedModal } from "../components/Modal";
 import { Pagination } from "../components/Pagination";
 import { type DateTime, factory } from "../factory";
 
@@ -112,6 +112,10 @@ export const createHandler = ({
             })()
           : undefined;
 
+        const [SharedModal, sharedModalData] = useSharedModal({
+          modalId: "dispatch-detail-modal",
+        });
+
         return c.render(
           <div>
             <div class="h-2 bg-blue-300" />
@@ -134,7 +138,7 @@ export const createHandler = ({
                   {(_) => <CreateEvent closeModal={_} />}
                 </Modal>
               </div>
-
+              <SharedModal />
               <div class="flex flex-col justify-center gap-12 overflow-hidden pt-1 pb-6">
                 {events.length > 0 ? (
                   events.map((e) => (
@@ -142,6 +146,7 @@ export const createHandler = ({
                       key={e.id}
                       event={e}
                       formatDate={c.var.dateFormatter}
+                      sharedModal={sharedModalData}
                     />
                   ))
                 ) : (
