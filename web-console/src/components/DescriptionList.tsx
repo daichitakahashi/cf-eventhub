@@ -1,14 +1,12 @@
-import type { FC } from "hono/jsx";
+import type { Child, FC } from "hono/jsx";
 
-import type { Node } from "./types";
-
-export const DescriptionList: FC<{ children: Node }> = ({ children }) => (
+export const DescriptionList: FC<{ children: Child }> = ({ children }) => (
   <div class="mt-6 border-gray-200">
     <dl class="divide-y divide-gray-200">{children}</dl>
   </div>
 );
 
-export const Description: FC<{ title: string; children: Node }> = ({
+export const Description: FC<{ title: string; children: Child }> = ({
   title,
   children,
 }) => (
