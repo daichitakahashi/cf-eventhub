@@ -179,7 +179,7 @@ const DispatchDetails: FC<{
         type="button"
         hx-post={`/api/dispatches/${dispatch.id}/retry`}
         hx-confirm="Are you sure you wish to retry this dispatch?"
-        _="on htmx:beforeSend add @disabled='true'"
+        hx-disabled-elt="this"
       >
         Retry as new dispatch
       </Button>

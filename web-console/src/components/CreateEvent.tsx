@@ -47,7 +47,7 @@ export const CreateEvent: FC<{ closeModal: string }> = ({ closeModal }) => {
             type="submit"
             hx-post="/api/events"
             hx-confirm="Are you sure you wish to create new event?"
-            _="on htmx:beforeSend add @disabled='true'"
+            hx-disabled-elt="this"
             disabled
           >
             Create
