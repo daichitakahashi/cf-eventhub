@@ -1,5 +1,11 @@
 # cf-eventhub
 
+## 0.0.16
+
+### Patch Changes
+
+- 9d3a2a5: Fix event status
+
 ## 0.0.15
 
 ### Patch Changes
