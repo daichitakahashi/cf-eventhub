@@ -1,5 +1,11 @@
 # @cf-eventhub/web-console
 
+## 0.0.7
+
+### Patch Changes
+
+- 1bce12c: Brand-new web console
+
 ## 0.0.6
 
 ### Patch Changes
