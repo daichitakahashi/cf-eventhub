@@ -11,7 +11,7 @@ import {
   type ResultedDispatch,
   makeDispatchLost,
 } from "../model";
-import type { Repository } from "../repository";
+import type { EventWithDispatches, Repository } from "../repository";
 import type { EventPayload } from "../type";
 import { type QueueMessage, enqueue } from "./queue";
 import { type Config, findRoutes } from "./routing";
@@ -117,6 +117,22 @@ export class EventSink {
       args?.maxItems || 10,
       args?.continuationToken,
       args?.filterByStatus,
+      args?.orderBy,
+    );
+    if (result.isErr()) {
+      return Promise.reject(result.error);
+    }
+    return result.value;
+  }
+
+  async listEvents(args?: {
+    maxItems?: number;
+    continuationToken?: string;
+    orderBy?: "CREATED_AT_ASC" | "CREATED_AT_DESC";
+  }): Promise<{ list: EventWithDispatches[]; continuationToken?: string }> {
+    const result = await this.repo.listEvents(
+      args?.maxItems || 10,
+      args?.continuationToken,
       args?.orderBy,
     );
     if (result.isErr()) {

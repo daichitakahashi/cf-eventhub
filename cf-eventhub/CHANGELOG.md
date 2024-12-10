@@ -1,5 +1,11 @@
 # cf-eventhub
 
+## 0.0.15
+
+### Patch Changes
+
+- e088cd6: New feature: list events
+
 ## 0.0.14
 
 ### Patch Changes
