@@ -1,10 +1,8 @@
-import type { FC } from "hono/jsx";
-
-import type { Node } from "./types";
+import type { Child, FC } from "hono/jsx";
 
 export const Modal: FC<{
-  target: (_: string) => Node;
-  children: (_: string) => Node;
+  target: (_: string) => Child;
+  children: (_: string) => Child;
 }> = ({ target, children }) => (
   <div>
     {target(`

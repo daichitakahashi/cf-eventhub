@@ -31,7 +31,11 @@ export const Event: FC<{
     eventStatus = "ongoing";
   } else if (statuses.every((s) => s === "complete")) {
     eventStatus = "complete";
-  } else if (statuses.some((s) => s === "failed")) {
+  } else if (
+    statuses.some(
+      (s) => s === "failed" || s === "misconfigured" || s === "lost",
+    )
+  ) {
     eventStatus = "failed";
   }
   return (

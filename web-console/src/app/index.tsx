@@ -90,47 +90,6 @@ export const createHandler = ({
           orderBy: "CREATED_AT_DESC",
         });
 
-        // const events = [
-        //   {
-        //     id: crypto.randomUUID(),
-        //     createdAt: new Date(),
-        //     payload: {
-        //       menu: {
-        //         id: "file",
-        //         value: "File",
-        //         popup: {
-        //           menuitem: [
-        //             { value: "New", onclick: "CreateNewDoc()" },
-        //             { value: "Open", onclick: "OpenDoc()" },
-        //             { value: "Close", onclick: "CloseDoc()" },
-        //           ],
-        //         },
-        //       },
-        //     },
-        //     dispatches: [
-        //       {
-        //         id: crypto.randomUUID(),
-        //         eventId: "1",
-        //         destination: "STABLE_HANDLER",
-        //         status: "ongoing",
-        //         executionLog: [{}],
-        //         createdAt: new Date(),
-        //         maxRetries: 5,
-        //         delaySeconds: 1,
-        //       },
-        //       {
-        //         id: crypto.randomUUID(),
-        //         eventId: "1",
-        //         destination: "FLAKY_HANDLER",
-        //         status: "complete",
-        //         executionLog: [],
-        //         createdAt: new Date(),
-        //         maxRetries: 5,
-        //         delaySeconds: 1,
-        //       },
-        //     ],
-        //   },
-        // ];
         const events = list.list;
         const refreshUrl = (() => {
           const query = new URLSearchParams();

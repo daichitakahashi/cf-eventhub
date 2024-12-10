@@ -16,6 +16,3 @@ export type EventWithDispatches = ListEventsResult["list"][number];
 
 export type ElementProps<Element extends keyof JSX.IntrinsicElements> =
   JSX.IntrinsicElements[Element];
-
-// biome-ignore lint/complexity/noBannedTypes:
-export type Node = {} | null | undefined;
