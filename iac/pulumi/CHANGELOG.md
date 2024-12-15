@@ -1,5 +1,11 @@
 # @cf-eventhub/pulumi
 
+## 0.0.14
+
+### Patch Changes
+
+- 813ba7b: Add new simple EventHubHelper
+
 ## 0.0.13
 
 ### Patch Changes
