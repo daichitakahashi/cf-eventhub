@@ -2,7 +2,7 @@
   "name": "@cf-eventhub/pulumi",
   "main": "src/index.ts",
   "type": "commonjs",
-  "version": "0.0.13",
+  "version": "0.0.14",
   "keywords": [
     "pulumi",
     "cloudflare"

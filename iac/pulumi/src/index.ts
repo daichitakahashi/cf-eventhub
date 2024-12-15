@@ -1,6 +1,7 @@
 import { Queue, WorkersCronTrigger } from "@pulumi/cloudflare";
 import { type Input, jsonStringify } from "@pulumi/pulumi";
 import type { Config, ConfigInput } from "cf-eventhub/core";
+export * from "./helper";
 
 export type HandlerWorkerScriptBinding = {
   readonly name: Input<string>;
