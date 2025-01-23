@@ -1,5 +1,14 @@
 # @cf-eventhub/pulumi
 
+## 0.0.15
+
+### Patch Changes
+
+- 97d1bb7: improve typing of EventHubHelper
+- 4a28d78: bump
+- Updated dependencies [4a28d78]
+  - cf-eventhub@0.0.17
+
 ## 0.0.14
 
 ### Patch Changes
