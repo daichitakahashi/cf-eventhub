@@ -1,5 +1,11 @@
 # cf-eventhub
 
+## 0.0.17
+
+### Patch Changes
+
+- 4a28d78: bump
+
 ## 0.0.16
 
 ### Patch Changes
