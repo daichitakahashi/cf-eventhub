@@ -1,26 +1,27 @@
 import { RunError, log } from "@pulumi/pulumi";
 import type { Config } from "cf-eventhub/core";
 
-type Handler = { service: string; entrypoint?: string };
+type Handler = { service: string; entrypoint?: string | undefined };
+type Destination<C extends Config> = C["routes"][number]["destination"];
 
 /**
  * Helper to construct EventHub and its Executor
  */
-export class EventHubHelper {
-  destinations: Map<string, Handler | null>;
+export class EventHubHelper<C extends Config = Config> {
+  destinations: Map<Destination<C>, Handler | null>;
 
   /**
    * @param config Configuration of EventHub routing. This is re-exported from `EventHubHelper.config`.
    * @param strict If true, an error is thrown when a bound handler is not found.
    */
   constructor(
-    public config: Config,
+    public config: C,
     private strict: boolean,
   ) {
     this.destinations = config.routes.reduce((acc, route) => {
       acc.set(route.destination, null);
       return acc;
-    }, new Map<string, Handler | null>());
+    }, new Map<Destination<C>, Handler | null>());
   }
 
   /**
@@ -30,7 +31,7 @@ export class EventHubHelper {
    * @param handler
    * @returns
    */
-  public assignHandler(destination: string, handler: Handler) {
+  public assignHandler(destination: Destination<C>, handler: Handler) {
     const d = this.destinations.get(destination);
     if (d === undefined) {
       log.warn(
