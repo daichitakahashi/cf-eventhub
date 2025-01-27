@@ -1,5 +1,11 @@
 # cf-eventhub
 
+## 0.0.18
+
+### Patch Changes
+
+- 1894474: Improve JSON typing
+
 ## 0.0.17
 
 ### Patch Changes
