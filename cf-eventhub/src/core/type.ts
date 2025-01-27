@@ -1,8 +1,8 @@
 export { Config } from "./hub/routing";
 export type { QueueMessage } from "./hub/queue";
 
-type JSONPrimitive = string | boolean | number | null;
-type JSONArray = NoInfer<JSONPrimitive | JSONObject | JSONArray>[];
+type JSONPrimitive = string | boolean | number | null | undefined;
+type JSONArray = readonly NoInfer<JSONPrimitive | JSONObject | JSONArray>[];
 export type JSONObject = {
   [key: string]: NoInfer<JSONPrimitive | JSONArray | JSONObject>;
 };
