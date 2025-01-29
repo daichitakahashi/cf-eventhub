@@ -36,7 +36,8 @@
       "ScheduledController",
       "Service",
       "Rpc",
-      "HtmxAttributes"
+      "HtmxAttributes",
+      "Hyperdrive"
     ]
   }
 }
