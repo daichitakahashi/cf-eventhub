@@ -1,5 +1,11 @@
 # cf-eventhub
 
+## 0.0.19
+
+### Patch Changes
+
+- 3c0fcb6: feat(cf-eventhub): support Hyperdrive for postgres
+
 ## 0.0.18
 
 ### Patch Changes
