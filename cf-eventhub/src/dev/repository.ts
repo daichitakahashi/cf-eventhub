@@ -35,12 +35,10 @@ export class DevRepository implements Repository {
       let result: Result<T, "INTERNAL_SERVER_ERROR" | E>;
       try {
         result = await fn(tx);
-      } catch {}
-
-      // @ts-ignore
-      if (!result) {
+      } catch {
         return err("INTERNAL_SERVER_ERROR" as const);
       }
+
       if (result.isOk()) {
         this.events = tx.events;
         this.dispatches = tx.dispatches;

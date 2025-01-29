@@ -67,7 +67,9 @@ export class PgRepository implements Repository {
         if (result.isOk()) return;
         tx.rollback();
       });
-    } catch {}
+    } catch (e) {
+      this.logger.error("error on enterTransactionalScope", { error: e });
+    }
 
     // @ts-ignore
     if (!result) {
