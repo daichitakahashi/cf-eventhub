@@ -1,5 +1,11 @@
 # cf-eventhub
 
+## 0.0.20
+
+### Patch Changes
+
+- d04e7e2: fix(cf-eventhub): catch and report error during transaction
+
 ## 0.0.19
 
 ### Patch Changes
