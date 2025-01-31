@@ -1,0 +1,8 @@
+{
+    "$schema": "node_modules/wrangler/config-schema.json",
+    "name": "flaky-handler",
+    "main": "src/index.ts",
+    "compatibility_date": "2024-11-16",
+    "compatibility_flags": ["nodejs_compat"]
+  }
+  
