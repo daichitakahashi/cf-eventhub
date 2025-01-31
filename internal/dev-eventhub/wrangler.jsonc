@@ -1,0 +1,55 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "dev-eventhub",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-11-16",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "EVENTHUB_ROUTING": {
+      "defaultDelaySeconds": 3,
+      "defaultMaxRetries": 5,
+      "routes": [
+        {
+          "condition": { "path": "$.flaky", "exact": false },
+          "destination": "STABLE_HANDLER"
+        },
+        {
+          "condition": { "path": "$.flaky", "exact": true },
+          "destination": "FLAKY_HANDLER"
+        },
+        {
+          "condition": { "path": "$.produce", "exact": true },
+          "destination": "PRODUCER_HANDLER"
+        }
+      ]
+    }
+  },
+  "queues": {
+    "producers": [
+      {
+        "binding": "EVENTHUB_QUEUE",
+        "queue": "eventhub-queue"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "eventhub-queue",
+        "max_retries": 10
+      }
+    ]
+  },
+  "services": [
+    {
+      "binding": "STABLE_HANDLER",
+      "service": "stable-handler"
+    },
+    {
+      "binding": "FLAKY_HANDLER",
+      "service": "flaky-handler"
+    },
+    {
+      "binding": "PRODUCER_HANDLER",
+      "service": "producer-handler"
+    }
+  ]
+}

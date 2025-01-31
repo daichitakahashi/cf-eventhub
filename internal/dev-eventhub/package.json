@@ -13,10 +13,10 @@
     "cf-eventhub": "workspace:../../cf-eventhub"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.5.2",
-    "@cloudflare/workers-types": "^4.20241112.0",
+    "@cloudflare/vitest-pool-workers": "catalog:",
+    "@cloudflare/workers-types": "catalog:",
     "typescript": "^5.5.2",
     "vitest": "2.0.5",
-    "wrangler": "^3.87.0"
+    "wrangler": "catalog:"
   }
 }
