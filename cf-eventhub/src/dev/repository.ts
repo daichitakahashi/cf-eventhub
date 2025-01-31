@@ -406,7 +406,8 @@ export class DevRepositoryV2 implements RepositoryV2 {
 }
 
 class DevMutationRepository implements MutationRepository {
-  private readonly mutations: (() => void)[] = [];
+  private readonly eventSink = new Map<string, CreatedEvent>();
+  private readonly dispatchSink = new Map<string, Dispatch>();
   private readonly releases: (() => void)[] = [];
   constructor(
     private readonly dispatchesLocker: Locker,
@@ -427,11 +428,9 @@ class DevMutationRepository implements MutationRepository {
     });
 
     // Save events lazily.
-    this.mutations.push(() => {
-      for (const e of created) {
-        this.events.set(e.id, e);
-      }
-    });
+    for (const e of created) {
+      this.eventSink.set(e.id, e);
+    }
 
     return ok(created);
   }
@@ -440,7 +439,7 @@ class DevMutationRepository implements MutationRepository {
     dispatches: NewDispatch[],
   ): Promise<Result<OngoingDispatch[], "INTERNAL_SERVER_ERROR">> {
     const created = dispatches.map((d): OngoingDispatch => {
-      if (!this.events.has(d.eventId)) {
+      if (!this.events.has(d.eventId) && !this.eventSink.has(d.eventId)) {
         throw new Error("event not found");
       }
 
@@ -453,11 +452,9 @@ class DevMutationRepository implements MutationRepository {
     });
 
     // Save dispatches lazily.
-    this.mutations.push(() => {
-      for (const d of created) {
-        this.dispatches.set(d.id, d);
-      }
-    });
+    for (const d of created) {
+      this.dispatchSink.set(d.id, d);
+    }
 
     return ok(created);
   }
@@ -465,7 +462,8 @@ class DevMutationRepository implements MutationRepository {
   async saveDispatch(
     dispatch: Dispatch,
   ): Promise<Result<void, "INTERNAL_SERVER_ERROR">> {
-    const v = this.dispatches.get(dispatch.id);
+    const v =
+      this.dispatches.get(dispatch.id) || this.dispatchSink.get(dispatch.id);
     if (!v) {
       throw new Error("dispatch not found");
     }
@@ -483,9 +481,7 @@ class DevMutationRepository implements MutationRepository {
     });
 
     // Save dispatch lazily.
-    this.mutations.push(() => {
-      this.dispatches.set(clone.id, clone);
-    });
+    this.dispatchSink.set(clone.id, clone);
 
     return ok((() => {})());
   }
@@ -505,7 +501,7 @@ class DevMutationRepository implements MutationRepository {
     if (!v) {
       return ok(null);
     }
-    const event = this.events.get(v.eventId);
+    const event = this.events.get(v.eventId) || this.eventSink.get(v.eventId);
     if (!event) {
       throw new Error("event not found");
     }
@@ -513,8 +509,11 @@ class DevMutationRepository implements MutationRepository {
   }
 
   commit() {
-    for (const mut of this.mutations) {
-      mut();
+    for (const [id, event] of this.eventSink) {
+      this.events.set(id, event);
+    }
+    for (const [id, dispatch] of this.dispatchSink) {
+      this.dispatches.set(id, dispatch);
     }
   }
   release() {
