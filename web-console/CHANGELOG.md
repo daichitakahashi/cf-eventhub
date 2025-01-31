@@ -1,5 +1,11 @@
 # @cf-eventhub/web-console
 
+## 0.0.11
+
+### Patch Changes
+
+- 657d58f: feat(web-console): add options(color customization and environment display)
+
 ## 0.0.10
 
 ### Patch Changes
