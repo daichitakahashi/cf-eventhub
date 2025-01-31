@@ -1,5 +1,11 @@
 # @cf-eventhub/web-console
 
+## 0.0.10
+
+### Patch Changes
+
+- a239039: fix(web-console): remove ISO date string after Destination
+
 ## 0.0.9
 
 ### Patch Changes
