@@ -5,6 +5,8 @@ const handler = createWebConsole({
     dateStyle: "short",
     timeStyle: "long",
   }),
+  color: "#45c467",
+  environment: "dev-eventhub",
 });
 
 export default handler;
