@@ -3,10 +3,10 @@ import * as v from "valibot";
 import { assert, describe, expect, test } from "vitest";
 
 import { Dispatcher } from ".";
-import { DevRepositoryV2 as DevRepository } from "../../dev/repository";
+import { DevRepository } from "../../dev/repository";
 import { DefaultLogger } from "../logger";
 import { appendExecutionLog } from "../model";
-import type { RepositoryV2 as Repository } from "../repository";
+import type { Repository } from "../repository";
 import type { EventPayload } from "../type";
 import type { Handler } from "./handler";
 

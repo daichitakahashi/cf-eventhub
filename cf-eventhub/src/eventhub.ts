@@ -5,10 +5,7 @@ import { EventSink } from "./core/hub";
 import { Config, type ConfigInput } from "./core/hub/routing";
 import { DefaultLogger, type LogLevel, type Logger } from "./core/logger";
 import type { Dispatch, Event, ResultedDispatch } from "./core/model";
-import type {
-  EventWithDispatches,
-  RepositoryV2 as Repository,
-} from "./core/repository";
+import type { EventWithDispatches, Repository } from "./core/repository";
 import type { EventPayload, RpcSerializable } from "./core/type";
 
 export type RpcEnv = Record<string, unknown> & {

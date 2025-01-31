@@ -55,26 +55,28 @@ describe("repositorytest", () => {
 
   test("List events", async () => {
     const repo = new DevRepository();
-    const result = await repo.createEvents([
-      {
-        payload: {
-          id: crypto.randomUUID(),
+    const result = await repo.mutate(async (tx) =>
+      tx.createEvents([
+        {
+          payload: {
+            id: crypto.randomUUID(),
+          },
+          createdAt: await nextDate(),
         },
-        createdAt: await nextDate(),
-      },
-      {
-        payload: {
-          id: crypto.randomUUID(),
+        {
+          payload: {
+            id: crypto.randomUUID(),
+          },
+          createdAt: await nextDate(),
         },
-        createdAt: await nextDate(),
-      },
-      {
-        payload: {
-          id: crypto.randomUUID(),
+        {
+          payload: {
+            id: crypto.randomUUID(),
+          },
+          createdAt: await nextDate(),
         },
-        createdAt: await nextDate(),
-      },
-    ]);
+      ]),
+    );
     assert(result.isOk());
     assert(result.value.length === 3);
     const events = result.value as [CreatedEvent, CreatedEvent, CreatedEvent];

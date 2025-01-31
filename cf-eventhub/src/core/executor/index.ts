@@ -2,7 +2,7 @@ import { fromAsyncThrowable, ok } from "neverthrow";
 
 import type { Logger } from "../logger";
 import { type DispatchExecution, appendExecutionLog } from "../model";
-import type { RepositoryV2 as Repository } from "../repository";
+import type { Repository } from "../repository";
 import type { QueueMessage } from "../type";
 import { type Handler, isHandler, validHandlerResult } from "./handler";
 

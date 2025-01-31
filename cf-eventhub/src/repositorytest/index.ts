@@ -15,68 +15,69 @@ const eventPayload = {
 
 // Create event and dispatch.
 const createEvent = (repo: Repository) =>
-  repo.enterTransactionalScope(
-    async (tx) =>
-      await safeTry(async function* () {
-        // Create events.
-        const [createdEvent] = yield* (
-          await tx.createEvents([
-            {
-              payload: eventPayload,
-              createdAt: await nextDate(),
-            },
-            {
-              payload: { key: "value" },
-              createdAt: await nextDate(),
-            },
-          ])
-        ).safeUnwrap();
+  repo.mutate(async (tx) =>
+    safeTry(async function* () {
+      // Create events.
+      const [createdEvent] = yield* await tx.createEvents([
+        {
+          payload: eventPayload,
+          createdAt: await nextDate(),
+        },
+        {
+          payload: { key: "value" },
+          createdAt: await nextDate(),
+        },
+      ]);
 
-        const created = yield* (
-          await tx.createDispatches([
-            {
-              eventId: createdEvent.id,
-              destination: "WORKER_1",
-              createdAt: await nextDate(),
-              delaySeconds: null,
-              maxRetries: 5,
-            },
-            {
-              eventId: createdEvent.id,
-              destination: "WORKER_2",
-              createdAt: await nextDate(),
-              delaySeconds: 5,
-              maxRetries: 10,
-            },
-          ])
-        ).safeUnwrap();
-        const createdDispatch = created.find(
-          ({ destination }) => destination === "WORKER_1",
-        );
-        assert(createdDispatch !== undefined);
+      const created = yield* await tx.createDispatches([
+        {
+          eventId: createdEvent.id,
+          destination: "WORKER_1",
+          createdAt: await nextDate(),
+          delaySeconds: null,
+          maxRetries: 5,
+        },
+        {
+          eventId: createdEvent.id,
+          destination: "WORKER_2",
+          createdAt: await nextDate(),
+          delaySeconds: 5,
+          maxRetries: 10,
+        },
+      ]);
+      const createdDispatch = created.find(
+        ({ destination }) => destination === "WORKER_1",
+      );
+      assert(
+        createdDispatch !== undefined,
+        "createEvent should dispatch to WORKER_1",
+      );
 
-        return ok({ eventId: createdEvent.id, dispatchId: createdDispatch.id });
-      }),
+      return ok({ eventId: createdEvent.id, dispatchId: createdDispatch.id });
+    }),
   );
 
 // Execute dispatch and record its failure.
 const dispatchFailed = (repo: Repository, dispatchId: string) =>
-  repo.enterTransactionalScope(
-    async (tx) =>
-      await safeTry(async function* () {
-        const got = yield* (await tx.getDispatch(dispatchId)).safeUnwrap();
-        assert(got !== null);
-        const dispatch = got.dispatch;
-        assert(dispatch.status === "ongoing");
+  repo.mutate(async (tx) =>
+    safeTry(async function* () {
+      const got = yield* await tx.getTargetDispatch(dispatchId);
+      assert(got !== null, "target dispatch must be found");
+      const dispatch = got.dispatch;
+      assert(dispatch.status === "ongoing", "target dispatch must be ongoing");
 
-        const failed = appendExecutionLog(dispatch, {
-          result: "failed",
-          executedAt: new Date(),
-        });
+      const failed = appendExecutionLog(dispatch, {
+        result: "failed",
+        executedAt: new Date(),
+      });
 
-        return tx.saveDispatch(failed);
-      }),
+      return tx.saveDispatch(failed);
+    }),
   );
+
+// Get created/updated dispatch.
+const getTargetDispatch = (repo: Repository, dispatchId: string) =>
+  repo.mutate(async (tx) => tx.getTargetDispatch(dispatchId));
 
 /** @internal */
 export const testRepositoryPersistsCompleteDispatch = async (
@@ -85,30 +86,33 @@ export const testRepositoryPersistsCompleteDispatch = async (
   // Max retry count is 5.
   // Fail 5 times and complete.
   const got = await safeTry(async function* () {
-    const { dispatchId } = yield* (await createEvent(repo)).safeUnwrap();
+    const { dispatchId } = yield* await createEvent(repo);
 
     // Fail 4 times.
     for (const _ of [...Array(5)]) {
-      yield* (await dispatchFailed(repo, dispatchId)).safeUnwrap();
+      yield* await dispatchFailed(repo, dispatchId);
     }
 
     // Complete
-    const got = yield* (await repo.getDispatch(dispatchId)).safeUnwrap();
-    assert(got !== null);
-    const { dispatch } = got;
-    assert(dispatch.status === "ongoing");
+    yield* await repo.mutate(async (tx) =>
+      safeTry(async function* () {
+        const got = yield* await tx.getTargetDispatch(dispatchId);
+        assert(got !== null);
+        const { dispatch } = got;
+        assert(dispatch.status === "ongoing");
 
-    yield* (
-      await repo.saveDispatch(
-        appendExecutionLog(dispatch, {
-          result: "complete",
-          executedAt: new Date(),
-        }),
-      )
-    ).safeUnwrap();
+        return await tx.saveDispatch(
+          appendExecutionLog(dispatch, {
+            result: "complete",
+            executedAt: new Date(),
+          }),
+        );
+      }),
+    );
 
-    return await repo.getDispatch(dispatchId);
+    return getTargetDispatch(repo, dispatchId);
   });
+
   assert(got.isOk());
   assert(got.value !== null);
   const { event, dispatch } = got.value;
@@ -170,14 +174,14 @@ export const testRepositoryPersistsFailedDispatch = async (
   // Max retry count is 5.
   // Fail 6 times.
   const got = await safeTry(async function* () {
-    const { dispatchId } = yield* (await createEvent(repo)).safeUnwrap();
+    const { dispatchId } = yield* await createEvent(repo);
 
     // Fail 6 times.
     for (const _ of [...Array(6)]) {
-      yield* (await dispatchFailed(repo, dispatchId)).safeUnwrap();
+      yield* await dispatchFailed(repo, dispatchId);
     }
 
-    return await repo.getDispatch(dispatchId);
+    return await getTargetDispatch(repo, dispatchId);
   });
   assert(got.isOk());
   assert(got.value !== null);
@@ -238,20 +242,24 @@ export const testRepositoryPersistsIgnoredDispatch = async (
   repo: Repository,
 ) => {
   const got = await safeTry(async function* () {
-    const { dispatchId } = yield* (await createEvent(repo)).safeUnwrap();
+    const { dispatchId } = yield* await createEvent(repo);
 
-    const got = yield* (await repo.getDispatch(dispatchId)).safeUnwrap();
-    assert(got !== null);
-    const { dispatch } = got;
-    assert(dispatch.status === "ongoing");
+    yield* await repo.mutate(async (tx) =>
+      safeTry(async function* () {
+        const got = yield* await tx.getTargetDispatch(dispatchId);
+        assert(got !== null);
+        const { dispatch } = got;
+        assert(dispatch.status === "ongoing");
 
-    const ignored = appendExecutionLog(dispatch, {
-      result: "ignored",
-      executedAt: new Date(),
-    });
-    yield* (await repo.saveDispatch(ignored)).safeUnwrap();
+        const ignored = appendExecutionLog(dispatch, {
+          result: "ignored",
+          executedAt: new Date(),
+        });
+        return tx.saveDispatch(ignored);
+      }),
+    );
 
-    return await repo.getDispatch(dispatchId);
+    return getTargetDispatch(repo, dispatchId);
   });
   assert(got.isOk());
   assert(got.value !== null);
@@ -287,20 +295,25 @@ export const testRepositoryPersistsMisconfiguredDispatch = async (
   repo: Repository,
 ) => {
   const got = await safeTry(async function* () {
-    const { dispatchId } = yield* (await createEvent(repo)).safeUnwrap();
+    const { dispatchId } = yield* await createEvent(repo);
 
-    const got = yield* (await repo.getDispatch(dispatchId)).safeUnwrap();
-    assert(got !== null);
-    const { dispatch } = got;
-    assert(dispatch.status === "ongoing");
+    yield* await repo.mutate(
+      async (tx) =>
+        await safeTry(async function* () {
+          const got = yield* await tx.getTargetDispatch(dispatchId);
+          assert(got !== null);
+          const { dispatch } = got;
+          assert(dispatch.status === "ongoing");
 
-    const ignored = appendExecutionLog(dispatch, {
-      result: "misconfigured",
-      executedAt: new Date(),
-    });
-    yield* (await repo.saveDispatch(ignored)).safeUnwrap();
+          const ignored = appendExecutionLog(dispatch, {
+            result: "misconfigured",
+            executedAt: new Date(),
+          });
+          return tx.saveDispatch(ignored);
+        }),
+    );
 
-    return await repo.getDispatch(dispatchId);
+    return getTargetDispatch(repo, dispatchId);
   });
   assert(got.isOk());
   assert(got.value !== null);
@@ -334,21 +347,25 @@ export const testRepositoryPersistsMisconfiguredDispatch = async (
 /** @internal */
 export const testRepositoryPersistsLostDispatch = async (repo: Repository) => {
   const got = await safeTry(async function* () {
-    const { dispatchId } = yield* (await createEvent(repo)).safeUnwrap();
+    const { dispatchId } = yield* await createEvent(repo);
 
     // Fail once.
-    yield* (await dispatchFailed(repo, dispatchId)).safeUnwrap();
+    yield* await dispatchFailed(repo, dispatchId);
 
     // Mark dispatch as lost.
-    const got = yield* (await repo.getDispatch(dispatchId)).safeUnwrap();
-    assert(got !== null);
-    const { dispatch } = got;
-    assert(dispatch.status === "ongoing");
+    yield* await repo.mutate(async (tx) =>
+      safeTry(async function* () {
+        const got = yield* await tx.getTargetDispatch(dispatchId);
+        assert(got !== null);
+        const { dispatch } = got;
+        assert(dispatch.status === "ongoing");
 
-    const lost = makeDispatchLost(dispatch, new Date());
-    yield* (await repo.saveDispatch(lost)).safeUnwrap();
+        const lost = makeDispatchLost(dispatch, new Date());
+        return tx.saveDispatch(lost);
+      }),
+    );
 
-    return await repo.getDispatch(dispatchId);
+    return getTargetDispatch(repo, dispatchId);
   });
   assert(got.isOk());
   assert(got.value !== null);
@@ -387,44 +404,48 @@ export const nextDate = async () => {
 /** @internal */
 export const testRepositoryListOngoingDispatches = async (repo: Repository) => {
   // Create dispatches.
-  const result = await repo.createEvents([
-    {
-      payload: {},
-      createdAt: new Date(),
-    },
-  ]);
+  const result = await repo.mutate(async (tx) =>
+    safeTry(async function* () {
+      const events = yield* await tx.createEvents([
+        {
+          payload: {},
+          createdAt: new Date(),
+        },
+      ]);
+      const { id: eventId } = events[0];
+
+      const dispatchIds: string[] = [];
+      for (let i = 0; i < 20; i++) {
+        const createResult = yield* await tx.createDispatches([
+          {
+            eventId,
+            destination: `dest_${i}`,
+            createdAt: await nextDate(),
+            delaySeconds: null,
+            maxRetries: 1,
+          },
+        ]);
+        const created = createResult[0];
+
+        const next =
+          i % 3 === 0
+            ? created
+            : appendExecutionLog(created, {
+                result: i % 2 === 0 ? "failed" : "complete",
+                executedAt: await nextDate(),
+              });
+        yield* await tx.saveDispatch(next);
+
+        dispatchIds.push(next.id);
+      }
+      return ok(dispatchIds);
+    }),
+  );
   assert(result.isOk());
-  const { id: eventId } = result.value[0];
-
-  const dispatchIds: string[] = [];
-  for (let i = 0; i < 20; i++) {
-    const createResult = await repo.createDispatches([
-      {
-        eventId,
-        destination: `dest_${i}`,
-        createdAt: await nextDate(),
-        delaySeconds: null,
-        maxRetries: 1,
-      },
-    ]);
-    assert(createResult.isOk());
-    const created = createResult.value[0];
-
-    const next =
-      i % 3 === 0
-        ? created
-        : appendExecutionLog(created, {
-            result: i % 2 === 0 ? "failed" : "complete",
-            executedAt: await nextDate(),
-          });
-    const saveResult = await repo.saveDispatch(next);
-    assert(saveResult.isOk());
-
-    dispatchIds.push(next.id);
-  }
+  const dispatchIds = result.value;
 
   // List first 3 dispatches.
-  const firstResult = await repo.listDispatches(3, undefined, ["ongoing"]);
+  const firstResult = await repo.readDispatches(3, undefined, ["ongoing"]);
   assert(firstResult.isOk());
   expect(firstResult.value).toMatchObject({
     list: [
@@ -464,7 +485,7 @@ export const testRepositoryListOngoingDispatches = async (repo: Repository) => {
     continuationToken: expect.any(String),
   });
 
-  const secondResult = await repo.listDispatches(
+  const secondResult = await repo.readDispatches(
     3,
     firstResult.value.continuationToken,
     ["ongoing"],
@@ -513,7 +534,7 @@ export const testRepositoryListOngoingDispatches = async (repo: Repository) => {
     continuationToken: expect.any(String),
   });
 
-  const thirdResult = await repo.listDispatches(
+  const thirdResult = await repo.readDispatches(
     3,
     secondResult.value.continuationToken,
     ["ongoing"],
@@ -557,7 +578,7 @@ export const testRepositoryListOngoingDispatches = async (repo: Repository) => {
     continuationToken: expect.any(String),
   });
 
-  const fourthResult = await repo.listDispatches(
+  const fourthResult = await repo.readDispatches(
     3,
     thirdResult.value.continuationToken,
     ["ongoing"],
@@ -605,7 +626,7 @@ export const testRepositoryListOngoingDispatches = async (repo: Repository) => {
     ],
     continuationToken: expect.any(String),
   });
-  const fifthResult = await repo.listDispatches(
+  const fifthResult = await repo.readDispatches(
     3,
     fourthResult.value.continuationToken,
     ["ongoing"],
@@ -631,8 +652,8 @@ export const testRepositoryListEventsAsc = async (
   repo: Repository,
   events: [CreatedEvent, CreatedEvent, CreatedEvent],
 ) => {
-  const result = await repo.listEvents(2);
-  assert(result.isOk(), "listEvents must be succeeded");
+  const result = await repo.readEvents(2);
+  assert(result.isOk(), "readEvents must be succeeded");
   expect(result.value.list).toMatchObject([
     {
       id: events[0].id,
@@ -647,8 +668,8 @@ export const testRepositoryListEventsAsc = async (
   ]);
   assert(result.value.continuationToken !== undefined);
 
-  const result2 = await repo.listEvents(2, result.value.continuationToken);
-  assert(result2.isOk(), "listEvents must be succeeded");
+  const result2 = await repo.readEvents(2, result.value.continuationToken);
+  assert(result2.isOk(), "readEvents must be succeeded");
   expect(result2.value.list).toMatchObject([
     {
       id: events[2].id,
@@ -664,8 +685,8 @@ export const testRepositoryListEventsDesc = async (
   repo: Repository,
   events: [CreatedEvent, CreatedEvent, CreatedEvent],
 ) => {
-  const result = await repo.listEvents(2, undefined, "CREATED_AT_DESC");
-  assert(result.isOk(), "listEvents must be succeeded");
+  const result = await repo.readEvents(2, undefined, "CREATED_AT_DESC");
+  assert(result.isOk(), "readEvents must be succeeded");
   expect(result.value.list).toMatchObject([
     {
       id: events[2].id,
@@ -680,7 +701,7 @@ export const testRepositoryListEventsDesc = async (
   ]);
   assert(result.value.continuationToken !== undefined);
 
-  const result2 = await repo.listEvents(
+  const result2 = await repo.readEvents(
     2,
     result.value.continuationToken,
     "CREATED_AT_DESC",
@@ -698,35 +719,38 @@ export const testRepositoryListEventsDesc = async (
 
 export const testRepositoryListEventDispatches = async (repo: Repository) => {
   const result = await safeTry(async function* () {
-    const { eventId, dispatchId } = yield* (
-      await createEvent(repo)
-    ).safeUnwrap();
-    const got = yield* (await repo.getDispatch(dispatchId)).safeUnwrap();
-    assert(got !== null);
-    let dispatch = got.dispatch;
-    assert(dispatch.status === "ongoing");
-    dispatch = appendExecutionLog(dispatch, {
-      result: "failed",
-      executedAt: await nextDate(),
-    });
-    assert(dispatch.status === "ongoing");
-    dispatch = appendExecutionLog(dispatch, {
-      result: "failed",
-      executedAt: await nextDate(),
-    });
-    assert(dispatch.status === "ongoing");
-    dispatch = appendExecutionLog(dispatch, {
-      result: "complete",
-      executedAt: await nextDate(),
-    });
-    yield* (await repo.saveDispatch(dispatch)).safeUnwrap();
-    return ok(eventId);
+    const { eventId, dispatchId } = yield* await createEvent(repo);
+
+    return repo.mutate(async (tx) =>
+      safeTry(async function* () {
+        const got = yield* await tx.getTargetDispatch(dispatchId);
+        assert(got !== null);
+        let dispatch = got.dispatch;
+        assert(dispatch.status === "ongoing");
+        dispatch = appendExecutionLog(dispatch, {
+          result: "failed",
+          executedAt: await nextDate(),
+        });
+        assert(dispatch.status === "ongoing");
+        dispatch = appendExecutionLog(dispatch, {
+          result: "failed",
+          executedAt: await nextDate(),
+        });
+        assert(dispatch.status === "ongoing");
+        dispatch = appendExecutionLog(dispatch, {
+          result: "complete",
+          executedAt: await nextDate(),
+        });
+        yield* await tx.saveDispatch(dispatch);
+        return ok(eventId);
+      }),
+    );
   });
   assert(result.isOk());
 
   const eventId = result.value;
 
-  const ascResult = await repo.listEvents(2);
+  const ascResult = await repo.readEvents(2);
   assert(ascResult.isOk(), "listEvents must be succeeded");
   expect(ascResult.value.list[0]).toMatchObject({
     id: eventId,
@@ -776,7 +800,7 @@ export const testRepositoryListEventDispatches = async (repo: Repository) => {
     createdAt: expect.any(Date),
   });
 
-  const descResult = await repo.listEvents(2, undefined, "CREATED_AT_DESC");
+  const descResult = await repo.readEvents(2, undefined, "CREATED_AT_DESC");
   assert(descResult.isOk(), "listEvents must be succeeded");
   expect(descResult.value.list[0]).toMatchObject({
     id: expect.any(String),
@@ -834,7 +858,7 @@ export const testRepositoryRollback = async (
 ) => {
   let dispatchId: string | undefined;
 
-  const result = await repo.enterTransactionalScope(async (tx) => {
+  const result = await repo.mutate(async (tx) => {
     // Create events in transaction.
     const createdEvent = await (async () => {
       const eventPayload = {
@@ -929,7 +953,7 @@ export const testRepositoryRollback = async (
   });
 
   // Check transaction returns error.
-  assert(result.isErr(), "enterTransactionalScope must be failed");
+  assert(result.isErr(), "mutate must be failed");
   if (mode === "RESULT") {
     expect(result.error).toBe("INTENDED_ERROR");
   } else {
@@ -938,7 +962,7 @@ export const testRepositoryRollback = async (
 
   // Check created event and dispatch disappeared.
   assert(!!dispatchId);
-  const getResult = await repo.getDispatch(dispatchId);
+  const getResult = await getTargetDispatch(repo, dispatchId);
   assert(getResult.isOk(), "getResult must be succeeded");
   expect(getResult.value).toBeNull();
 };

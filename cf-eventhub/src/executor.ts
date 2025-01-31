@@ -3,7 +3,7 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 import { Dispatcher } from "./core/executor";
 import type { Handler } from "./core/executor/handler";
 import { DefaultLogger, type LogLevel, type Logger } from "./core/logger";
-import type { RepositoryV2 as Repository } from "./core/repository";
+import type { Repository } from "./core/repository";
 import type { EventPayload, QueueMessage } from "./core/type";
 
 const getLogLevel = (env: Record<string, unknown>) =>

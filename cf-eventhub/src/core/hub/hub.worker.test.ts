@@ -1,10 +1,10 @@
 import { assert, describe, expect, test } from "vitest";
 
 import { EventSink } from ".";
-import { DevRepositoryV2 as DevRepository } from "../../dev/repository";
+import { DevRepository } from "../../dev/repository";
 import { DefaultLogger } from "../logger";
 import { appendExecutionLog, makeDispatchLost } from "../model";
-import type { RepositoryV2 as Repository } from "../repository";
+import type { Repository } from "../repository";
 import type { QueueMessage } from "./queue";
 import type { Config } from "./routing";
 

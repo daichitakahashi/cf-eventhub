@@ -10,10 +10,7 @@ import {
   type ResultedDispatch,
   makeDispatchLost,
 } from "../model";
-import type {
-  EventWithDispatches,
-  RepositoryV2 as Repository,
-} from "../repository";
+import type { EventWithDispatches, Repository } from "../repository";
 import type { EventPayload } from "../type";
 import { type QueueMessage, enqueue } from "./queue";
 import { type Config, findRoutes } from "./routing";

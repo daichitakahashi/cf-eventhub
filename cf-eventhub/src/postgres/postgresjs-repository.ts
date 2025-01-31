@@ -2,8 +2,8 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 
 import type { Logger } from "../core/logger";
-import type { Repository, RepositoryV2 } from "../core/repository";
-import { PgRepository, PgRepositoryV2 } from "./repository";
+import type { Repository } from "../core/repository";
+import { PgRepository } from "./repository";
 import * as schema from "./schema";
 
 export function createRepository(
@@ -19,21 +19,6 @@ export function createRepository(
   const pg = postgres(dsn);
   const db = drizzle(pg, { schema });
   return new PgRepository(db, logger);
-}
-
-export function createRepositoryV2(
-  env: Record<string, unknown>,
-  logger: Logger,
-): RepositoryV2 {
-  const dsn = getDsn(env.EVENTHUB_DSN);
-  if (!dsn) {
-    throw new Error(
-      "cf-eventhub: EVENTHUB_DSN not set(string or Hyperdrive binding)",
-    );
-  }
-  const pg = postgres(dsn);
-  const db = drizzle(pg, { schema });
-  return new PgRepositoryV2(db, logger);
 }
 
 function isHyperdrive(v: unknown): v is Hyperdrive {
