@@ -1,5 +1,11 @@
 # cf-eventhub
 
+## 0.1.1
+
+### Patch Changes
+
+- c3867ae: chore: update wrangler and other dependencies
+
 ## 0.1.0
 
 ### Minor Changes
