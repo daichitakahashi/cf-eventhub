@@ -1,8 +1,8 @@
 import type { Logger } from "../core/logger";
-import type { Repository } from "../core/repository";
+import type { RepositoryV2 as Repository } from "../core/repository";
 import { type RpcEnv, RpcEventHub } from "../eventhub";
 import { RpcExecutor } from "../executor";
-import { createRepository } from "./postgresjs-repository";
+import { createRepositoryV2 as createRepository } from "./postgresjs-repository";
 
 export class Executor<
   Env extends Record<string, unknown> = Record<string, unknown>,

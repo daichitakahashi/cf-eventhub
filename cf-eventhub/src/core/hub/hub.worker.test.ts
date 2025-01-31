@@ -1,10 +1,10 @@
 import { assert, describe, expect, test } from "vitest";
 
 import { EventSink } from ".";
-import { DevRepository } from "../../dev/repository";
+import { DevRepositoryV2 as DevRepository } from "../../dev/repository";
 import { DefaultLogger } from "../logger";
 import { appendExecutionLog, makeDispatchLost } from "../model";
-import type { Repository } from "../repository";
+import type { RepositoryV2 as Repository } from "../repository";
 import type { QueueMessage } from "./queue";
 import type { Config } from "./routing";
 
@@ -126,7 +126,7 @@ describe("putEvent", () => {
     });
 
     // Check stored dispatches.
-    const dispatches = await repo.listDispatches(100);
+    const dispatches = await repo.readDispatches(100);
     assert(dispatches.isOk());
     expect(dispatches.value.list).toHaveLength(3);
     const okayama = dispatches.value.list.find(
@@ -196,7 +196,7 @@ describe("putEvent", () => {
     });
 
     // Check stored events
-    const cultureEvent = await repo.getEvent(okayama?.eventId as string);
+    const cultureEvent = await repo.readEvent(okayama?.eventId as string);
     assert(cultureEvent.isOk());
     expect(cultureEvent.value).toMatchObject({
       id: okayama?.eventId,
@@ -205,7 +205,7 @@ describe("putEvent", () => {
         avoidUrban: true,
       },
     });
-    const natureEvent = await repo.getEvent(hokkaido?.eventId as string);
+    const natureEvent = await repo.readEvent(hokkaido?.eventId as string);
     assert(natureEvent.isOk());
     expect(natureEvent.value).toMatchObject({
       id: hokkaido?.eventId,
@@ -230,7 +230,7 @@ describe("putEvent", () => {
     });
 
     // Check dispatches.
-    const dispatches = await repo.listDispatches(100);
+    const dispatches = await repo.readDispatches(100);
     assert(dispatches.isOk());
     expect(dispatches.value.list).toHaveLength(0);
 
@@ -253,15 +253,15 @@ describe("retryDispatch", () => {
       ] as Message[]);
     });
 
-    const createdDispatches = await repo.listDispatches(100);
+    const createdDispatches = await repo.readDispatches(100);
     assert(createdDispatches.isOk());
     expect(createdDispatches.value.list).toHaveLength(1);
     const createdDispatch = createdDispatches.value.list[0];
     assert(createdDispatch.status === "ongoing");
 
     // Make dispatch lost.
-    const save = await repo.saveDispatch(
-      makeDispatchLost(createdDispatch, new Date()),
+    const save = await repo.mutate((tx) =>
+      tx.saveDispatch(makeDispatchLost(createdDispatch, new Date())),
     );
     assert(save.isOk());
 
@@ -273,7 +273,7 @@ describe("retryDispatch", () => {
     });
 
     // Check retried dispatch.
-    const dispatches = await repo.listDispatches(
+    const dispatches = await repo.readDispatches(
       100,
       undefined,
       ["ongoing"],
@@ -318,15 +318,15 @@ describe("retryDispatch", () => {
       ] as Message[]);
     });
 
-    const createdDispatches = await repo.listDispatches(100);
+    const createdDispatches = await repo.readDispatches(100);
     assert(createdDispatches.isOk());
     expect(createdDispatches.value.list).toHaveLength(1);
     const createdDispatch = createdDispatches.value.list[0];
     assert(createdDispatch.status === "ongoing");
 
     // Make dispatch lost.
-    const save = await repo.saveDispatch(
-      makeDispatchLost(createdDispatch, new Date()),
+    const save = await repo.mutate((tx) =>
+      tx.saveDispatch(makeDispatchLost(createdDispatch, new Date())),
     );
     assert(save.isOk());
 
@@ -342,7 +342,7 @@ describe("retryDispatch", () => {
     });
 
     // Check retried dispatch.
-    const dispatches = await repo.listDispatches(
+    const dispatches = await repo.readDispatches(
       100,
       undefined,
       ["ongoing"],
@@ -387,7 +387,7 @@ describe("retryDispatch", () => {
       ] as Message[]);
     });
 
-    const createdDispatches = await repo.listDispatches(100);
+    const createdDispatches = await repo.readDispatches(100);
     assert(createdDispatches.isOk());
     expect(createdDispatches.value.list).toHaveLength(1);
     const createdDispatch = createdDispatches.value.list[0];
@@ -466,7 +466,7 @@ describe("markLostDispatches", () => {
       },
     ]);
 
-    const createdDispatches = await repo.listDispatches(100);
+    const createdDispatches = await repo.readDispatches(100);
     assert(createdDispatches.isOk());
     expect(createdDispatches.value.list).toHaveLength(1);
     const createdDispatch = createdDispatches.value.list[0];
@@ -497,7 +497,7 @@ describe("markLostDispatches", () => {
     });
 
     // Check ongoing dispatch is lost.
-    const dispatches = await repo.listDispatches(100, undefined, ["ongoing"]);
+    const dispatches = await repo.readDispatches(100, undefined, ["ongoing"]);
     assert(dispatches.isOk());
     expect(dispatches.value.list).toHaveLength(0);
   });
@@ -517,7 +517,7 @@ describe("markLostDispatches", () => {
       },
     ]);
 
-    const createdDispatches = await repo.listDispatches(100);
+    const createdDispatches = await repo.readDispatches(100);
     assert(createdDispatches.isOk());
     expect(createdDispatches.value.list).toHaveLength(1);
     const createdDispatch = createdDispatches.value.list[0];
@@ -531,7 +531,7 @@ describe("markLostDispatches", () => {
       result: "failed",
       executedAt: new Date(),
     });
-    const saved = await repo.saveDispatch(executed);
+    const saved = await repo.mutate((tx) => tx.saveDispatch(executed));
     assert(saved.isOk());
 
     // Sleep for delaySeconds.
@@ -564,7 +564,7 @@ describe("markLostDispatches", () => {
     });
 
     // Check ongoing dispatch is lost.
-    const dispatches = await repo.listDispatches(100, undefined, ["ongoing"]);
+    const dispatches = await repo.readDispatches(100, undefined, ["ongoing"]);
     assert(dispatches.isOk());
     expect(dispatches.value.list).toHaveLength(0);
   });

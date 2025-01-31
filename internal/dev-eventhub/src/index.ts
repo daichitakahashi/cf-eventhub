@@ -1,6 +1,10 @@
 import { type RpcEnv, RpcEventHub, RpcExecutor } from "cf-eventhub";
-import type { Logger, QueueMessage, Repository } from "cf-eventhub/core";
-import { DevRepository } from "cf-eventhub/dev";
+import type {
+  Logger,
+  QueueMessage,
+  RepositoryV2 as Repository,
+} from "cf-eventhub/core";
+import { DevRepositoryV2 as DevRepository } from "cf-eventhub/dev";
 
 const repo = new DevRepository();
 

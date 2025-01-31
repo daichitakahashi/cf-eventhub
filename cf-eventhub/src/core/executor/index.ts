@@ -2,7 +2,7 @@ import { fromAsyncThrowable, ok } from "neverthrow";
 
 import type { Logger } from "../logger";
 import { type DispatchExecution, appendExecutionLog } from "../model";
-import type { Repository } from "../repository";
+import type { RepositoryV2 as Repository } from "../repository";
 import type { QueueMessage } from "../type";
 import { type Handler, isHandler, validHandlerResult } from "./handler";
 
@@ -22,8 +22,8 @@ export class Dispatcher {
   }
 
   async dispatch(msg: QueueMessage): Promise<DispatchExecution["result"]> {
-    const result = await this.repo.enterTransactionalScope(async (tx) => {
-      const dispatchResult = await tx.getDispatch(msg.dispatchId);
+    const result = await this.repo.mutate(async (tx) => {
+      const dispatchResult = await tx.getTargetDispatch(msg.dispatchId);
       if (dispatchResult.isErr()) {
         return ok("failed" as const);
       }

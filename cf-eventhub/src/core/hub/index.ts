@@ -7,11 +7,13 @@ import {
   type Event,
   type NewDispatch,
   type NewEvent,
-  type OngoingDispatch,
   type ResultedDispatch,
   makeDispatchLost,
 } from "../model";
-import type { EventWithDispatches, Repository } from "../repository";
+import type {
+  EventWithDispatches,
+  RepositoryV2 as Repository,
+} from "../repository";
 import type { EventPayload } from "../type";
 import { type QueueMessage, enqueue } from "./queue";
 import { type Config, findRoutes } from "./routing";
@@ -36,7 +38,7 @@ export class EventSink {
     const repo = this.repo;
     const logger = this.logger;
 
-    const result = await repo.enterTransactionalScope(async (tx) =>
+    const result = await repo.mutate(async (tx) =>
       safeTry(async function* () {
         const createdAt = new Date();
 
@@ -49,7 +51,7 @@ export class EventSink {
             createdAt,
           }),
         );
-        const created = yield* (await tx.createEvents(newEvents)).safeUnwrap();
+        const created = yield* await tx.createEvents(newEvents);
 
         // Find destinations for each event and create dispatches.
         const dispatches = created.flatMap((e) =>
@@ -79,9 +81,9 @@ export class EventSink {
           });
 
           // Create dispatches.
-          const createdDispatches = yield* (
-            await tx.createDispatches(dispatches)
-          ).safeUnwrap();
+          const createdDispatches = yield* await tx.createDispatches(
+            dispatches,
+          );
 
           // Dispatch messages.
           const messages = createdDispatches.map(
@@ -94,7 +96,7 @@ export class EventSink {
               delaySeconds: d.delaySeconds || undefined,
             }),
           );
-          yield* enqueue(queue, messages, logger).safeUnwrap();
+          yield* enqueue(queue, messages, logger);
         } else {
           logger.info("no dispatches created");
         }
@@ -113,7 +115,7 @@ export class EventSink {
     filterByStatus?: Dispatch["status"][];
     orderBy?: "CREATED_AT_ASC" | "CREATED_AT_DESC";
   }): Promise<{ list: Dispatch[]; continuationToken?: string }> {
-    const result = await this.repo.listDispatches(
+    const result = await this.repo.readDispatches(
       args?.maxItems || 10,
       args?.continuationToken,
       args?.filterByStatus,
@@ -130,7 +132,7 @@ export class EventSink {
     continuationToken?: string;
     orderBy?: "CREATED_AT_ASC" | "CREATED_AT_DESC";
   }): Promise<{ list: EventWithDispatches[]; continuationToken?: string }> {
-    const result = await this.repo.listEvents(
+    const result = await this.repo.readEvents(
       args?.maxItems || 10,
       args?.continuationToken,
       args?.orderBy,
@@ -142,7 +144,7 @@ export class EventSink {
   }
 
   async getEvent(eventId: string): Promise<Event | null> {
-    const result = await this.repo.getEvent(eventId);
+    const result = await this.repo.readEvent(eventId);
     if (result.isErr()) {
       return Promise.reject(result.error);
     }
@@ -157,48 +159,85 @@ export class EventSink {
     const repo = this.repo;
     const logger = this.logger;
 
-    const result = await safeTry(async function* () {
-      const { dispatchId, options } = args;
+    const result = await repo.mutate(async (tx) =>
+      safeTry(async function* () {
+        const { dispatchId, options } = args;
 
-      // Get target dispatch.
-      const data = yield* (await repo.getDispatch(dispatchId)).safeUnwrap();
-      if (data === null) {
-        return Promise.reject("dispatch not found");
-      }
-      const { dispatch } = data;
-      if (dispatch.status === "ongoing") {
-        return err("DISPATCH_IS_ONGOING" as const);
-      }
+        // Get target dispatch.
+        const data = yield* await tx.getTargetDispatch(dispatchId);
+        if (data === null) {
+          return Promise.reject("dispatch not found");
+        }
+        const { dispatch } = data;
+        if (dispatch.status === "ongoing") {
+          return err("DISPATCH_IS_ONGOING" as const);
+        }
 
-      // Create new dispatch for retry.
-      // Override options if provided.
-      const newDispatch: NewDispatch = {
-        eventId: dispatch.eventId,
-        destination: dispatch.destination,
-        createdAt: new Date(),
-        delaySeconds: options?.delaySeconds || dispatch.delaySeconds,
-        maxRetries: options?.maxRetries || dispatch.maxRetries,
-      };
-      const [created] = yield* (
-        await repo.createDispatches([newDispatch])
-      ).safeUnwrap();
+        // Create new dispatch for retry.
+        // Override options if provided.
+        const newDispatch: NewDispatch = {
+          eventId: dispatch.eventId,
+          destination: dispatch.destination,
+          createdAt: new Date(),
+          delaySeconds: options?.delaySeconds || dispatch.delaySeconds,
+          maxRetries: options?.maxRetries || dispatch.maxRetries,
+        };
+        const [created] = yield* await tx.createDispatches([newDispatch]);
 
-      const message: MessageSendRequest<QueueMessage> = {
-        body: {
-          dispatchId: created.id,
+        const message: MessageSendRequest<QueueMessage> = {
+          body: {
+            dispatchId: created.id,
+            delaySeconds: created.delaySeconds || undefined,
+          },
+          contentType: "v8",
           delaySeconds: created.delaySeconds || undefined,
-        },
-        contentType: "v8",
-        delaySeconds: created.delaySeconds || undefined,
-      };
+        };
 
-      yield* (await enqueue(queue, [message], logger)).safeUnwrap();
-      return ok(constVoid);
-    });
+        yield* await enqueue(queue, [message], logger);
+        return ok(constVoid);
+      }),
+    );
 
     if (result.isErr()) {
       return Promise.reject(result.error);
     }
+  }
+
+  private async markDispatchLost(args: {
+    dispatchId: string;
+    elapsedSeconds?: number;
+  }) {
+    const repo = this.repo;
+    const elapsedSeconds = args?.elapsedSeconds || 60 * 15; // Default value (15 min) is derived from duration limit of Queue Consumers.
+
+    return repo.mutate(async (tx) =>
+      safeTry(async function* () {
+        const result = yield* await tx.getTargetDispatch(args.dispatchId);
+        if (result === null) {
+          return ok(null);
+        }
+
+        const { dispatch: d } = result;
+        if (d.status !== "ongoing") {
+          return ok(null);
+        }
+
+        const lastTime =
+          d.executionLog.length > 0
+            ? d.executionLog[d.executionLog.length - 1].executedAt
+            : d.createdAt;
+        const elapsed = (Date.now() - lastTime.getTime()) / 1000;
+
+        const lost = elapsed > (d.delaySeconds || 0) + elapsedSeconds; // elapsed from last execution or its creation.
+        if (!lost) {
+          return ok(null);
+        }
+
+        const lostDispatch = makeDispatchLost(d, new Date());
+        yield* await tx.saveDispatch(lostDispatch);
+        return ok(lostDispatch);
+      }),
+    );
   }
 
   async markLostDispatches(args?: {
@@ -210,47 +249,38 @@ export class EventSink {
     const logger = this.logger;
     const elapsedSeconds = args?.elapsedSeconds || 60 * 15; // Default value (15 min) is derived from duration limit of Queue Consumers.
 
-    const result = await repo.enterTransactionalScope(async (tx) =>
-      safeTry(async function* () {
-        const listResult = yield* (
-          await tx.listDispatches(
-            args?.maxItems || 20,
-            args?.continuationToken,
-            ["ongoing"],
-            "CREATED_AT_ASC",
-          )
-        ).safeUnwrap();
+    const sink = this;
 
-        const lostDispatches = listResult.list.flatMap((d) => {
-          if (d.status !== "ongoing") {
-            return [];
-          }
-          const lastTime =
-            d.executionLog.length > 0
-              ? d.executionLog[d.executionLog.length - 1].executedAt
-              : d.createdAt;
-          const elapsed = (Date.now() - lastTime.getTime()) / 1000;
+    const result = await safeTry(async function* () {
+      const listResult = yield* await repo.readDispatches(
+        args?.maxItems || 20,
+        args?.continuationToken,
+        ["ongoing"],
+        "CREATED_AT_ASC",
+      );
 
-          return elapsed > (d.delaySeconds || 0) + elapsedSeconds // elapsed from last execution or its creation.
-            ? [makeDispatchLost(d, new Date())]
-            : [];
-        });
-
-        logger.debug("markLostDispatches", {
-          ongoingDispatches: listResult.list,
-          lostDispatches,
+      const lostDispatches: ResultedDispatch[] = [];
+      for (const d of listResult.list) {
+        const lost = yield* await sink.markDispatchLost({
+          dispatchId: d.id,
           elapsedSeconds,
         });
-
-        for (const lost of lostDispatches) {
-          yield* (await tx.saveDispatch(lost)).safeUnwrap();
+        if (lost) {
+          lostDispatches.push(lost);
         }
-        return ok({
-          list: lostDispatches,
-          continuationToken: listResult.continuationToken,
-        });
-      }),
-    );
+      }
+
+      logger.debug("markLostDispatches", {
+        ongoingDispatches: listResult.list,
+        lostDispatches,
+        elapsedSeconds,
+      });
+      return ok({
+        list: lostDispatches,
+        continuationToken: listResult.continuationToken,
+      });
+    });
+
     if (result.isErr()) {
       return Promise.reject(result.error);
     }
