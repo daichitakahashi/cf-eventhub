@@ -19,10 +19,58 @@ export interface Repository {
    * If `fn` returns `Err`, transaction must be aborted.
    * @param fn Transactional scope function
    */
-  enterTransactionalScope: <T, E>(
-    fn: (tx: Repository) => Promise<Result<T, E>>,
+  mutate: <T, E>(
+    fn: (tx: MutationRepository) => Promise<Result<T, E>>,
   ) => Promise<Result<T, "INTERNAL_SERVER_ERROR" | E>>;
 
+  /**
+   * Get event by given id.
+   * @param eventId
+   * @returns Found `Event`.
+   */
+  readEvent: (
+    eventId: string,
+  ) => Promise<Result<Event | null, "INTERNAL_SERVER_ERROR">>;
+
+  /**
+   * Get dispatches.
+   * @param maxItems maximum number of items to be fetched
+   * @param continuationToken token returned in last call
+   * @param filterByStatus
+   * @param orderBy
+   * @returns
+   */
+  readDispatches: (
+    maxItems: number,
+    continuationToken?: string,
+    filterByStatus?: Dispatch["status"][],
+    orderBy?: "CREATED_AT_ASC" | "CREATED_AT_DESC",
+  ) => Promise<
+    Result<
+      { list: Dispatch[]; continuationToken?: string },
+      "INTERNAL_SERVER_ERROR" | "INVALID_CONTINUATION_TOKEN"
+    >
+  >;
+
+  /**
+   * Get events and these dispatches.
+   * @param maxItems maximum number of items to be fetched
+   * @param continuationToken token returned in last call
+   * @param orderBy
+   */
+  readEvents(
+    maxItems: number,
+    continuationToken?: string,
+    orderBy?: "CREATED_AT_ASC" | "CREATED_AT_DESC",
+  ): Promise<
+    Result<
+      { list: EventWithDispatches[]; continuationToken?: string },
+      "INTERNAL_SERVER_ERROR" | "INVALID_CONTINUATION_TOKEN"
+    >
+  >;
+}
+
+export interface MutationRepository {
   /**
    * Create events.
    * @param events Events to be created.
@@ -50,62 +98,16 @@ export interface Repository {
   ) => Promise<Result<void, "INTERNAL_SERVER_ERROR">>;
 
   /**
-   * Get dispatch by given id.
+   * Get dispatch which is a target of mutation by given id.
    * @param dispatchId
    * @returns Found `Dispatch` and associated `CreatedEvent`.
    */
-  getDispatch: (
+  getTargetDispatch: (
     dispatchId: string,
   ) => Promise<
     Result<
       { event: CreatedEvent; dispatch: Dispatch } | null,
       "INTERNAL_SERVER_ERROR"
-    >
-  >;
-
-  /**
-   * Get event by given id.
-   * @param eventId
-   * @returns Found `Event`.
-   */
-  getEvent: (
-    eventId: string,
-  ) => Promise<Result<Event | null, "INTERNAL_SERVER_ERROR">>;
-
-  /**
-   * Get dispatches.
-   * @param maxItems maximum number of items to be fetched
-   * @param continuationToken token returned in last call
-   * @param filterByStatus
-   * @param orderBy
-   * @returns
-   */
-  listDispatches: (
-    maxItems: number,
-    continuationToken?: string,
-    filterByStatus?: Dispatch["status"][],
-    orderBy?: "CREATED_AT_ASC" | "CREATED_AT_DESC",
-  ) => Promise<
-    Result<
-      { list: Dispatch[]; continuationToken?: string },
-      "INTERNAL_SERVER_ERROR" | "INVALID_CONTINUATION_TOKEN"
-    >
-  >;
-
-  /**
-   * Get events and these dispatches.
-   * @param maxItems maximum number of items to be fetched
-   * @param continuationToken token returned in last call
-   * @param orderBy
-   */
-  listEvents(
-    maxItems: number,
-    continuationToken?: string,
-    orderBy?: "CREATED_AT_ASC" | "CREATED_AT_DESC",
-  ): Promise<
-    Result<
-      { list: EventWithDispatches[]; continuationToken?: string },
-      "INTERNAL_SERVER_ERROR" | "INVALID_CONTINUATION_TOKEN"
     >
   >;
 }

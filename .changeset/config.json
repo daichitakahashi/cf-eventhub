@@ -7,5 +7,5 @@
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
-  "ignore": ["dev-eventhub", "flaky-handler", "stable-handler"]
+  "ignore": ["dev-eventhub", "flaky-handler", "stable-handler", "producer-handler"]
 }

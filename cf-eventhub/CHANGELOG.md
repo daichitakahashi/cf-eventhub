@@ -1,5 +1,11 @@
 # cf-eventhub
 
+## 0.1.0
+
+### Minor Changes
+
+- 538b396: feat(cf-eventhub): fix deadlock issue
+
 ## 0.0.20
 
 ### Patch Changes

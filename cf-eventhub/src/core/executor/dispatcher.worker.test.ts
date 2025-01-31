@@ -1,3 +1,4 @@
+import { safeTry } from "neverthrow";
 import * as v from "valibot";
 import { assert, describe, expect, test } from "vitest";
 
@@ -27,23 +28,27 @@ describe("dispatch", () => {
     destination: string,
     payload: EventPayload,
   ) => {
-    const createdEvent = await repo.createEvents([
-      {
-        payload,
-        createdAt: new Date(),
-      },
-    ]);
+    const createdEvent = await repo.mutate((tx) =>
+      tx.createEvents([
+        {
+          payload,
+          createdAt: new Date(),
+        },
+      ]),
+    );
     assert(createdEvent.isOk());
 
-    const createdDispatch = await repo.createDispatches([
-      {
-        eventId: createdEvent.value[0].id,
-        destination,
-        createdAt: new Date(),
-        delaySeconds: null,
-        maxRetries: 2,
-      },
-    ]);
+    const createdDispatch = await repo.mutate((tx) =>
+      tx.createDispatches([
+        {
+          eventId: createdEvent.value[0].id,
+          destination,
+          createdAt: new Date(),
+          delaySeconds: null,
+          maxRetries: 2,
+        },
+      ]),
+    );
     assert(createdDispatch.isOk());
     return createdDispatch.value[0].id;
   };
@@ -71,7 +76,9 @@ describe("dispatch", () => {
     expect(result).toBe("complete");
 
     // Check dispatch status.
-    const dispatch = await repo.getDispatch(dispatchId);
+    const dispatch = await repo.mutate((tx) =>
+      tx.getTargetDispatch(dispatchId),
+    );
     assert(dispatch.isOk());
     expect(dispatch.value?.dispatch.status).toBe("complete");
   });
@@ -94,20 +101,18 @@ describe("dispatch", () => {
     const dispatchId = await createDispatch(repo, "HANDLER", {
       expectedResult: "complete",
     });
-    const createdDispatch = await repo.getDispatch(dispatchId);
-    assert(
-      createdDispatch.isOk() &&
-        createdDispatch.value?.dispatch.status === "ongoing",
+    const createResult = await repo.mutate(async (tx) =>
+      safeTry(async function* () {
+        const createdDispatch = yield* await tx.getTargetDispatch(dispatchId);
+        assert(createdDispatch?.dispatch.status === "ongoing");
+        const completeDispatch = appendExecutionLog(createdDispatch.dispatch, {
+          result: "complete",
+          executedAt: new Date(),
+        });
+        return tx.saveDispatch(completeDispatch);
+      }),
     );
-    const completeDispatch = appendExecutionLog(
-      createdDispatch.value.dispatch,
-      {
-        result: "complete",
-        executedAt: new Date(),
-      },
-    );
-    const completed = await repo.saveDispatch(completeDispatch);
-    assert(completed.isOk());
+    assert(createResult.isOk());
 
     // Execute and check result.
     const result = await d.dispatch({
@@ -116,7 +121,9 @@ describe("dispatch", () => {
     expect(result).toBe("notfound");
 
     // Check dispatch status.
-    const dispatch = await repo.getDispatch(dispatchId);
+    const dispatch = await repo.mutate((tx) =>
+      tx.getTargetDispatch(dispatchId),
+    );
     assert(dispatch.isOk());
     expect(dispatch.value?.dispatch.status).toBe("complete");
   });
@@ -136,7 +143,9 @@ describe("dispatch", () => {
     expect(result).toBe("failed");
 
     // Check dispatch status.
-    const dispatch = await repo.getDispatch(dispatchId);
+    const dispatch = await repo.mutate((tx) =>
+      tx.getTargetDispatch(dispatchId),
+    );
     assert(dispatch.isOk());
     expect(dispatch.value?.dispatch.status).toBe("ongoing"); // waiting for retry
   });
@@ -168,7 +177,9 @@ describe("dispatch", () => {
     expect(lastRetry).toBe("failed");
 
     // Check dispatch status.
-    const dispatch = await repo.getDispatch(dispatchId);
+    const dispatch = await repo.mutate((tx) =>
+      tx.getTargetDispatch(dispatchId),
+    );
     assert(dispatch.isOk());
     expect(dispatch.value?.dispatch.status).toBe("failed");
 
@@ -194,7 +205,9 @@ describe("dispatch", () => {
     expect(result).toBe("misconfigured");
 
     // Check dispatch status.
-    const dispatch = await repo.getDispatch(dispatchId);
+    const dispatch = await repo.mutate((tx) =>
+      tx.getTargetDispatch(dispatchId),
+    );
     assert(dispatch.isOk());
     expect(dispatch.value?.dispatch.status).toBe("misconfigured");
   });

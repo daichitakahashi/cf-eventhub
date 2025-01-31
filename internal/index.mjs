@@ -11,6 +11,12 @@ const eventHub = exec("pnpm dev --port 3001 --inspector-port 3002", {
 
 await tryConnect(10, 3001);
 
+const webConsole = exec("pnpm dev --port 3011 --inspector-port 3012", {
+  name: "web-console",
+  dir: "web-console",
+  chalk: chalk.yellowBright,
+});
+
 const stableHandler = exec("pnpm dev --port 3021 --inspector-port 3022", {
   name: "stable-handler",
   dir: "internal/stable-handler",
@@ -21,10 +27,10 @@ const flakyHandler = exec("pnpm dev --port 3031 --inspector-port 3032", {
   dir: "internal/flaky-handler",
   chalk: chalk.magentaBright,
 });
-const webConsole = exec("pnpm dev --port 3041 --inspector-port 3042", {
-  name: "web-console",
-  dir: "web-console",
-  chalk: chalk.yellowBright,
+const producerHandler = exec("pnpm dev --port 3041 --inspector-port 3042", {
+  name: "producer-handler",
+  dir: "internal/producer-handler",
+  chalk: chalk.green,
 });
 
 await waitExit(async () => {
@@ -33,12 +39,14 @@ await waitExit(async () => {
   eventHub.process.stdin.write("x");
   stableHandler.process.stdin.write("x");
   flakyHandler.process.stdin.write("x");
+  producerHandler.process.stdin.write("x");
   webConsole.process.stdin.write("x");
 
   await Promise.all([
     eventHub.exit,
     stableHandler.exit,
     flakyHandler.exit,
+    producerHandler.exit,
     webConsole.exit,
   ]);
 });

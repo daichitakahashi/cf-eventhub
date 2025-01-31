@@ -6,7 +6,6 @@ import {
   desc,
   eq,
   isNull,
-  max,
   or,
   sql,
 } from "drizzle-orm";
@@ -39,7 +38,11 @@ import {
   makeDispatchLost,
   ongoingDispatch,
 } from "../core/model";
-import type { EventWithDispatches, Repository } from "../core/repository";
+import type {
+  EventWithDispatches,
+  MutationRepository,
+  Repository,
+} from "../core/repository";
 import * as schema from "./schema";
 
 type Db = PostgresJsDatabase<typeof schema>;
@@ -49,21 +52,38 @@ type Tx = PgTransaction<
   ExtractTablesWithRelations<typeof schema>
 >;
 
+const encodeContinuationToken = (input: { id: string; createdAt: Date }) =>
+  btoa(`${input.id}:${input.createdAt.getTime()}`);
+
+const decodeContinuationToken = fromThrowable(
+  (token: string) => {
+    const [id, ts] = atob(token).split(":", 2);
+    const n = Number.parseInt(ts);
+    if (Number.isNaN(n)) {
+      throw new Error("invalid timestamp");
+    }
+    return { id, createdAt: new Date(n) };
+  },
+  () => {
+    return "INVALID_CONTINUATION_TOKEN" as const;
+  },
+);
+
 /** @internal */
 export class PgRepository implements Repository {
   constructor(
-    private db: Db | Tx,
+    private db: Db,
     private logger: Logger,
   ) {}
 
-  async enterTransactionalScope<T, E>(
-    fn: (tx: Repository) => Promise<Result<T, E>>,
+  async mutate<T, E>(
+    fn: (tx: MutationRepository) => Promise<Result<T, E>>,
   ): Promise<Result<T, "INTERNAL_SERVER_ERROR" | E>> {
     let result: Result<T, E>;
 
     try {
       await this.db.transaction(async (tx) => {
-        result = await fn(new PgRepository(tx, this.logger));
+        result = await fn(new PgMutationRepository(tx, this.logger));
         if (result.isOk()) return;
         tx.rollback();
       });
@@ -78,202 +98,7 @@ export class PgRepository implements Repository {
     return result;
   }
 
-  async createEvents(
-    events: Omit<NewEvent, "id">[],
-  ): Promise<Result<CreatedEvent[], "INTERNAL_SERVER_ERROR">> {
-    const db = this.db;
-    return fromAsyncThrowable(
-      async () => {
-        const values = events.map((e): typeof schema.events.$inferInsert => ({
-          payload: e.payload,
-          createdAt: e.createdAt,
-        }));
-
-        const inserted = await db
-          .insert(schema.events)
-          .values(values)
-          .returning();
-        return inserted.map((r) =>
-          createdEvent(r.id, {
-            payload: r.payload,
-            createdAt: r.createdAt,
-          }),
-        );
-      },
-      (e) => {
-        this.logger.error("error on createEvents", { error: e });
-        return "INTERNAL_SERVER_ERROR" as const;
-      },
-    )();
-  }
-
-  async createDispatches(
-    dispatches: NewDispatch[],
-  ): Promise<Result<OngoingDispatch[], "INTERNAL_SERVER_ERROR">> {
-    const db = this.db;
-    return fromAsyncThrowable(
-      async () => {
-        const values = dispatches.map(
-          (d): typeof schema.dispatches.$inferInsert => ({
-            eventId: d.eventId,
-            destination: d.destination,
-            createdAt: d.createdAt,
-            delaySeconds: d.delaySeconds,
-            maxRetries: d.maxRetries,
-          }),
-        );
-
-        const inserted = await db
-          .insert(schema.dispatches)
-          .values(values)
-          .returning();
-        return inserted.map((r) =>
-          ongoingDispatch(r.id, {
-            eventId: r.eventId,
-            destination: r.destination,
-            createdAt: r.createdAt,
-            delaySeconds: r.delaySeconds,
-            maxRetries: r.maxRetries,
-          }),
-        );
-      },
-      (e) => {
-        this.logger.error("error on createDispatches", { error: e });
-        return "INTERNAL_SERVER_ERROR" as const;
-      },
-    )();
-  }
-
-  async saveDispatch(
-    dispatch: Dispatch,
-  ): Promise<Result<void, "INTERNAL_SERVER_ERROR">> {
-    const db = this.db;
-    return fromAsyncThrowable(
-      async () => {
-        const executions = dispatch.executionLog
-          .filter(isNewDispatchExecution)
-          .map((e): typeof schema.dispatchExecutions.$inferInsert => ({
-            dispatchId: dispatch.id,
-            result: e.result,
-            executedAt: e.executedAt,
-          }));
-        if (executions.length > 0) {
-          await db.insert(schema.dispatchExecutions).values(executions);
-        }
-
-        if (isResultedDispatch(dispatch)) {
-          await db.insert(schema.dispatchResults).values({
-            dispatchId: dispatch.id,
-            result: dispatch.status,
-            resultedAt: dispatch.resultedAt,
-          });
-        }
-      },
-      (e) => {
-        this.logger.error("error on saveDispatch", { error: e });
-        return "INTERNAL_SERVER_ERROR" as const;
-      },
-    )();
-  }
-
-  async getDispatch(
-    dispatchId: string,
-  ): Promise<
-    Result<
-      { event: CreatedEvent; dispatch: Dispatch } | null,
-      "INTERNAL_SERVER_ERROR"
-    >
-  > {
-    const db = this.db;
-    const logger = this.logger;
-    return fromAsyncThrowable(
-      async () => {
-        // Aggregate executions.
-        const aliasedExecutions = aliasedTable(schema.dispatchExecutions, "ex");
-        const executions = db
-          .select({
-            data: sql<
-              | {
-                  id: string;
-                  result:
-                    | "complete"
-                    | "ignored"
-                    | "failed"
-                    | "misconfigured"
-                    | "notfound";
-                  executedAt: string;
-                }[]
-              | null
-            >`jsonb_agg(row_to_json("ex") order by "ex"."executed_at")`.as(
-              "data",
-            ),
-          })
-          .from(aliasedExecutions)
-          .where(eq(aliasedExecutions.dispatchId, dispatchId))
-          .groupBy(aliasedExecutions.dispatchId)
-          .as("executions");
-
-        const dispatches = aliasedTable(schema.dispatches, "d");
-        const rows = await db
-          .select({
-            dispatch: dispatches,
-            event: schema.events,
-            executions: executions.data,
-            result: schema.dispatchResults,
-          })
-          .from(dispatches)
-          .innerJoin(schema.events, eq(dispatches.eventId, schema.events.id))
-          .leftJoin(executions, sql`true`)
-          .leftJoin(
-            schema.dispatchResults,
-            eq(dispatches.id, schema.dispatchResults.dispatchId),
-          )
-          .where(eq(dispatches.id, dispatchId))
-          .limit(1)
-          .for("update", { of: new Table("d", undefined, "") }); // Workaround: "FOR UPDATE OF" requires unqualified table reference.
-
-        const row = rows.at(0);
-        if (!row) {
-          return null;
-        }
-
-        const event = createdEvent(row.event.id, {
-          payload: row.event.payload,
-          createdAt: row.event.createdAt,
-        });
-
-        let dispatch: Dispatch = ongoingDispatch(row.dispatch.id, {
-          eventId: row.event.id,
-          destination: row.dispatch.destination,
-          createdAt: row.dispatch.createdAt,
-          delaySeconds: row.dispatch.delaySeconds,
-          maxRetries: row.dispatch.maxRetries,
-        });
-        if (row.executions !== null) {
-          for (const e of row.executions) {
-            if (dispatch.status === "ongoing") {
-              dispatch = appendExecutionLog(
-                dispatch,
-                dispatchExecution(e.id, e.result, new Date(e.executedAt)),
-              );
-            }
-          }
-        }
-
-        if (dispatch.status === "ongoing" && row.result?.result === "lost") {
-          dispatch = makeDispatchLost(dispatch, row.result.resultedAt);
-        }
-
-        return { event, dispatch };
-      },
-      (e) => {
-        logger.error("error on getDispatch", { error: e });
-        return "INTERNAL_SERVER_ERROR" as const;
-      },
-    )();
-  }
-
-  async getEvent(
+  async readEvent(
     eventId: string,
   ): Promise<Result<Event | null, "INTERNAL_SERVER_ERROR">> {
     const db = this.db;
@@ -303,7 +128,7 @@ export class PgRepository implements Repository {
     )();
   }
 
-  async listDispatches(
+  async readDispatches(
     maxItems: number,
     continuationToken?: string,
     filterByStatus?: Dispatch["status"][],
@@ -368,8 +193,7 @@ export class PgRepository implements Repository {
                 ? [d.createdAt, d.id]
                 : [desc(d.createdAt), desc(d.id)]),
             )
-            .limit(maxItems + 1) // check next item exists
-            .for("update", { of: new Table("d", undefined, "") }), // Workaround: "FOR UPDATE OF" requires unqualified table reference.
+            .limit(maxItems + 1), // check next item exists
         );
 
         // Aggregate executions.
@@ -478,7 +302,7 @@ export class PgRepository implements Repository {
     )();
   }
 
-  async listEvents(
+  async readEvents(
     maxItems: number,
     continuationToken?: string,
     orderBy?: "CREATED_AT_ASC" | "CREATED_AT_DESC",
@@ -589,19 +413,204 @@ export class PgRepository implements Repository {
   }
 }
 
-const encodeContinuationToken = (input: { id: string; createdAt: Date }) =>
-  btoa(`${input.id}:${input.createdAt.getTime()}`);
+class PgMutationRepository implements MutationRepository {
+  constructor(
+    private db: Tx,
+    private logger: Logger,
+  ) {}
 
-const decodeContinuationToken = fromThrowable(
-  (token: string) => {
-    const [id, ts] = atob(token).split(":", 2);
-    const n = Number.parseInt(ts);
-    if (Number.isNaN(n)) {
-      throw new Error("invalid timestamp");
-    }
-    return { id, createdAt: new Date(n) };
-  },
-  () => {
-    return "INVALID_CONTINUATION_TOKEN" as const;
-  },
-);
+  async createEvents(
+    events: Omit<NewEvent, "id">[],
+  ): Promise<Result<CreatedEvent[], "INTERNAL_SERVER_ERROR">> {
+    const db = this.db;
+    return fromAsyncThrowable(
+      async () => {
+        const values = events.map((e): typeof schema.events.$inferInsert => ({
+          payload: e.payload,
+          createdAt: e.createdAt,
+        }));
+
+        const inserted = await db
+          .insert(schema.events)
+          .values(values)
+          .returning();
+        return inserted.map((r) =>
+          createdEvent(r.id, {
+            payload: r.payload,
+            createdAt: r.createdAt,
+          }),
+        );
+      },
+      (e) => {
+        this.logger.error("error on createEvents", { error: e });
+        return "INTERNAL_SERVER_ERROR" as const;
+      },
+    )();
+  }
+
+  async createDispatches(
+    dispatches: NewDispatch[],
+  ): Promise<Result<OngoingDispatch[], "INTERNAL_SERVER_ERROR">> {
+    const db = this.db;
+    return fromAsyncThrowable(
+      async () => {
+        const values = dispatches.map(
+          (d): typeof schema.dispatches.$inferInsert => ({
+            eventId: d.eventId,
+            destination: d.destination,
+            createdAt: d.createdAt,
+            delaySeconds: d.delaySeconds,
+            maxRetries: d.maxRetries,
+          }),
+        );
+
+        const inserted = await db
+          .insert(schema.dispatches)
+          .values(values)
+          .returning();
+        return inserted.map((r) =>
+          ongoingDispatch(r.id, {
+            eventId: r.eventId,
+            destination: r.destination,
+            createdAt: r.createdAt,
+            delaySeconds: r.delaySeconds,
+            maxRetries: r.maxRetries,
+          }),
+        );
+      },
+      (e) => {
+        this.logger.error("error on createDispatches", { error: e });
+        return "INTERNAL_SERVER_ERROR" as const;
+      },
+    )();
+  }
+
+  async getTargetDispatch(
+    dispatchId: string,
+  ): Promise<
+    Result<
+      { event: CreatedEvent; dispatch: Dispatch } | null,
+      "INTERNAL_SERVER_ERROR"
+    >
+  > {
+    const db = this.db;
+    const logger = this.logger;
+    return fromAsyncThrowable(
+      async () => {
+        // Aggregate executions.
+        const aliasedExecutions = aliasedTable(schema.dispatchExecutions, "ex");
+        const executions = db
+          .select({
+            data: sql<
+              | {
+                  id: string;
+                  result:
+                    | "complete"
+                    | "ignored"
+                    | "failed"
+                    | "misconfigured"
+                    | "notfound";
+                  executedAt: string;
+                }[]
+              | null
+            >`jsonb_agg(row_to_json("ex") order by "ex"."executed_at")`.as(
+              "data",
+            ),
+          })
+          .from(aliasedExecutions)
+          .where(eq(aliasedExecutions.dispatchId, dispatchId))
+          .groupBy(aliasedExecutions.dispatchId)
+          .as("executions");
+
+        const dispatches = aliasedTable(schema.dispatches, "d");
+        const rows = await db
+          .select({
+            dispatch: dispatches,
+            event: schema.events,
+            executions: executions.data,
+            result: schema.dispatchResults,
+          })
+          .from(dispatches)
+          .innerJoin(schema.events, eq(dispatches.eventId, schema.events.id))
+          .leftJoin(executions, sql`true`)
+          .leftJoin(
+            schema.dispatchResults,
+            eq(dispatches.id, schema.dispatchResults.dispatchId),
+          )
+          .where(eq(dispatches.id, dispatchId))
+          .limit(1)
+          .for("update", { of: new Table("d", undefined, "") }); // Workaround: "FOR UPDATE OF" requires unqualified table reference.
+
+        const row = rows.at(0);
+        if (!row) {
+          return null;
+        }
+
+        const event = createdEvent(row.event.id, {
+          payload: row.event.payload,
+          createdAt: row.event.createdAt,
+        });
+
+        let dispatch: Dispatch = ongoingDispatch(row.dispatch.id, {
+          eventId: row.event.id,
+          destination: row.dispatch.destination,
+          createdAt: row.dispatch.createdAt,
+          delaySeconds: row.dispatch.delaySeconds,
+          maxRetries: row.dispatch.maxRetries,
+        });
+        if (row.executions !== null) {
+          for (const e of row.executions) {
+            if (dispatch.status === "ongoing") {
+              dispatch = appendExecutionLog(
+                dispatch,
+                dispatchExecution(e.id, e.result, new Date(e.executedAt)),
+              );
+            }
+          }
+        }
+
+        if (dispatch.status === "ongoing" && row.result?.result === "lost") {
+          dispatch = makeDispatchLost(dispatch, row.result.resultedAt);
+        }
+
+        return { event, dispatch };
+      },
+      (e) => {
+        logger.error("error on getDispatch", { error: e });
+        return "INTERNAL_SERVER_ERROR" as const;
+      },
+    )();
+  }
+
+  async saveDispatch(
+    dispatch: Dispatch,
+  ): Promise<Result<void, "INTERNAL_SERVER_ERROR">> {
+    const db = this.db;
+    return fromAsyncThrowable(
+      async () => {
+        const executions = dispatch.executionLog
+          .filter(isNewDispatchExecution)
+          .map((e): typeof schema.dispatchExecutions.$inferInsert => ({
+            dispatchId: dispatch.id,
+            result: e.result,
+            executedAt: e.executedAt,
+          }));
+        if (executions.length > 0) {
+          await db.insert(schema.dispatchExecutions).values(executions);
+        }
+
+        if (isResultedDispatch(dispatch)) {
+          await db.insert(schema.dispatchResults).values({
+            dispatchId: dispatch.id,
+            result: dispatch.status,
+            resultedAt: dispatch.resultedAt,
+          });
+        }
+      },
+      (e) => {
+        this.logger.error("error on saveDispatch", { error: e });
+        return "INTERNAL_SERVER_ERROR" as const;
+      },
+    )();
+  }
+}

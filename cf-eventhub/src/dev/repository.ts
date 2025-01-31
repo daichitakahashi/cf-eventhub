@@ -1,4 +1,3 @@
-import { Mutex } from "async-mutex";
 import { type Result, err, ok } from "neverthrow";
 
 import {
@@ -13,138 +12,51 @@ import {
   isNewDispatchExecution,
   ongoingDispatch,
 } from "../core/model";
-import type { EventWithDispatches, Repository } from "../core/repository";
+import type {
+  EventWithDispatches,
+  MutationRepository,
+  Repository,
+} from "../core/repository";
+import { Locker } from "./locker";
+
+const encodeContinuationToken = (id: string) => btoa(id);
+
+const decodeContinuationToken = (token: string) => atob(token);
 
 export class DevRepository implements Repository {
-  private mu: Mutex;
-  private events: Map<string, CreatedEvent>;
-  private dispatches: Map<string, Dispatch>;
+  private readonly dispatchesLocker = new Locker();
+  private readonly events = new Map<string, CreatedEvent>();
+  private readonly dispatches = new Map<string, Dispatch>();
 
-  constructor(repo?: DevRepository) {
-    this.mu = new Mutex();
-    this.events = repo ? structuredClone(repo.events) : new Map();
-    this.dispatches = repo ? structuredClone(repo.dispatches) : new Map();
-  }
-
-  async enterTransactionalScope<T, E>(
-    fn: (tx: Repository) => Promise<Result<T, E>>,
+  async mutate<T, E>(
+    fn: (tx: MutationRepository) => Promise<Result<T, E>>,
   ): Promise<Result<T, "INTERNAL_SERVER_ERROR" | E>> {
-    return this.mu.runExclusive(async () => {
-      const tx = new DevRepository(this);
-
-      let result: Result<T, "INTERNAL_SERVER_ERROR" | E>;
-      try {
-        result = await fn(tx);
-      } catch {
-        return err("INTERNAL_SERVER_ERROR" as const);
-      }
-
+    const tx = new DevMutationRepository(
+      this.dispatchesLocker,
+      this.events,
+      this.dispatches,
+    );
+    try {
+      const result = await fn(tx);
       if (result.isOk()) {
-        this.events = tx.events;
-        this.dispatches = tx.dispatches;
+        tx.commit();
       }
-
       return result;
-    });
-  }
-
-  async createEvents(
-    events: NewEvent[],
-  ): Promise<Result<CreatedEvent[], "INTERNAL_SERVER_ERROR">> {
-    return this.mu.runExclusive(async () => {
-      const created = events.map((e): CreatedEvent => {
-        let id: string;
-        while (true) {
-          id = crypto.randomUUID();
-          if (!this.events.has(id)) break;
-        }
-        return createdEvent(id, e);
-      });
-      for (const e of created) {
-        this.events.set(e.id, e);
-      }
-
-      return ok(created);
-    });
-  }
-
-  async createDispatches(
-    dispatches: NewDispatch[],
-  ): Promise<Result<OngoingDispatch[], "INTERNAL_SERVER_ERROR">> {
-    return this.mu.runExclusive(async () => {
-      const created = dispatches.map((d): OngoingDispatch => {
-        if (!this.events.has(d.eventId)) {
-          throw new Error("event not found");
-        }
-
-        let id: string;
-        while (true) {
-          id = crypto.randomUUID();
-          if (!this.dispatches.has(id)) break;
-        }
-        return ongoingDispatch(id, d);
-      });
-      for (const d of created) {
-        this.dispatches.set(d.id, d);
-      }
-
-      return ok(created);
-    });
-  }
-
-  async saveDispatch(
-    dispatch: Dispatch,
-  ): Promise<Result<void, "INTERNAL_SERVER_ERROR">> {
-    return this.mu.runExclusive(async () => {
-      const v = this.dispatches.get(dispatch.id);
-      if (!v) {
-        throw new Error("dispatch not found");
-      }
-
-      const clone = structuredClone(dispatch);
-      clone.executionLog.forEach((e, i) => {
-        if (isNewDispatchExecution(e)) {
-          // @ts-ignore
-          clone.executionLog[i] = dispatchExecution(
-            crypto.randomUUID(),
-            e.result,
-            e.executedAt,
-          );
-        }
-      });
-
-      this.dispatches.set(clone.id, clone);
-      return ok((() => {})());
-    });
-  }
-
-  async getDispatch(
-    dispatchId: string,
-  ): Promise<
-    Result<
-      { event: CreatedEvent; dispatch: Dispatch } | null,
-      "INTERNAL_SERVER_ERROR"
-    >
-  > {
-    const v = this.dispatches.get(dispatchId);
-    if (!v) {
-      return ok(null);
+    } catch {
+      return err("INTERNAL_SERVER_ERROR" as const);
+    } finally {
+      tx.release();
     }
-    const event = this.events.get(v.eventId);
-    if (!event) {
-      throw new Error("event not found");
-    }
-    return ok({ event, dispatch: v });
   }
 
-  async getEvent(
+  async readEvent(
     eventId: string,
   ): Promise<Result<Event | null, "INTERNAL_SERVER_ERROR">> {
     const event = this.events.get(eventId);
     return ok(event || null);
   }
 
-  async listDispatches(
+  async readDispatches(
     maxItems: number,
     continuationToken?: string,
     filterByStatus?: Dispatch["status"][],
@@ -198,7 +110,7 @@ export class DevRepository implements Repository {
     });
   }
 
-  async listEvents(
+  async readEvents(
     maxItems: number,
     continuationToken?: string,
     orderBy?: "CREATED_AT_ASC" | "CREATED_AT_DESC",
@@ -253,6 +165,120 @@ export class DevRepository implements Repository {
   }
 }
 
-const encodeContinuationToken = (id: string) => btoa(id);
+class DevMutationRepository implements MutationRepository {
+  private readonly eventSink = new Map<string, CreatedEvent>();
+  private readonly dispatchSink = new Map<string, Dispatch>();
+  private readonly releases: (() => void)[] = [];
+  constructor(
+    private readonly dispatchesLocker: Locker,
+    private readonly events: Map<string, CreatedEvent>,
+    private readonly dispatches: Map<string, Dispatch>,
+  ) {}
 
-const decodeContinuationToken = (token: string) => atob(token);
+  async createEvents(
+    events: NewEvent[],
+  ): Promise<Result<CreatedEvent[], "INTERNAL_SERVER_ERROR">> {
+    const created = events.map((e): CreatedEvent => {
+      let id: string;
+      while (true) {
+        id = crypto.randomUUID();
+        if (!this.events.has(id)) break;
+      }
+      return createdEvent(id, e);
+    });
+
+    // Save events lazily.
+    for (const e of created) {
+      this.eventSink.set(e.id, e);
+    }
+
+    return ok(created);
+  }
+
+  async createDispatches(
+    dispatches: NewDispatch[],
+  ): Promise<Result<OngoingDispatch[], "INTERNAL_SERVER_ERROR">> {
+    const created = dispatches.map((d): OngoingDispatch => {
+      if (!this.events.has(d.eventId) && !this.eventSink.has(d.eventId)) {
+        throw new Error("event not found");
+      }
+
+      let id: string;
+      while (true) {
+        id = crypto.randomUUID();
+        if (!this.dispatches.has(id)) break;
+      }
+      return ongoingDispatch(id, d);
+    });
+
+    // Save dispatches lazily.
+    for (const d of created) {
+      this.dispatchSink.set(d.id, d);
+    }
+
+    return ok(created);
+  }
+
+  async saveDispatch(
+    dispatch: Dispatch,
+  ): Promise<Result<void, "INTERNAL_SERVER_ERROR">> {
+    const v =
+      this.dispatches.get(dispatch.id) || this.dispatchSink.get(dispatch.id);
+    if (!v) {
+      throw new Error("dispatch not found");
+    }
+
+    const clone = structuredClone(dispatch);
+    clone.executionLog.forEach((e, i) => {
+      if (isNewDispatchExecution(e)) {
+        // @ts-ignore
+        clone.executionLog[i] = dispatchExecution(
+          crypto.randomUUID(),
+          e.result,
+          e.executedAt,
+        );
+      }
+    });
+
+    // Save dispatch lazily.
+    this.dispatchSink.set(clone.id, clone);
+
+    return ok((() => {})());
+  }
+
+  async getTargetDispatch(
+    dispatchId: string,
+  ): Promise<
+    Result<
+      { event: CreatedEvent; dispatch: Dispatch } | null,
+      "INTERNAL_SERVER_ERROR"
+    >
+  > {
+    const release = await this.dispatchesLocker.lock(dispatchId);
+    this.releases.unshift(release);
+
+    const v = this.dispatches.get(dispatchId);
+    if (!v) {
+      return ok(null);
+    }
+    const event = this.events.get(v.eventId) || this.eventSink.get(v.eventId);
+    if (!event) {
+      throw new Error("event not found");
+    }
+    return ok({ event, dispatch: v });
+  }
+
+  commit() {
+    for (const [id, event] of this.eventSink) {
+      this.events.set(id, event);
+    }
+    for (const [id, dispatch] of this.dispatchSink) {
+      this.dispatches.set(id, dispatch);
+    }
+  }
+  release() {
+    for (const rel of this.releases) {
+      rel();
+    }
+  }
+}
