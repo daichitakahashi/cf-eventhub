@@ -2,6 +2,7 @@ import { vValidator } from "@hono/valibot-validator";
 import { Style } from "hono/css";
 import { jsxRenderer } from "hono/jsx-renderer";
 import "typed-htmx";
+import { clsx } from "clsx";
 import * as v from "valibot";
 
 import { Button } from "../components/Button";
@@ -47,11 +48,17 @@ const renderer = jsxRenderer(({ children }, _options) => (
 export const createHandler = ({
   dateFormatter,
   refreshIntervalSeconds = 5,
+  color,
+  environment,
 }: {
   /** Date formatter for displaying date and time. */
   dateFormatter: Intl.DateTimeFormat;
   /** Interval seconds of auto-refreshing event list. */
   refreshIntervalSeconds?: number;
+  /** Custom color. */
+  color?: `#${string}`;
+  /** Environment display. */
+  environment?: string;
 }) =>
   factory
     .createApp()
@@ -118,12 +125,15 @@ export const createHandler = ({
 
         return c.render(
           <div>
-            <div class="h-2 bg-blue-300" />
+            <div class={clsx("h-2", color ? `bg-[${color}]` : "bg-blue-300")} />
             <div class="pb-6">
               <div class="mx-16 my-12 flex justify-between">
                 <h1 class="text-3xl font-semibold pt-1">
                   cf-eventhub:
                   <span class="ml-2 text-gray-500">web console</span>
+                  {environment && (
+                    <span class="ml-2 uppercase">[{environment}]</span>
+                  )}
                 </h1>
                 <Modal
                   target={(_) => (
