@@ -13,7 +13,13 @@ import {
   isNewDispatchExecution,
   ongoingDispatch,
 } from "../core/model";
-import type { EventWithDispatches, Repository } from "../core/repository";
+import type {
+  EventWithDispatches,
+  MutationRepository,
+  Repository,
+  RepositoryV2,
+} from "../core/repository";
+import { Locker } from "./locker";
 
 export class DevRepository implements Repository {
   private mu: Mutex;
@@ -256,3 +262,264 @@ export class DevRepository implements Repository {
 const encodeContinuationToken = (id: string) => btoa(id);
 
 const decodeContinuationToken = (token: string) => atob(token);
+
+export class DevRepositoryV2 implements RepositoryV2 {
+  private readonly dispatchesLocker = new Locker();
+  private readonly events = new Map<string, CreatedEvent>();
+  private readonly dispatches = new Map<string, Dispatch>();
+
+  async mutate<T, E>(
+    fn: (tx: MutationRepository) => Promise<Result<T, E>>,
+  ): Promise<Result<T, "INTERNAL_SERVER_ERROR" | E>> {
+    const tx = new DevMutationRepository(
+      this.dispatchesLocker,
+      this.events,
+      this.dispatches,
+    );
+    try {
+      const result = await fn(tx);
+      if (result.isOk()) {
+        tx.commit();
+      }
+      return result;
+    } catch {
+      return err("INTERNAL_SERVER_ERROR" as const);
+    } finally {
+      tx.release();
+    }
+  }
+
+  async readEvent(
+    eventId: string,
+  ): Promise<Result<Event | null, "INTERNAL_SERVER_ERROR">> {
+    const event = this.events.get(eventId);
+    return ok(event || null);
+  }
+
+  async readDispatches(
+    maxItems: number,
+    continuationToken?: string,
+    filterByStatus?: Dispatch["status"][],
+    orderBy?: "CREATED_AT_ASC" | "CREATED_AT_DESC",
+  ): Promise<
+    Result<
+      { list: Dispatch[]; continuationToken?: string },
+      "INTERNAL_SERVER_ERROR" | "INVALID_CONTINUATION_TOKEN"
+    >
+  > {
+    const order = orderBy || "CREATED_AT_ASC";
+    const values = [...this.dispatches.values()];
+    if (order === "CREATED_AT_DESC") {
+      values.reverse();
+    }
+
+    let lastIndex = 0;
+    if (continuationToken) {
+      const lastId = decodeContinuationToken(continuationToken);
+      const last = values.findIndex((v) => v.id === lastId);
+      if (last < 0) {
+        return err("INVALID_CONTINUATION_TOKEN");
+      }
+      lastIndex = last;
+    }
+
+    const list = lastIndex ? values.slice(lastIndex + 1) : values;
+    const filter = filterByStatus ? new Set(filterByStatus) : undefined;
+    const result: Dispatch[] = [];
+    for (const dispatch of list) {
+      if (filter && !filter.has(dispatch.status)) {
+        continue;
+      }
+      result.push(dispatch);
+      if (result.length > maxItems) {
+        break;
+      }
+    }
+
+    if (result.length > maxItems) {
+      return ok({
+        list: result.slice(0, -1),
+        continuationToken: encodeContinuationToken(
+          result[result.length - 2].id,
+        ),
+      });
+    }
+    return ok({
+      list: result,
+      continuationToken: undefined,
+    });
+  }
+
+  async readEvents(
+    maxItems: number,
+    continuationToken?: string,
+    orderBy?: "CREATED_AT_ASC" | "CREATED_AT_DESC",
+  ): Promise<
+    Result<
+      { list: EventWithDispatches[]; continuationToken?: string },
+      "INTERNAL_SERVER_ERROR" | "INVALID_CONTINUATION_TOKEN"
+    >
+  > {
+    const order = orderBy || "CREATED_AT_ASC";
+    const values = [...this.events.values()];
+    if (order === "CREATED_AT_DESC") {
+      values.reverse();
+    }
+
+    let lastIndex = 0;
+    if (continuationToken) {
+      const lastId = decodeContinuationToken(continuationToken);
+      const last = values.findIndex((v) => v.id === lastId);
+      if (last < 0) {
+        return err("INVALID_CONTINUATION_TOKEN");
+      }
+      lastIndex = last;
+    }
+
+    const list = lastIndex ? values.slice(lastIndex + 1) : values;
+    const dispatches = [...this.dispatches.values()];
+    const result: EventWithDispatches[] = [];
+    for (const event of list) {
+      const eventDispatches = dispatches.filter((d) => d.eventId === event.id);
+      result.push({
+        ...event,
+        dispatches: eventDispatches,
+      });
+      if (result.length > maxItems) {
+        break;
+      }
+    }
+
+    if (result.length > maxItems) {
+      return ok({
+        list: result.slice(0, -1),
+        continuationToken: encodeContinuationToken(
+          result[result.length - 2].id,
+        ),
+      });
+    }
+    return ok({
+      list: result,
+      continuationToken: undefined,
+    });
+  }
+}
+
+class DevMutationRepository implements MutationRepository {
+  private readonly mutations: (() => void)[] = [];
+  private readonly releases: (() => void)[] = [];
+  constructor(
+    private readonly dispatchesLocker: Locker,
+    private readonly events: Map<string, CreatedEvent>,
+    private readonly dispatches: Map<string, Dispatch>,
+  ) {}
+
+  async createEvents(
+    events: NewEvent[],
+  ): Promise<Result<CreatedEvent[], "INTERNAL_SERVER_ERROR">> {
+    const created = events.map((e): CreatedEvent => {
+      let id: string;
+      while (true) {
+        id = crypto.randomUUID();
+        if (!this.events.has(id)) break;
+      }
+      return createdEvent(id, e);
+    });
+
+    // Save events lazily.
+    this.mutations.push(() => {
+      for (const e of created) {
+        this.events.set(e.id, e);
+      }
+    });
+
+    return ok(created);
+  }
+
+  async createDispatches(
+    dispatches: NewDispatch[],
+  ): Promise<Result<OngoingDispatch[], "INTERNAL_SERVER_ERROR">> {
+    const created = dispatches.map((d): OngoingDispatch => {
+      if (!this.events.has(d.eventId)) {
+        throw new Error("event not found");
+      }
+
+      let id: string;
+      while (true) {
+        id = crypto.randomUUID();
+        if (!this.dispatches.has(id)) break;
+      }
+      return ongoingDispatch(id, d);
+    });
+
+    // Save dispatches lazily.
+    this.mutations.push(() => {
+      for (const d of created) {
+        this.dispatches.set(d.id, d);
+      }
+    });
+
+    return ok(created);
+  }
+
+  async saveDispatch(
+    dispatch: Dispatch,
+  ): Promise<Result<void, "INTERNAL_SERVER_ERROR">> {
+    const v = this.dispatches.get(dispatch.id);
+    if (!v) {
+      throw new Error("dispatch not found");
+    }
+
+    const clone = structuredClone(dispatch);
+    clone.executionLog.forEach((e, i) => {
+      if (isNewDispatchExecution(e)) {
+        // @ts-ignore
+        clone.executionLog[i] = dispatchExecution(
+          crypto.randomUUID(),
+          e.result,
+          e.executedAt,
+        );
+      }
+    });
+
+    // Save dispatch lazily.
+    this.mutations.push(() => {
+      this.dispatches.set(clone.id, clone);
+    });
+
+    return ok((() => {})());
+  }
+
+  async getTargetDispatch(
+    dispatchId: string,
+  ): Promise<
+    Result<
+      { event: CreatedEvent; dispatch: Dispatch } | null,
+      "INTERNAL_SERVER_ERROR"
+    >
+  > {
+    const release = await this.dispatchesLocker.lock(dispatchId);
+    this.releases.unshift(release);
+
+    const v = this.dispatches.get(dispatchId);
+    if (!v) {
+      return ok(null);
+    }
+    const event = this.events.get(v.eventId);
+    if (!event) {
+      throw new Error("event not found");
+    }
+    return ok({ event, dispatch: v });
+  }
+
+  commit() {
+    for (const mut of this.mutations) {
+      mut();
+    }
+  }
+  release() {
+    for (const rel of this.releases) {
+      rel();
+    }
+  }
+}
