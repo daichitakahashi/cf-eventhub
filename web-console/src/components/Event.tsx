@@ -154,7 +154,6 @@ const DispatchDetails: FC<{
       <DescriptionList>
         <Description title="Destination">
           <code>{dispatch.destination}</code>
-          {new Date().toISOString()}
         </Description>
         <Description title="Max retries">{dispatch.maxRetries}</Description>
         <Description title="Delay seconds">
