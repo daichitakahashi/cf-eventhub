@@ -44,8 +44,9 @@ describe("dispatch", () => {
           eventId: createdEvent.value[0].id,
           destination,
           createdAt: new Date(),
-          delaySeconds: null,
+          delaySeconds: 3,
           maxRetries: 2,
+          retryDelay: { type: "exponential", base: 2, max: 20 },
         },
       ]),
     );

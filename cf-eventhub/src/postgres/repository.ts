@@ -237,6 +237,7 @@ export class PgRepository implements Repository {
               destination: d.destination,
               delaySeconds: d.delaySeconds,
               maxRetries: d.maxRetries,
+              retryDelay: d.retryDelay,
               createdAt: d.createdAt,
             },
             executions: executions.data,
@@ -261,6 +262,7 @@ export class PgRepository implements Repository {
             createdAt: row.dispatch.createdAt,
             delaySeconds: row.dispatch.delaySeconds,
             maxRetries: row.dispatch.maxRetries,
+            retryDelay: row.dispatch.retryDelay,
           });
           if (row.executions !== null) {
             for (const e of row.executions) {
@@ -374,6 +376,7 @@ export class PgRepository implements Repository {
               createdAt: dispatch.createdAt,
               delaySeconds: dispatch.delaySeconds,
               maxRetries: dispatch.maxRetries,
+              retryDelay: dispatch.retryDelay,
             });
             if (executions) {
               for (const ex of executions) {
@@ -461,6 +464,7 @@ class PgMutationRepository implements MutationRepository {
             createdAt: d.createdAt,
             delaySeconds: d.delaySeconds,
             maxRetries: d.maxRetries,
+            retryDelay: d.retryDelay,
           }),
         );
 
@@ -475,6 +479,7 @@ class PgMutationRepository implements MutationRepository {
             createdAt: r.createdAt,
             delaySeconds: r.delaySeconds,
             maxRetries: r.maxRetries,
+            retryDelay: r.retryDelay,
           }),
         );
       },
@@ -557,6 +562,7 @@ class PgMutationRepository implements MutationRepository {
           createdAt: row.dispatch.createdAt,
           delaySeconds: row.dispatch.delaySeconds,
           maxRetries: row.dispatch.maxRetries,
+          retryDelay: row.dispatch.retryDelay,
         });
         if (row.executions !== null) {
           for (const e of row.executions) {

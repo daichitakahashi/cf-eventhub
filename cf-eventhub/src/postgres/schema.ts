@@ -73,12 +73,19 @@ export const dispatches = eventhub.table(
     /**
      * First delay seconds
      */
-    delaySeconds: integer("delay_seconds"),
+    delaySeconds: integer("delay_seconds").notNull(),
 
     /**
      * Max retry count
      */
     maxRetries: integer("max_retries").notNull(),
+
+    /**
+     * Retry delay strategy
+     */
+    retryDelay: jsonb("retry_delay")
+      .notNull()
+      .$type<ResultedDispatch["retryDelay"]>(),
   },
   (t) => [index().on(t.createdAt)],
 );

@@ -15,6 +15,13 @@
       "when": 1732801167132,
       "tag": "0001_misty_black_cat",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1739146022581,
+      "tag": "0002_omniscient_multiple_man",
+      "breakpoints": true
     }
   ]
 }

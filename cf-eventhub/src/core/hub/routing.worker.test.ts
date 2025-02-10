@@ -15,6 +15,7 @@ describe("findRoutes", () => {
           destination: "ORDER_HANDLER",
           delaySeconds: 10,
           maxRetries: 3,
+          retryDelay: { type: "constant", interval: 5 },
         },
         {
           condition: {
@@ -24,6 +25,7 @@ describe("findRoutes", () => {
           destination: "PAYMENT_HANDLER",
           delaySeconds: 1,
           maxRetries: 10,
+          retryDelay: { type: "exponential", base: 2, max: 20 },
         },
       ],
     } satisfies ConfigInput);
@@ -35,6 +37,7 @@ describe("findRoutes", () => {
           destination: "ORDER_HANDLER",
           delaySeconds: 10,
           maxRetries: 3,
+          retryDelay: { type: "constant", interval: 5 },
         },
       ]);
     });
@@ -46,6 +49,7 @@ describe("findRoutes", () => {
           destination: "PAYMENT_HANDLER",
           delaySeconds: 1,
           maxRetries: 10,
+          retryDelay: { type: "exponential", base: 2, max: 20 },
         },
       ]);
     });
@@ -62,6 +66,7 @@ describe("findRoutes", () => {
           destination: "ORDER_HANDLER",
           delaySeconds: 10,
           maxRetries: 3,
+          retryDelay: { type: "constant", interval: 5 },
         },
         {
           condition: {
@@ -71,6 +76,7 @@ describe("findRoutes", () => {
           destination: "PAYMENT_HANDLER",
           delaySeconds: 1,
           maxRetries: 10,
+          retryDelay: { type: "exponential", base: 2, max: 20 },
         },
       ],
     } satisfies ConfigInput);
@@ -82,6 +88,7 @@ describe("findRoutes", () => {
           destination: "ORDER_HANDLER",
           delaySeconds: 10,
           maxRetries: 3,
+          retryDelay: { type: "constant", interval: 5 },
         },
       ]);
     });
@@ -93,6 +100,7 @@ describe("findRoutes", () => {
           destination: "PAYMENT_HANDLER",
           delaySeconds: 1,
           maxRetries: 10,
+          retryDelay: { type: "exponential", base: 2, max: 20 },
         },
       ]);
     });
@@ -109,6 +117,7 @@ describe("findRoutes", () => {
           destination: "ORDER_HANDLER",
           delaySeconds: 10,
           maxRetries: 3,
+          retryDelay: { type: "constant", interval: 5 },
         },
         {
           condition: {
@@ -118,6 +127,7 @@ describe("findRoutes", () => {
           destination: "USER_HANDLER",
           delaySeconds: 1,
           maxRetries: 10,
+          retryDelay: { type: "exponential", base: 2, max: 20 },
         },
       ],
     } satisfies ConfigInput);
@@ -129,6 +139,7 @@ describe("findRoutes", () => {
           destination: "ORDER_HANDLER",
           delaySeconds: 10,
           maxRetries: 3,
+          retryDelay: { type: "constant", interval: 5 },
         },
       ]);
     });
@@ -140,6 +151,7 @@ describe("findRoutes", () => {
           destination: "USER_HANDLER",
           delaySeconds: 1,
           maxRetries: 10,
+          retryDelay: { type: "exponential", base: 2, max: 20 },
         },
       ]);
     });
@@ -156,6 +168,7 @@ describe("findRoutes", () => {
           destination: "HANDLER",
           delaySeconds: 10,
           maxRetries: 3,
+          retryDelay: { type: "constant", interval: 5 },
         },
       ],
     } satisfies ConfigInput);
@@ -167,6 +180,7 @@ describe("findRoutes", () => {
           destination: "HANDLER",
           delaySeconds: 10,
           maxRetries: 3,
+          retryDelay: { type: "constant", interval: 5 },
         },
       },
       {
@@ -175,6 +189,7 @@ describe("findRoutes", () => {
           destination: "HANDLER",
           delaySeconds: 10,
           maxRetries: 3,
+          retryDelay: { type: "constant", interval: 5 },
         },
       },
       { value: 101, expected: undefined },
@@ -198,6 +213,7 @@ describe("findRoutes", () => {
           destination: "HANDLER",
           delaySeconds: 10,
           maxRetries: 3,
+          retryDelay: { type: "exponential", base: 2, max: 20 },
         },
       ],
     } satisfies ConfigInput);
@@ -213,6 +229,7 @@ describe("findRoutes", () => {
           destination: "HANDLER",
           delaySeconds: 10,
           maxRetries: 3,
+          retryDelay: { type: "exponential", base: 2, max: 20 },
         },
       },
       {
@@ -221,6 +238,7 @@ describe("findRoutes", () => {
           destination: "HANDLER",
           delaySeconds: 10,
           maxRetries: 3,
+          retryDelay: { type: "exponential", base: 2, max: 20 },
         },
       },
     ])(
@@ -243,6 +261,7 @@ describe("findRoutes", () => {
           destination: "HANDLER",
           delaySeconds: 10,
           maxRetries: 3,
+          retryDelay: { type: "exponential", base: 2, max: 20 },
         },
       ],
     } satisfies ConfigInput);
@@ -254,6 +273,7 @@ describe("findRoutes", () => {
           destination: "HANDLER",
           delaySeconds: 10,
           maxRetries: 3,
+          retryDelay: { type: "exponential", base: 2, max: 20 },
         },
       },
       {
@@ -281,6 +301,7 @@ describe("findRoutes", () => {
           destination: "HANDLER",
           delaySeconds: 10,
           maxRetries: 3,
+          retryDelay: { type: "exponential", base: 2, max: 20 },
         },
       ],
     } satisfies ConfigInput);
@@ -300,6 +321,7 @@ describe("findRoutes", () => {
           destination: "HANDLER",
           delaySeconds: 10,
           maxRetries: 3,
+          retryDelay: { type: "exponential", base: 2, max: 20 },
         },
       },
     ])(
@@ -330,6 +352,7 @@ describe("findRoutes", () => {
           destination: "USER_HANDLER",
           delaySeconds: 10,
           maxRetries: 3,
+          retryDelay: { type: "exponential", base: 2, max: 20 },
         },
       ],
     } satisfies ConfigInput);
@@ -344,6 +367,7 @@ describe("findRoutes", () => {
           destination: "USER_HANDLER",
           delaySeconds: 10,
           maxRetries: 3,
+          retryDelay: { type: "exponential", base: 2, max: 20 },
         },
       ]);
     });
@@ -383,6 +407,7 @@ describe("findRoutes", () => {
           destination: "ORDER_SHIPMENT_HANDLER",
           delaySeconds: 10,
           maxRetries: 3,
+          retryDelay: { type: "exponential", base: 2, max: 20 },
         },
       ],
     } satisfies ConfigInput);
@@ -396,6 +421,7 @@ describe("findRoutes", () => {
           destination: "ORDER_SHIPMENT_HANDLER",
           delaySeconds: 10,
           maxRetries: 3,
+          retryDelay: { type: "exponential", base: 2, max: 20 },
         },
       ]);
     });
@@ -409,6 +435,7 @@ describe("findRoutes", () => {
           destination: "ORDER_SHIPMENT_HANDLER",
           delaySeconds: 10,
           maxRetries: 3,
+          retryDelay: { type: "exponential", base: 2, max: 20 },
         },
       ]);
     });
@@ -434,6 +461,7 @@ describe("findRoutes", () => {
           destination: "NEXT_HANDLER",
           delaySeconds: 10,
           maxRetries: 3,
+          retryDelay: { type: "exponential", base: 2, max: 20 },
         },
       ],
     } satisfies ConfigInput);
@@ -447,6 +475,7 @@ describe("findRoutes", () => {
           destination: "NEXT_HANDLER",
           delaySeconds: 10,
           maxRetries: 3,
+          retryDelay: { type: "exponential", base: 2, max: 20 },
         },
       ]);
     });

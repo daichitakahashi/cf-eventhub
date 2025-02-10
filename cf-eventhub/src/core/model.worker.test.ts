@@ -30,8 +30,9 @@ describe("appendExecutionLog", async () => {
       eventId,
       destination: "WORKER_A",
       createdAt,
-      maxRetries: 3,
       delaySeconds: 5,
+      maxRetries: 3,
+      retryDelay: { type: "exponential", base: 2, max: 20 },
     },
     {
       key: "value",
@@ -49,8 +50,9 @@ describe("appendExecutionLog", async () => {
       status: "ongoing",
       destination: "WORKER_A",
       createdAt,
-      maxRetries: 3,
       delaySeconds: 5,
+      maxRetries: 3,
+      retryDelay: { type: "exponential", base: 2, max: 20 },
       payload: { key: "value" },
       executionLog: [
         {
@@ -72,8 +74,9 @@ describe("appendExecutionLog", async () => {
       status: "complete",
       destination: "WORKER_A",
       createdAt,
-      maxRetries: 3,
       delaySeconds: 5,
+      maxRetries: 3,
+      retryDelay: { type: "exponential", base: 2, max: 20 },
       payload: { key: "value" },
       executionLog: [
         {
@@ -100,8 +103,9 @@ describe("appendExecutionLog", async () => {
       status: "ignored",
       destination: "WORKER_A",
       createdAt,
-      maxRetries: 3,
       delaySeconds: 5,
+      maxRetries: 3,
+      retryDelay: { type: "exponential", base: 2, max: 20 },
       payload: { key: "value" },
       executionLog: [
         {
@@ -124,8 +128,9 @@ describe("appendExecutionLog", async () => {
       status: "misconfigured",
       destination: "WORKER_A",
       createdAt,
-      maxRetries: 3,
       delaySeconds: 5,
+      maxRetries: 3,
+      retryDelay: { type: "exponential", base: 2, max: 20 },
       payload: { key: "value" },
       executionLog: [
         {
@@ -149,8 +154,9 @@ describe("appendExecutionLog", async () => {
       status: "ongoing",
       destination: "WORKER_A",
       createdAt,
-      maxRetries: 3,
       delaySeconds: 5,
+      maxRetries: 3,
+      retryDelay: { type: "exponential", base: 2, max: 20 },
       payload: { key: "value" },
       executionLog: [
         {
@@ -173,8 +179,9 @@ describe("appendExecutionLog", async () => {
       status: "ongoing",
       destination: "WORKER_A",
       createdAt,
-      maxRetries: 3,
       delaySeconds: 5,
+      maxRetries: 3,
+      retryDelay: { type: "exponential", base: 2, max: 20 },
       payload: { key: "value" },
       executionLog: [
         {
@@ -201,8 +208,9 @@ describe("appendExecutionLog", async () => {
       status: "ongoing",
       destination: "WORKER_A",
       createdAt,
-      maxRetries: 3,
       delaySeconds: 5,
+      maxRetries: 3,
+      retryDelay: { type: "exponential", base: 2, max: 20 },
       payload: { key: "value" },
       executionLog: [
         {
@@ -233,8 +241,9 @@ describe("appendExecutionLog", async () => {
       status: "complete",
       destination: "WORKER_A",
       createdAt,
-      maxRetries: 3,
       delaySeconds: 5,
+      maxRetries: 3,
+      retryDelay: { type: "exponential", base: 2, max: 20 },
       payload: { key: "value" },
       executionLog: [
         {
@@ -270,8 +279,9 @@ describe("appendExecutionLog", async () => {
       status: "ongoing",
       destination: "WORKER_A",
       createdAt,
-      maxRetries: 3,
       delaySeconds: 5,
+      maxRetries: 3,
+      retryDelay: { type: "exponential", base: 2, max: 20 },
       payload: { key: "value" },
       executionLog: [
         {
@@ -294,8 +304,9 @@ describe("appendExecutionLog", async () => {
       status: "ongoing",
       destination: "WORKER_A",
       createdAt,
-      maxRetries: 3,
       delaySeconds: 5,
+      maxRetries: 3,
+      retryDelay: { type: "exponential", base: 2, max: 20 },
       payload: { key: "value" },
       executionLog: [
         {
@@ -322,8 +333,9 @@ describe("appendExecutionLog", async () => {
       status: "ongoing",
       destination: "WORKER_A",
       createdAt,
-      maxRetries: 3,
       delaySeconds: 5,
+      maxRetries: 3,
+      retryDelay: { type: "exponential", base: 2, max: 20 },
       payload: { key: "value" },
       executionLog: [
         {
@@ -354,8 +366,9 @@ describe("appendExecutionLog", async () => {
       status: "failed",
       destination: "WORKER_A",
       createdAt,
-      maxRetries: 3,
       delaySeconds: 5,
+      maxRetries: 3,
+      retryDelay: { type: "exponential", base: 2, max: 20 },
       payload: { key: "value" },
       executionLog: [
         {
@@ -389,6 +402,7 @@ describe("appendExecutionLog", async () => {
         createdAt,
         maxRetries: 0,
         delaySeconds: 5,
+        retryDelay: { type: "exponential", base: 2, max: 20 },
       },
       {
         key: "value",
@@ -404,9 +418,10 @@ describe("appendExecutionLog", async () => {
       eventId,
       status: "complete",
       destination: "WORKER_A",
-      createdAt,
       maxRetries: 0,
       delaySeconds: 5,
+      retryDelay: { type: "exponential", base: 2, max: 20 },
+      createdAt,
       payload: { key: "value" },
       executionLog: [
         {
@@ -425,9 +440,10 @@ describe("appendExecutionLog", async () => {
       {
         eventId,
         destination: "WORKER_A",
-        createdAt,
-        maxRetries: 0,
         delaySeconds: 5,
+        maxRetries: 0,
+        retryDelay: { type: "exponential", base: 2, max: 20 },
+        createdAt,
       },
       {
         key: "value",
@@ -443,9 +459,10 @@ describe("appendExecutionLog", async () => {
       eventId,
       status: "failed",
       destination: "WORKER_A",
-      createdAt,
-      maxRetries: 0,
       delaySeconds: 5,
+      maxRetries: 0,
+      retryDelay: { type: "exponential", base: 2, max: 20 },
+      createdAt,
       payload: { key: "value" },
       executionLog: [
         {
@@ -465,9 +482,10 @@ describe("makeDispatchLost", async () => {
     {
       eventId,
       destination: "WORKER_A",
-      createdAt,
-      maxRetries: 3,
       delaySeconds: 5,
+      maxRetries: 3,
+      retryDelay: { type: "exponential", base: 2, max: 20 },
+      createdAt,
     },
     {
       key: "value",
@@ -481,9 +499,10 @@ describe("makeDispatchLost", async () => {
       eventId,
       status: "lost",
       destination: "WORKER_A",
-      createdAt,
-      maxRetries: 3,
       delaySeconds: 5,
+      maxRetries: 3,
+      retryDelay: { type: "exponential", base: 2, max: 20 },
+      createdAt,
       payload: { key: "value" },
       executionLog: [],
       resultedAt,
@@ -500,9 +519,10 @@ describe("makeDispatchLost", async () => {
       eventId,
       status: "ongoing",
       destination: "WORKER_A",
-      createdAt,
-      maxRetries: 3,
       delaySeconds: 5,
+      maxRetries: 3,
+      retryDelay: { type: "exponential", base: 2, max: 20 },
+      createdAt,
       payload: { key: "value" },
       executionLog: [
         {
@@ -520,9 +540,10 @@ describe("makeDispatchLost", async () => {
       eventId,
       status: "lost",
       destination: "WORKER_A",
-      createdAt,
       maxRetries: 3,
       delaySeconds: 5,
+      retryDelay: { type: "exponential", base: 2, max: 20 },
+      createdAt,
       payload: { key: "value" },
       executionLog: [
         {

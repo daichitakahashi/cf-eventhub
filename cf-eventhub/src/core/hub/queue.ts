@@ -5,7 +5,6 @@ import type { ConstantRetryDelay, ExponentialRetryDelay } from "./routing";
 
 export type QueueMessage = {
   dispatchId: string;
-  retryDelay: ExponentialRetryDelay | ConstantRetryDelay;
 };
 
 /** @internal */

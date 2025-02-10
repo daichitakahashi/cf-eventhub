@@ -99,8 +99,9 @@ const route: Config = {
       destination: "OKINAWA",
     },
   ],
-  defaultMaxRetries: 99,
   defaultDelaySeconds: 99,
+  defaultMaxRetries: 99,
+  defaultRetryDelay: { type: "constant", interval: 7 },
 };
 type Message = {
   like: string;
@@ -170,7 +171,6 @@ describe("putEvent", () => {
     expect(dispatchToOkayama).toMatchObject({
       body: {
         dispatchId: okayama?.id,
-        delaySeconds: 33,
       },
       delaySeconds: 33,
     });
@@ -180,7 +180,6 @@ describe("putEvent", () => {
     expect(dispatchToHokkaido).toMatchObject({
       body: {
         dispatchId: hokkaido?.id,
-        delaySeconds: 66,
       },
       delaySeconds: 66,
     });
@@ -190,7 +189,6 @@ describe("putEvent", () => {
     expect(dispatchToOkinawa).toMatchObject({
       body: {
         dispatchId: okinawa?.id,
-        delaySeconds: 99,
       },
       delaySeconds: 99,
     });
@@ -299,7 +297,6 @@ describe("retryDispatch", () => {
     expect(queue.sentMessages[0]).toMatchObject({
       body: {
         dispatchId: retriedDispatch.id,
-        delaySeconds: 33,
       },
       delaySeconds: 33,
     });
@@ -368,7 +365,6 @@ describe("retryDispatch", () => {
     expect(queue.sentMessages[0]).toMatchObject({
       body: {
         dispatchId: retriedDispatch.id,
-        delaySeconds: 777, // *
       },
       delaySeconds: 777, // *
     });
@@ -406,6 +402,9 @@ describe("retryDispatch", () => {
 
 describe("markLostDispatches", () => {
   const route: Config = {
+    defaultDelaySeconds: 5,
+    defaultMaxRetries: 5,
+    defaultRetryDelay: { type: "constant", interval: 5 },
     routes: [
       {
         condition: {
