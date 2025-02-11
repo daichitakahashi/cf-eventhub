@@ -1,5 +1,12 @@
 # @cf-eventhub/web-console
 
+## 0.0.12
+
+### Patch Changes
+
+- e04f6f3: feat(web-console): show retry strategy
+- c3867ae: chore: update wrangler and other dependencies
+
 ## 0.0.11
 
 ### Patch Changes

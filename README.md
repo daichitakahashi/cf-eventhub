@@ -67,4 +67,4 @@ sequenceDiagram
     ```shell
     $ pnpm dev
     ```
-2. Open `http://localhost:3041` in your browser
+2. Open `http://localhost:3011` in your browser

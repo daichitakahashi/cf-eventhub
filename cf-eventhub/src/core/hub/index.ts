@@ -53,12 +53,18 @@ export class EventSink {
         // Find destinations for each event and create dispatches.
         const dispatches = created.flatMap((e) =>
           findRoutes(routing, e.payload).map(
-            ({ destination, delaySeconds, maxRetries }): NewDispatch => ({
+            ({
+              destination,
+              delaySeconds,
+              maxRetries,
+              retryDelay,
+            }): NewDispatch => ({
               eventId: e.id, // Event id is created by Persistence.saveEvents.
               destination,
               createdAt,
               delaySeconds,
-              maxRetries: maxRetries || 5,
+              maxRetries,
+              retryDelay,
             }),
           ),
         );
@@ -87,10 +93,10 @@ export class EventSink {
             (d): MessageSendRequest<QueueMessage> => ({
               body: {
                 dispatchId: d.id, // Dispatch id is created by Persistence.saveDispatches.
-                delaySeconds: d.delaySeconds || undefined,
+                retryDelay: d.retryDelay,
               },
               contentType: "v8",
-              delaySeconds: d.delaySeconds || undefined,
+              delaySeconds: d.delaySeconds || undefined, // first delay
             }),
           );
           yield* enqueue(queue, messages, logger);
@@ -150,7 +156,11 @@ export class EventSink {
 
   async retryDispatch(args: {
     dispatchId: string;
-    options?: { maxRetries?: number; delaySeconds?: number };
+    options?: {
+      delaySeconds?: number;
+      maxRetries?: number;
+      retryDelay?: NewDispatch["retryDelay"];
+    };
   }): Promise<void> {
     const queue = this.queue;
     const repo = this.repo;
@@ -178,16 +188,17 @@ export class EventSink {
           createdAt: new Date(),
           delaySeconds: options?.delaySeconds || dispatch.delaySeconds,
           maxRetries: options?.maxRetries || dispatch.maxRetries,
+          retryDelay: options?.retryDelay || dispatch.retryDelay,
         };
         const [created] = yield* await tx.createDispatches([newDispatch]);
 
         const message: MessageSendRequest<QueueMessage> = {
           body: {
             dispatchId: created.id,
-            delaySeconds: created.delaySeconds || undefined,
+            retryDelay: created.retryDelay,
           },
           contentType: "v8",
-          delaySeconds: created.delaySeconds || undefined,
+          delaySeconds: created.delaySeconds || undefined, // first delay
         };
 
         yield* await enqueue(queue, [message], logger);

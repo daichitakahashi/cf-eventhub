@@ -35,14 +35,15 @@ export class Dispatcher {
         return ok("notfound" as const);
       }
       const { event, dispatch } = dispatchResult.value;
-      const handler = this.findDestinationHandler(dispatch.destination);
 
       const result = await fromAsyncThrowable(
         async () => {
+          const handler = this.findDestinationHandler(dispatch.destination);
           if (!handler) {
             this.logger.error(`handler not found: ${dispatch.destination}`);
             return "misconfigured" as const;
           }
+
           const result = await handler.handle(event.payload);
           if (!validHandlerResult(result)) {
             this.logger.error(

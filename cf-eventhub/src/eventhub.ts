@@ -134,7 +134,11 @@ export abstract class RpcEventHub<
    */
   async retryDispatch(args: {
     dispatchId: string;
-    options?: { maxRetries?: number; delaySeconds?: number };
+    options?: {
+      delaySeconds?: number;
+      maxRetries?: number;
+      retryDelay?: Dispatch["retryDelay"];
+    };
   }): Promise<void> {
     return this.sink.retryDispatch(args);
   }

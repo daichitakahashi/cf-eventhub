@@ -44,8 +44,9 @@ describe("dispatch", () => {
           eventId: createdEvent.value[0].id,
           destination,
           createdAt: new Date(),
-          delaySeconds: null,
+          delaySeconds: 3,
           maxRetries: 2,
+          retryDelay: { type: "exponential", base: 2, max: 20 },
         },
       ]),
     );
@@ -72,6 +73,7 @@ describe("dispatch", () => {
     // Execute and check result.
     const result = await d.dispatch({
       dispatchId,
+      retryDelay: { type: "exponential", base: 2, max: 20 },
     });
     expect(result).toBe("complete");
 
@@ -90,6 +92,7 @@ describe("dispatch", () => {
     // Execute and check result.
     const result = await d.dispatch({
       dispatchId: "not_found_dispatch",
+      retryDelay: { type: "exponential", base: 2, max: 20 },
     });
     expect(result).toBe("notfound");
   });
@@ -117,6 +120,7 @@ describe("dispatch", () => {
     // Execute and check result.
     const result = await d.dispatch({
       dispatchId,
+      retryDelay: { type: "exponential", base: 2, max: 20 },
     });
     expect(result).toBe("notfound");
 
@@ -139,6 +143,7 @@ describe("dispatch", () => {
     // Execute and check result.
     const result = await d.dispatch({
       dispatchId,
+      retryDelay: { type: "exponential", base: 2, max: 20 },
     });
     expect(result).toBe("failed");
 
@@ -161,18 +166,21 @@ describe("dispatch", () => {
     // Execute and check result.
     const result = await d.dispatch({
       dispatchId,
+      retryDelay: { type: "exponential", base: 2, max: 20 },
     });
     expect(result).toBe("failed");
 
     // First retry.
     const firstRetryResult = await d.dispatch({
       dispatchId,
+      retryDelay: { type: "exponential", base: 2, max: 20 },
     });
     expect(firstRetryResult).toBe("failed");
 
     // Last retry.
     const lastRetry = await d.dispatch({
       dispatchId,
+      retryDelay: { type: "exponential", base: 2, max: 20 },
     });
     expect(lastRetry).toBe("failed");
 
@@ -186,6 +194,7 @@ describe("dispatch", () => {
     // Extra retry.
     const extraResult = await d.dispatch({
       dispatchId,
+      retryDelay: { type: "exponential", base: 2, max: 20 },
     });
     expect(extraResult).toBe("notfound");
   });
@@ -201,6 +210,7 @@ describe("dispatch", () => {
     // Execute and check result.
     const result = await d.dispatch({
       dispatchId,
+      retryDelay: { type: "exponential", base: 2, max: 20 },
     });
     expect(result).toBe("misconfigured");
 

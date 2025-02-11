@@ -34,8 +34,9 @@ const createEvent = (repo: Repository) =>
           eventId: createdEvent.id,
           destination: "WORKER_1",
           createdAt: await nextDate(),
-          delaySeconds: null,
+          delaySeconds: 0,
           maxRetries: 5,
+          retryDelay: { type: "constant", interval: 3 },
         },
         {
           eventId: createdEvent.id,
@@ -43,6 +44,7 @@ const createEvent = (repo: Repository) =>
           createdAt: await nextDate(),
           delaySeconds: 5,
           maxRetries: 10,
+          retryDelay: { type: "exponential", base: 2, max: 30 },
         },
       ]);
       const createdDispatch = created.find(
@@ -130,8 +132,9 @@ export const testRepositoryPersistsCompleteDispatch = async (
     status: "complete",
     destination: "WORKER_1",
     createdAt: expect.any(Date),
-    delaySeconds: null,
+    delaySeconds: 0,
     maxRetries: 5,
+    retryDelay: { type: "constant", interval: 3 },
     executionLog: [
       {
         id: expect.any(String),
@@ -200,8 +203,9 @@ export const testRepositoryPersistsFailedDispatch = async (
     status: "failed",
     destination: "WORKER_1",
     createdAt: expect.any(Date),
-    delaySeconds: null,
+    delaySeconds: 0,
     maxRetries: 5,
+    retryDelay: { type: "constant", interval: 3 },
     executionLog: [
       {
         id: expect.any(String),
@@ -278,8 +282,9 @@ export const testRepositoryPersistsIgnoredDispatch = async (
     status: "ignored",
     destination: "WORKER_1",
     createdAt: expect.any(Date),
-    delaySeconds: null,
+    delaySeconds: 0,
     maxRetries: 5,
+    retryDelay: { type: "constant", interval: 3 },
     executionLog: [
       {
         id: expect.any(String),
@@ -332,8 +337,9 @@ export const testRepositoryPersistsMisconfiguredDispatch = async (
     status: "misconfigured",
     destination: "WORKER_1",
     createdAt: expect.any(Date),
-    delaySeconds: null,
+    delaySeconds: 0,
     maxRetries: 5,
+    retryDelay: { type: "constant", interval: 3 },
     executionLog: [
       {
         id: expect.any(String),
@@ -384,8 +390,9 @@ export const testRepositoryPersistsLostDispatch = async (repo: Repository) => {
     status: "lost",
     destination: "WORKER_1",
     createdAt: expect.any(Date),
-    delaySeconds: null,
+    delaySeconds: 0,
     maxRetries: 5,
+    retryDelay: { type: "constant", interval: 3 },
     executionLog: [
       {
         id: expect.any(String),
@@ -421,8 +428,9 @@ export const testRepositoryListOngoingDispatches = async (repo: Repository) => {
             eventId,
             destination: `dest_${i}`,
             createdAt: await nextDate(),
-            delaySeconds: null,
+            delaySeconds: 4,
             maxRetries: 1,
+            retryDelay: { type: "constant", interval: 10 },
           },
         ]);
         const created = createResult[0];
@@ -453,8 +461,9 @@ export const testRepositoryListOngoingDispatches = async (repo: Repository) => {
         id: dispatchIds[0],
         status: "ongoing",
         destination: "dest_0",
-        delaySeconds: null,
+        delaySeconds: 4,
         maxRetries: 1,
+        retryDelay: { type: "constant", interval: 10 },
         createdAt: expect.any(Date),
         executionLog: [],
       },
@@ -462,8 +471,9 @@ export const testRepositoryListOngoingDispatches = async (repo: Repository) => {
         id: dispatchIds[2],
         status: "ongoing",
         destination: "dest_2",
-        delaySeconds: null,
+        delaySeconds: 4,
         maxRetries: 1,
+        retryDelay: { type: "constant", interval: 10 },
         createdAt: expect.any(Date),
         executionLog: [
           {
@@ -476,8 +486,9 @@ export const testRepositoryListOngoingDispatches = async (repo: Repository) => {
         id: dispatchIds[3],
         status: "ongoing",
         destination: "dest_3",
-        delaySeconds: null,
+        delaySeconds: 4,
         maxRetries: 1,
+        retryDelay: { type: "constant", interval: 10 },
         createdAt: expect.any(Date),
         executionLog: [],
       },
@@ -497,8 +508,9 @@ export const testRepositoryListOngoingDispatches = async (repo: Repository) => {
         id: dispatchIds[4],
         status: "ongoing",
         destination: "dest_4",
-        delaySeconds: null,
+        delaySeconds: 4,
         maxRetries: 1,
+        retryDelay: { type: "constant", interval: 10 },
         createdAt: expect.any(Date),
         executionLog: [
           {
@@ -511,8 +523,9 @@ export const testRepositoryListOngoingDispatches = async (repo: Repository) => {
         id: dispatchIds[6],
         status: "ongoing",
         destination: "dest_6",
-        delaySeconds: null,
+        delaySeconds: 4,
         maxRetries: 1,
+        retryDelay: { type: "constant", interval: 10 },
         createdAt: expect.any(Date),
         executionLog: [],
       },
@@ -520,8 +533,9 @@ export const testRepositoryListOngoingDispatches = async (repo: Repository) => {
         id: dispatchIds[8],
         status: "ongoing",
         destination: "dest_8",
-        delaySeconds: null,
+        delaySeconds: 4,
         maxRetries: 1,
+        retryDelay: { type: "constant", interval: 10 },
         createdAt: expect.any(Date),
         executionLog: [
           {
@@ -546,8 +560,9 @@ export const testRepositoryListOngoingDispatches = async (repo: Repository) => {
         id: dispatchIds[9],
         status: "ongoing",
         destination: "dest_9",
-        delaySeconds: null,
+        delaySeconds: 4,
         maxRetries: 1,
+        retryDelay: { type: "constant", interval: 10 },
         createdAt: expect.any(Date),
         executionLog: [],
       },
@@ -555,8 +570,9 @@ export const testRepositoryListOngoingDispatches = async (repo: Repository) => {
         id: dispatchIds[10],
         status: "ongoing",
         destination: "dest_10",
-        delaySeconds: null,
+        delaySeconds: 4,
         maxRetries: 1,
+        retryDelay: { type: "constant", interval: 10 },
         createdAt: expect.any(Date),
         executionLog: [
           {
@@ -569,8 +585,9 @@ export const testRepositoryListOngoingDispatches = async (repo: Repository) => {
         id: dispatchIds[12],
         status: "ongoing",
         destination: "dest_12",
-        delaySeconds: null,
+        delaySeconds: 4,
         maxRetries: 1,
+        retryDelay: { type: "constant", interval: 10 },
         createdAt: expect.any(Date),
         executionLog: [],
       },
@@ -590,8 +607,9 @@ export const testRepositoryListOngoingDispatches = async (repo: Repository) => {
         id: dispatchIds[14],
         status: "ongoing",
         destination: "dest_14",
-        delaySeconds: null,
+        delaySeconds: 4,
         maxRetries: 1,
+        retryDelay: { type: "constant", interval: 10 },
         createdAt: expect.any(Date),
         executionLog: [
           {
@@ -604,8 +622,9 @@ export const testRepositoryListOngoingDispatches = async (repo: Repository) => {
         id: dispatchIds[15],
         status: "ongoing",
         destination: "dest_15",
-        delaySeconds: null,
+        delaySeconds: 4,
         maxRetries: 1,
+        retryDelay: { type: "constant", interval: 10 },
         createdAt: expect.any(Date),
         executionLog: [],
       },
@@ -613,8 +632,9 @@ export const testRepositoryListOngoingDispatches = async (repo: Repository) => {
         id: dispatchIds[16],
         status: "ongoing",
         destination: "dest_16",
-        delaySeconds: null,
+        delaySeconds: 4,
         maxRetries: 1,
+        retryDelay: { type: "constant", interval: 10 },
         createdAt: expect.any(Date),
         executionLog: [
           {
@@ -638,8 +658,9 @@ export const testRepositoryListOngoingDispatches = async (repo: Repository) => {
         id: dispatchIds[18],
         status: "ongoing",
         destination: "dest_18",
-        delaySeconds: null,
+        delaySeconds: 4,
         maxRetries: 1,
+        retryDelay: { type: "constant", interval: 10 },
         executionLog: [],
       },
     ],
@@ -761,8 +782,9 @@ export const testRepositoryListEventDispatches = async (repo: Repository) => {
         status: "complete",
         destination: "WORKER_1",
         createdAt: expect.any(Date),
-        delaySeconds: null,
+        delaySeconds: 0,
         maxRetries: 5,
+        retryDelay: { type: "constant", interval: 3 },
         executionLog: [
           {
             id: expect.any(String),
@@ -788,6 +810,7 @@ export const testRepositoryListEventDispatches = async (repo: Repository) => {
         createdAt: expect.any(Date),
         delaySeconds: 5,
         maxRetries: 10,
+        retryDelay: { type: "exponential", base: 2, max: 30 },
         executionLog: [],
       },
     ],
@@ -817,8 +840,9 @@ export const testRepositoryListEventDispatches = async (repo: Repository) => {
         status: "complete",
         destination: "WORKER_1",
         createdAt: expect.any(Date),
-        delaySeconds: null,
+        delaySeconds: 0,
         maxRetries: 5,
+        retryDelay: { type: "constant", interval: 3 },
         executionLog: [
           {
             id: expect.any(String),
@@ -844,6 +868,7 @@ export const testRepositoryListEventDispatches = async (repo: Repository) => {
         createdAt: expect.any(Date),
         delaySeconds: 5,
         maxRetries: 10,
+        retryDelay: { type: "exponential", base: 2, max: 30 },
         executionLog: [],
       },
     ],
@@ -907,8 +932,9 @@ export const testRepositoryRollback = async (
           eventId: createdEvent.id,
           destination: "WORKER_1",
           createdAt,
-          delaySeconds: null,
+          delaySeconds: 0,
           maxRetries: 5,
+          retryDelay: { type: "constant", interval: 3 },
         },
         {
           eventId: createdEvent.id,
@@ -916,6 +942,7 @@ export const testRepositoryRollback = async (
           createdAt,
           delaySeconds: 5,
           maxRetries: 10,
+          retryDelay: { type: "exponential", base: 2, max: 30 },
         },
       ]);
       assert(result.isOk(), "createDispatches must be succeeded");
@@ -927,8 +954,9 @@ export const testRepositoryRollback = async (
           status: "ongoing",
           destination: "WORKER_1",
           createdAt: expect.any(Date),
-          delaySeconds: null,
+          delaySeconds: 0,
           maxRetries: 5,
+          retryDelay: { type: "constant", interval: 3 },
         },
         {
           eventId: createdEvent.id,
@@ -937,6 +965,7 @@ export const testRepositoryRollback = async (
           createdAt: expect.any(Date),
           delaySeconds: 5,
           maxRetries: 10,
+          retryDelay: { type: "exponential", base: 2, max: 30 },
         },
       ]);
 

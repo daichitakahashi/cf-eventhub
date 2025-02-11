@@ -1,10 +1,11 @@
 import { fromAsyncThrowable } from "neverthrow";
 
 import type { Logger } from "../logger";
+import type { ConstantRetryDelay, ExponentialRetryDelay } from "./routing";
 
 export type QueueMessage = {
   dispatchId: string;
-  delaySeconds?: number;
+  retryDelay: ConstantRetryDelay | ExponentialRetryDelay;
 };
 
 /** @internal */

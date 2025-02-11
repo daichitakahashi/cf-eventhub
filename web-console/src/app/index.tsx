@@ -20,26 +20,32 @@ declare module "hono/jsx" {
   }
 }
 
-const renderer = jsxRenderer(({ children }, _options) => (
-  <html lang="en">
-    <head>
-      <title>cf-eventhub: web console</title>
-      <Style />
-      <script src="https://cdn.tailwindcss.com" />
-      <script
-        src="https://unpkg.com/htmx.org@2.0.3/dist/htmx.min.js"
-        integrity="sha384-0895/pl2MU10Hqc6jd4RvrthNlDiE9U1tWmX7WRESftEDRosgxNsQG/Ze9YMRzHq"
-        crossorigin="anonymous"
-      />
-      <script
-        src="https://unpkg.com/hyperscript.org@0.9.13/dist/_hyperscript.min.js"
-        integrity="sha384-5yQ5JTatiFEgeiEB4mfkRI3oTGtaNpbJGdcciZ4IEYFpLGt8yDsGAd7tKiMwnX9b"
-        crossorigin="anonymous"
-      />
-    </head>
-    <body>{children}</body>
-  </html>
-));
+const renderer = (environment?: string) =>
+  jsxRenderer(({ children }, _options) => {
+    const title = environment
+      ? `${environment.toUpperCase()}: cf-eventhub: web console`
+      : "cf-eventhub: web console";
+    return (
+      <html lang="en">
+        <head>
+          <title>{title}</title>
+          <Style />
+          <script src="https://cdn.tailwindcss.com" />
+          <script
+            src="https://unpkg.com/htmx.org@2.0.3/dist/htmx.min.js"
+            integrity="sha384-0895/pl2MU10Hqc6jd4RvrthNlDiE9U1tWmX7WRESftEDRosgxNsQG/Ze9YMRzHq"
+            crossorigin="anonymous"
+          />
+          <script
+            src="https://unpkg.com/hyperscript.org@0.9.13/dist/_hyperscript.min.js"
+            integrity="sha384-5yQ5JTatiFEgeiEB4mfkRI3oTGtaNpbJGdcciZ4IEYFpLGt8yDsGAd7tKiMwnX9b"
+            crossorigin="anonymous"
+          />
+        </head>
+        <body>{children}</body>
+      </html>
+    );
+  });
 
 /**
  * Creates a handler for the web console.
@@ -62,7 +68,7 @@ export const createHandler = ({
 }) =>
   factory
     .createApp()
-    .use(renderer)
+    .use(renderer(environment))
     .use((c, next) => {
       c.set("dateFormatter", (d: DateTime) => {
         return dateFormatter.format(d as unknown as Date);

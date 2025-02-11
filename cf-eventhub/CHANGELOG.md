@@ -1,5 +1,15 @@
 # cf-eventhub
 
+## 0.2.0
+
+### Minor Changes
+
+- 54f2bed: feat(cf-eventhub): introduce retry delay strategy
+
+### Patch Changes
+
+- c3867ae: chore: update wrangler and other dependencies
+
 ## 0.1.0
 
 ### Minor Changes

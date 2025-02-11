@@ -20,8 +20,18 @@ export interface NewDispatch {
   readonly eventId: string;
   readonly destination: string;
   readonly createdAt: Date;
-  readonly delaySeconds: number | null;
+  readonly delaySeconds: number;
   readonly maxRetries: number;
+  readonly retryDelay:
+    | {
+        type: "constant";
+        interval: number;
+      }
+    | {
+        type: "exponential";
+        base: number;
+        max: number;
+      };
 }
 
 export interface OngoingDispatch extends NewDispatch {

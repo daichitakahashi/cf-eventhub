@@ -4,6 +4,7 @@ import { Dispatcher } from "./core/executor";
 import type { Handler } from "./core/executor/handler";
 import { DefaultLogger, type LogLevel, type Logger } from "./core/logger";
 import type { Repository } from "./core/repository";
+import { nextDelay } from "./core/retry-delay";
 import type { EventPayload, QueueMessage } from "./core/type";
 
 const getLogLevel = (env: Record<string, unknown>) =>
@@ -22,6 +23,10 @@ export abstract class RpcExecutor<
 
   private async dispatch(msg: Message<QueueMessage>) {
     const logger = this.getLogger();
+    const nextDelaySeconds = nextDelay({
+      retryDelay: msg.body.retryDelay,
+      attempts: msg.attempts,
+    });
     return this.dispatcher
       .dispatch(msg.body)
       .then((result) => {
@@ -34,7 +39,7 @@ export abstract class RpcExecutor<
             break;
           case "failed":
             msg.retry({
-              delaySeconds: msg.body.delaySeconds,
+              delaySeconds: nextDelaySeconds,
             });
             break;
           default: {
@@ -45,7 +50,7 @@ export abstract class RpcExecutor<
       .catch((e) => {
         logger.error("dispatch rejected", { error: e });
         msg.retry({
-          delaySeconds: msg.body.delaySeconds,
+          delaySeconds: nextDelaySeconds,
         });
       });
   }
