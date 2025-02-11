@@ -155,15 +155,30 @@ const DispatchDetails: FC<{
         <Description title="Destination">
           <code>{dispatch.destination}</code>
         </Description>
-        <Description title="Max retries">{dispatch.maxRetries}</Description>
-        <Description title="Delay seconds">
-          {dispatch.delaySeconds || "-"}
-        </Description>
         <Description title="Status">
           <div class="flex gap-1 items-center">
             <StatusIndicator status={dispatch.status} />
             {dispatch.status}
           </div>
+        </Description>
+        <Description title="Delay seconds">
+          {dispatch.delaySeconds} sec
+        </Description>
+        <Description title="Max retries">{dispatch.maxRetries}</Description>
+        <Description title="Retry delay">
+          {dispatch.retryDelay.type === "exponential" ? (
+            <>
+              <p class="font-bold">
+                Exponential backoff with decorrelated jitter
+              </p>
+              <p>{`base: ${dispatch.retryDelay.base} sec, max: ${dispatch.retryDelay.max} sec`}</p>
+            </>
+          ) : (
+            <>
+              <p class="font-bold">Fixed</p>
+              <p>{`interval: ${dispatch.retryDelay.interval} sec`}</p>
+            </>
+          )}
         </Description>
         <Description title="Attempts">
           <Table>

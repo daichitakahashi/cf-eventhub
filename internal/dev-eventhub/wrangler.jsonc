@@ -15,7 +15,12 @@
         },
         {
           "condition": { "path": "$.flaky", "exact": true },
-          "destination": "FLAKY_HANDLER"
+          "destination": "FLAKY_HANDLER",
+          "retryDelay": {
+            "type": "exponential",
+            "base": 2,
+            "max": 30
+          }
         },
         {
           "condition": { "path": "$.produce", "exact": true },
