@@ -1,5 +1,11 @@
 # @cf-eventhub/pulumi
 
+## 0.0.21
+
+### Patch Changes
+
+- 770fbda: fix(pulumi): fix config type of EventHubHelper
+
 ## 0.0.20
 
 ### Patch Changes
