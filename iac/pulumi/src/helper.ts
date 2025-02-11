@@ -1,13 +1,13 @@
 import { RunError, log } from "@pulumi/pulumi";
-import type { Config } from "cf-eventhub/core";
+import type { ConfigInput } from "cf-eventhub/core";
 
 type Handler = { service: string; entrypoint?: string | undefined };
-type Destination<C extends Config> = C["routes"][number]["destination"];
+type Destination<C extends ConfigInput> = C["routes"][number]["destination"];
 
 /**
  * Helper to construct EventHub and its Executor
  */
-export class EventHubHelper<C extends Config = Config> {
+export class EventHubHelper<C extends ConfigInput = ConfigInput> {
   destinations: Map<Destination<C>, Handler | null>;
 
   /**
