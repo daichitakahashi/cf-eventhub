@@ -1,5 +1,6 @@
 import { fromAsyncThrowable, ok } from "neverthrow";
 
+import { formatException } from "../../utils/format-exception";
 import type { Logger } from "../logger";
 import { type DispatchExecution, appendExecutionLog } from "../model";
 import type { Repository } from "../repository";
@@ -55,7 +56,7 @@ export class Dispatcher {
         },
         (e) => {
           this.logger.error(`handler ${dispatch.destination} rejected`, {
-            error: e,
+            error: formatException(e),
           });
           return "failed" as const;
         },
@@ -76,7 +77,7 @@ export class Dispatcher {
     return result.match(
       (result) => result,
       (e) => {
-        this.logger.error("error on dispatch", { error: e });
+        this.logger.error("error on dispatch", { error: formatException(e) });
         return "failed";
       },
     );

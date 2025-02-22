@@ -6,6 +6,7 @@ import { DefaultLogger, type LogLevel, type Logger } from "./core/logger";
 import type { Repository } from "./core/repository";
 import { nextDelay } from "./core/retry-delay";
 import type { EventPayload, QueueMessage } from "./core/type";
+import { formatException } from "./utils/format-exception";
 
 const getLogLevel = (env: Record<string, unknown>) =>
   (env.EVENTHUB_LOG_LEVEL as LogLevel) || "INFO";
@@ -48,7 +49,7 @@ export abstract class RpcExecutor<
         }
       })
       .catch((e) => {
-        logger.error("dispatch rejected", { error: e });
+        logger.error("dispatch rejected", { error: formatException(e) });
         msg.retry({
           delaySeconds: nextDelaySeconds,
         });

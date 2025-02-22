@@ -43,6 +43,7 @@ import type {
   MutationRepository,
   Repository,
 } from "../core/repository";
+import { formatException } from "../utils/format-exception";
 import * as schema from "./schema";
 
 type Db = PostgresJsDatabase<typeof schema>;
@@ -88,7 +89,9 @@ export class PgRepository implements Repository {
         tx.rollback();
       });
     } catch (e) {
-      this.logger.error("error on enterTransactionalScope", { error: e });
+      this.logger.error("error on enterTransactionalScope", {
+        error: formatException(e),
+      });
     }
 
     // @ts-ignore
@@ -122,7 +125,7 @@ export class PgRepository implements Repository {
         });
       },
       (e) => {
-        logger.error("error on getEvent", { error: e });
+        logger.error("error on getEvent", { error: formatException(e) });
         return "INTERNAL_SERVER_ERROR" as const;
       },
     )();
@@ -298,7 +301,7 @@ export class PgRepository implements Repository {
         return result;
       },
       (e) => {
-        logger.error("error on listDispatches", { error: e });
+        logger.error("error on listDispatches", { error: formatException(e) });
         return "INTERNAL_SERVER_ERROR" as const;
       },
     )();
@@ -353,7 +356,7 @@ export class PgRepository implements Repository {
           limit: maxItems + 1,
         }),
       (e) => {
-        logger.error("error on listEvents", { error: e });
+        logger.error("error on listEvents", { error: formatException(e) });
         return "INTERNAL_SERVER_ERROR" as const;
       },
     )();
@@ -445,7 +448,9 @@ class PgMutationRepository implements MutationRepository {
         );
       },
       (e) => {
-        this.logger.error("error on createEvents", { error: e });
+        this.logger.error("error on createEvents", {
+          error: formatException(e),
+        });
         return "INTERNAL_SERVER_ERROR" as const;
       },
     )();
@@ -484,7 +489,9 @@ class PgMutationRepository implements MutationRepository {
         );
       },
       (e) => {
-        this.logger.error("error on createDispatches", { error: e });
+        this.logger.error("error on createDispatches", {
+          error: formatException(e),
+        });
         return "INTERNAL_SERVER_ERROR" as const;
       },
     )();
@@ -582,7 +589,7 @@ class PgMutationRepository implements MutationRepository {
         return { event, dispatch };
       },
       (e) => {
-        logger.error("error on getDispatch", { error: e });
+        logger.error("error on getDispatch", { error: formatException(e) });
         return "INTERNAL_SERVER_ERROR" as const;
       },
     )();
@@ -614,7 +621,9 @@ class PgMutationRepository implements MutationRepository {
         }
       },
       (e) => {
-        this.logger.error("error on saveDispatch", { error: e });
+        this.logger.error("error on saveDispatch", {
+          error: formatException(e),
+        });
         return "INTERNAL_SERVER_ERROR" as const;
       },
     )();
