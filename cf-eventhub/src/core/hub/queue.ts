@@ -1,5 +1,6 @@
 import { fromAsyncThrowable } from "neverthrow";
 
+import { formatException } from "../../utils/format-exception";
 import type { Logger } from "../logger";
 import type { ConstantRetryDelay, ExponentialRetryDelay } from "./routing";
 
@@ -17,7 +18,7 @@ export const enqueue = (
   fromAsyncThrowable(
     () => queue.sendBatch(messages),
     (e) => {
-      logger.error("failed to Queue.sendBatch", { error: e });
+      logger.error("failed to Queue.sendBatch", { error: formatException(e) });
       return "INTERNAL_SERVER_ERROR" as const;
     },
   )();
