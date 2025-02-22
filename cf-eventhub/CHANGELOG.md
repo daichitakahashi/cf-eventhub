@@ -1,5 +1,12 @@
 # cf-eventhub
 
+## 0.2.1
+
+### Patch Changes
+
+- eb8d31f: print exception detail
+- 153f6ff: EventHub as a Handler
+
 ## 0.2.0
 
 ### Minor Changes
