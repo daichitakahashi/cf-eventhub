@@ -1,5 +1,11 @@
 # cf-eventhub
 
+## 0.3.0
+
+### Minor Changes
+
+- b0b6810: fix last migration and add migration test
+
 ## 0.2.1
 
 ### Patch Changes
