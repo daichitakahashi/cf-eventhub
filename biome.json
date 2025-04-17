@@ -37,7 +37,9 @@
       "Service",
       "Rpc",
       "HtmxAttributes",
-      "Hyperdrive"
+      "Hyperdrive",
+      "R2Bucket",
+      "R2Object"
     ]
   }
 }

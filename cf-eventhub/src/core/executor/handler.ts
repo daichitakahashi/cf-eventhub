@@ -8,6 +8,10 @@ export const isHandler = (dest: NonNullable<unknown>): dest is Handler => {
   return typeof dest === "object" && "handle" in dest;
 };
 
+export const isR2Bucket = (dest: NonNullable<unknown>): dest is R2Bucket => {
+  return dest.constructor?.name === "R2Bucket" && "put" in dest;
+};
+
 /** @internal */
 export const validHandlerResult = (
   result: unknown,
