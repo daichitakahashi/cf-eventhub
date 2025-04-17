@@ -221,4 +221,49 @@ describe("dispatch", () => {
     assert(dispatch.isOk());
     expect(dispatch.value?.dispatch.status).toBe("misconfigured");
   });
+
+  test("payload will be put directly when the destination is a R2Bucket", async () => {
+    // Create a mock R2Bucket.
+    const bucketStore = new Map<string, unknown>();
+    const bucket = {
+      constructor: { name: "R2Bucket" },
+      put: async (key: string, value: unknown): Promise<R2Object | null> => {
+        bucketStore.set(key, value);
+        return null;
+      },
+    } as unknown as R2Bucket;
+
+    const repo = new DevRepository();
+    const d = new Dispatcher(
+      repo,
+      {
+        BUCKET: bucket,
+      },
+      new DefaultLogger("ERROR"),
+    );
+
+    const dispatchId = await createDispatch(repo, "BUCKET", {
+      message: "This message is published via R2 bucket",
+    });
+
+    // Execute and check result.
+    const result = await d.dispatch({
+      dispatchId,
+      retryDelay: { type: "exponential", base: 2, max: 20 },
+    });
+    expect(result).toBe("complete");
+
+    // Check dispatch status.
+    const dispatch = await repo.mutate((tx) =>
+      tx.getTargetDispatch(dispatchId),
+    );
+    assert(dispatch.isOk());
+    expect(dispatch.value?.dispatch.status).toBe("complete");
+
+    // Check put object.
+    const putContent = bucketStore.values().next().value;
+    expect(putContent).toEqual(
+      `{"message":"This message is published via R2 bucket"}`,
+    );
+  });
 });

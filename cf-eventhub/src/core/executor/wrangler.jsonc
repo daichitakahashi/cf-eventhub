@@ -1,0 +1,15 @@
+{
+    "$schema": "../../../node_modules/wrangler/config-schema.json",
+    "name": "dispatch-test",
+    "main": "",
+    "compatibility_date": "2024-11-16",
+    "compatibility_flags": [
+        "nodejs_compat"
+    ],
+    "r2_buckets": [
+        {
+            "binding": "BUCKET",
+            "bucket_name": "dispatch-test"
+        }
+    ]
+}

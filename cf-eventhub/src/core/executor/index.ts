@@ -5,7 +5,12 @@ import type { Logger } from "../logger";
 import { type DispatchExecution, appendExecutionLog } from "../model";
 import type { Repository } from "../repository";
 import type { QueueMessage } from "../type";
-import { type Handler, isHandler, validHandlerResult } from "./handler";
+import {
+  type Handler,
+  isHandler,
+  isR2Bucket,
+  validHandlerResult,
+} from "./handler";
 
 export class Dispatcher {
   constructor(
@@ -14,12 +19,12 @@ export class Dispatcher {
     private logger: Logger,
   ) {}
 
-  private findDestinationHandler(d: string): Handler | null {
+  private findDestinationHandler(d: string): Handler | R2Bucket | null {
     const dest = this.env[d];
     if (!dest) {
       return null;
     }
-    return isHandler(dest) ? dest : null;
+    return isHandler(dest) ? dest : isR2Bucket(dest) ? dest : null;
   }
 
   async dispatch(msg: QueueMessage): Promise<DispatchExecution["result"]> {
@@ -45,14 +50,22 @@ export class Dispatcher {
             return "misconfigured" as const;
           }
 
-          const result = await handler.handle(event.payload);
-          if (!validHandlerResult(result)) {
-            this.logger.error(
-              `got invalid result from handler ${dispatch.destination}: ${result}`,
-            );
-            return "failed" as const;
+          // call handler
+          if (isHandler(handler)) {
+            const result = await handler.handle(event.payload);
+            if (!validHandlerResult(result)) {
+              this.logger.error(
+                `got invalid result from handler ${dispatch.destination}: ${result}`,
+              );
+              return "failed" as const;
+            }
+            return result;
           }
-          return result;
+
+          // or put to R2 bucket directly
+          const objectKey = `${new Date().toISOString()}-${dispatch.id}`;
+          await handler.put(objectKey, JSON.stringify(event.payload));
+          return "complete" as const;
         },
         (e) => {
           this.logger.error(`handler ${dispatch.destination} rejected`, {
