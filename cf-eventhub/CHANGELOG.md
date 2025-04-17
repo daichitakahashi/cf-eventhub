@@ -1,5 +1,11 @@
 # cf-eventhub
 
+## 0.3.1
+
+### Patch Changes
+
+- 87a0b82: feat(cf-eventhub): executor put payload to R2 bucket when the destination is a R2Bucket instance
+
 ## 0.3.0
 
 ### Minor Changes
