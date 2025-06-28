@@ -52,8 +52,23 @@ export const Event: FC<{
         </div>
         <p class="text-gray-500">{event.id}</p>
       </div>
-      <div class="my-4 text-gray-500">
+      <div class="relative my-4 text-gray-500 flex flex-col]">
         <Textarea readonly>{JSON.stringify(event.payload, null, 4)}</Textarea>
+        <button
+          class="absolute right-0 px-1 mx-1 my-1 rounded-md hover:bg-gray-200 active:outline active:outline-1 active:bg-gray-400 active:text-white"
+          type="button"
+          data-payload={JSON.stringify(event.payload)}
+          _="on click
+            set text to me.dataset.payload
+            js(text)
+              if ('clipboard' in navigator) {
+                navigator.clipboard.writeText(text)
+              }
+            end
+          "
+        >
+          Copy to clipboard
+        </button>
       </div>
       <Table>
         <TableHeader>
