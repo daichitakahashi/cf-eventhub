@@ -121,6 +121,16 @@ export abstract class RpcEventHub<Env extends RpcEnv = RpcEnv>
   }
 
   /**
+   * Get dispatch.
+   * @param dispatchId Dispatch ID to get.
+   */
+  async getDispatch(
+    dispatchId: string,
+  ): Promise<RpcSerializable<Dispatch> | null> {
+    return this.sink.getDispatch(dispatchId);
+  }
+
+  /**
    * List events.
    * @param args.maxItems Maximum number of events to list. Default is 10.
    * @param args.continuationToken Continuation token for pagination.

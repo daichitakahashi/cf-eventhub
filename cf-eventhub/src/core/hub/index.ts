@@ -154,6 +154,16 @@ export class EventSink {
     return result.value;
   }
 
+  async getDispatch(dispatchId: string): Promise<Dispatch | null> {
+    const result = await this.repo.mutate((tx) =>
+      tx.getTargetDispatch(dispatchId),
+    );
+    if (result.isErr()) {
+      return Promise.reject(result.error);
+    }
+    return result.value?.dispatch || null;
+  }
+
   async retryDispatch(args: {
     dispatchId: string;
     options?: {
