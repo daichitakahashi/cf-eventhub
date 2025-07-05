@@ -7,7 +7,7 @@ import * as v from "valibot";
 
 import { Button } from "../components/Button";
 import { CreateEvent } from "../components/CreateEvent";
-import { Event } from "../components/Event";
+import { DispatchDetails, Event } from "../components/Event";
 import { SunMedium } from "../components/Icon";
 import { Modal, useSharedModal } from "../components/Modal";
 import { Pagination } from "../components/Pagination";
@@ -68,7 +68,6 @@ export const createHandler = ({
 }) =>
   factory
     .createApp()
-    .use(renderer(environment))
     .use((c, next) => {
       c.set("dateFormatter", (d: DateTime) => {
         return dateFormatter.format(d as unknown as Date);
@@ -93,6 +92,7 @@ export const createHandler = ({
           { cursor: null, pageSize: 5 },
         ),
       ),
+      renderer(environment),
       async (c) => {
         const currentCursor = c.req.valid("query").cursor || undefined;
         const maxItems = c.req.valid("query").pageSize;
@@ -194,6 +194,29 @@ export const createHandler = ({
               aria-hidden
             />
           </div>,
+        );
+      },
+    )
+    .get(
+      "/components/dispatch-detail-modal/:id",
+      vValidator(
+        "param",
+        v.object({
+          id: v.pipe(v.string(), v.minLength(1)),
+        }),
+      ),
+      async (c) => {
+        const dispatch = await c.env.EVENTHUB.getDispatch(
+          c.req.valid("param").id,
+        );
+        if (!dispatch) {
+          return c.newResponse(null, { status: 404 });
+        }
+        return c.render(
+          <DispatchDetails
+            dispatch={dispatch}
+            formatDate={c.var.dateFormatter}
+          />,
         );
       },
     );

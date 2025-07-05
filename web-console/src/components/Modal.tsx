@@ -6,11 +6,11 @@ export const Modal: FC<{
 }> = ({ target, children }) => (
   <div>
     {target(`
-        on click set dialog to the next <dialog/>
-        if dialog does not match @open
-          call dialog.showModal()
-        end
-      `)}
+      on click set dialog to the next <dialog/>
+      if dialog does not match @open
+        call dialog.showModal()
+      end
+    `)}
     <dialog class="outline-none rounded-xl backdrop:bg-gray-100/30 backdrop:backdrop-blur-[2px]">
       <div class="m-[1px] p-4 rounded-xl outline outline-1 outline-gray-900/20">
         {children(`
@@ -27,7 +27,6 @@ export const Modal: FC<{
 
 export type SharedModalData = {
   getOpenModalScript: (contentFrameId: string) => string;
-  closeModalScript: string;
 };
 
 export const useSharedModal = ({ modalId }: { modalId: string }) => {
@@ -35,19 +34,14 @@ export const useSharedModal = ({ modalId }: { modalId: string }) => {
 
   const getOpenModalScript = (contentFrameId: string) => `
     on click
-    set dialog to #${modalId}
-    set frame to #${modalFrameId}
-    if dialog does not match @open
-      put innerHTML of #${contentFrameId} into frame
-      call htmx.process(frame)
-      call dialog.showModal()
-    end`;
-  const closeModalScript = `
-    on click
-    set dialog to #${modalId}
-    if dialog match @open
-      call dialog.close()
-    end`;
+      set dialog to #${modalId}
+      set frame to #${modalFrameId}
+      if dialog does not match @open
+        put innerHTML of #${contentFrameId} into frame
+        call htmx.process(frame)
+        call dialog.showModal()
+      end
+  `;
 
   const SharedModal: FC = () => (
     <dialog
@@ -65,7 +59,6 @@ export const useSharedModal = ({ modalId }: { modalId: string }) => {
     SharedModal,
     {
       getOpenModalScript,
-      closeModalScript,
     } satisfies SharedModalData as SharedModalData,
   ] as const;
 };
@@ -74,9 +67,9 @@ export const SharedModalContent: FC<{
   sharedModal: SharedModalData;
   contentFrameId: string;
   trigger: (openModalScript: string) => Child;
-  children: (closeModalScript: string) => Child;
+  children: Child;
 }> = ({
-  sharedModal: { getOpenModalScript, closeModalScript },
+  sharedModal: { getOpenModalScript },
   contentFrameId,
   trigger,
   children,
@@ -85,7 +78,7 @@ export const SharedModalContent: FC<{
   return (
     <div>
       {trigger(openModalScript)}
-      <template id={contentFrameId}>{children(closeModalScript)}</template>
+      <template id={contentFrameId}>{children}</template>
     </div>
   );
 };

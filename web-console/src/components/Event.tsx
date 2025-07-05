@@ -3,7 +3,7 @@ import type { FC } from "hono/jsx";
 import type { DateTime } from "../factory";
 import { Button } from "./Button";
 import { Description, DescriptionList } from "./DescriptionList";
-import { ScanSearch, Sunrise } from "./Icon";
+import { ScanSearch, Spinner, Sunrise } from "./Icon";
 import { SharedModalContent, type SharedModalData } from "./Modal";
 import { StatusIndicator } from "./StatusIndicator";
 import {
@@ -107,58 +107,61 @@ export const Dispatch: FC<{
   dispatch: EventWithDispatches["dispatches"][number];
   formatDate: (d: DateTime) => string;
   sharedModal: SharedModalData;
-}> = ({ dispatch, formatDate, sharedModal }) => (
-  <TableRow>
-    <TableCell>
-      <code>{dispatch.destination}</code>
-    </TableCell>
-    <TableCell>
-      <div class="flex gap-1 items-center">
-        <StatusIndicator status={dispatch.status} />
-        {dispatch.status}
-      </div>
-    </TableCell>
-    <TableCell>
-      {dispatch.executionLog.length} / {dispatch.maxRetries + 1}
-    </TableCell>
-    <TableCell>
-      {formatDate(
-        dispatch.executionLog.length > 0
-          ? dispatch.executionLog[dispatch.executionLog.length - 1].executedAt
-          : dispatch.createdAt,
-      )}
-    </TableCell>
-    <TableCell>
-      <SharedModalContent
-        sharedModal={sharedModal}
-        contentFrameId={`dispatch-${dispatch.id}`}
-        trigger={(openModal) => (
+}> = ({ dispatch, formatDate, sharedModal }) => {
+  const indicatorId = `loading-${dispatch.id}`;
+  return (
+    <TableRow>
+      <TableCell>
+        <code>{dispatch.destination}</code>
+      </TableCell>
+      <TableCell>
+        <div class="flex gap-1 items-center">
+          <StatusIndicator status={dispatch.status} />
+          {dispatch.status}
+        </div>
+      </TableCell>
+      <TableCell>
+        {dispatch.executionLog.length} / {dispatch.maxRetries + 1}
+      </TableCell>
+      <TableCell>
+        {formatDate(
+          dispatch.executionLog.length > 0
+            ? dispatch.executionLog[dispatch.executionLog.length - 1].executedAt
+            : dispatch.createdAt,
+        )}
+      </TableCell>
+      <TableCell>
+        <SharedModalContent
+          sharedModal={sharedModal}
+          contentFrameId={`dispatch-${dispatch.id}`}
+          trigger={(openModal) => (
+            <div
+              class="w-fit cursor-pointer hover:text-gray-500"
+              hx-swap-oob={`.dispatch-${dispatch.id}`}
+              _={openModal}
+            >
+              <ScanSearch title="Show detail" />
+            </div>
+          )}
+        >
           <div
-            class="w-fit cursor-pointer hover:text-gray-500"
-            hx-swap-oob={`.dispatch-${dispatch.id}`}
-            _={openModal}
+            hx-get={`/components/dispatch-detail-modal/${encodeURIComponent(dispatch.id)}`}
+            hx-trigger="intersect"
+            hx-swap="innerHTML"
+            hx-indicator={`#${indicatorId}`}
           >
-            <ScanSearch title="Show detail" />
+            <Spinner />
           </div>
-        )}
-      >
-        {(closeModal) => (
-          <DispatchDetails
-            dispatch={dispatch}
-            closeModal={closeModal}
-            formatDate={formatDate}
-          />
-        )}
-      </SharedModalContent>
-    </TableCell>
-  </TableRow>
-);
+        </SharedModalContent>
+      </TableCell>
+    </TableRow>
+  );
+};
 
-const DispatchDetails: FC<{
+export const DispatchDetails: FC<{
   dispatch: EventWithDispatches["dispatches"][number];
-  closeModal: string;
   formatDate: (d: DateTime) => string;
-}> = ({ dispatch, closeModal, formatDate }) => (
+}> = ({ dispatch, formatDate }) => (
   <div class={`dispatch-${dispatch.id}`}>
     <h2 class="text-2xl font-semibold">
       <span class="flex gap-2 items-center">
@@ -201,7 +204,7 @@ const DispatchDetails: FC<{
               <TableRow>
                 <TableHead>No.</TableHead>
                 <TableHead>Result</TableHead>
-                <TableHead>ExecutedAt</TableHead>
+                <TableHead>Executed at</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -226,7 +229,15 @@ const DispatchDetails: FC<{
       >
         Retry as new dispatch
       </Button>
-      <Button type="button" _={closeModal} secondary>
+      <Button
+        type="button"
+        _="
+          on click
+            set dialog to the closest <dialog/>
+            call dialog.close()
+        "
+        secondary
+      >
         Close
       </Button>
     </div>

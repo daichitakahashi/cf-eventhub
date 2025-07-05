@@ -6,7 +6,9 @@ export const Textarea = (props: ElementProps<"textarea">) => {
       {...props}
       class="
         flex
-        min-h-[80px]
+        h-max
+        field-sizing-content
+        box-content
         w-full
         rounded-md
         border
@@ -24,6 +26,7 @@ export const Textarea = (props: ElementProps<"textarea">) => {
         md:text-sm
         read-only:bg-gray-100
         read-only:border-none
+        resize-none
       "
     />
   );
