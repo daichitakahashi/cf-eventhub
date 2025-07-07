@@ -3,7 +3,7 @@ import type { FC } from "hono/jsx";
 import type { DateTime } from "../factory";
 import { Button } from "./Button";
 import { Description, DescriptionList } from "./DescriptionList";
-import { ScanSearch, Spinner, Sunrise } from "./Icon";
+import { ScanSearch, Spinner, SunMedium, Sunrise } from "./Icon";
 import { SharedModalContent } from "./Modal";
 import { StatusIndicator } from "./StatusIndicator";
 import {
@@ -21,25 +21,9 @@ export const Event: FC<{
   event: EventWithDispatches;
   formatDate: (d: DateTime) => string;
   refreshIntervalSeconds: number;
-}> = ({ event, formatDate, refreshIntervalSeconds }) => {
-  let eventStatus: "ongoing" | "complete" | "ignored" | "failed" = "ongoing";
-  const statuses = event.dispatches
-    .map((d) => d.status)
-    .filter((s) => s !== "ignored");
-  if (statuses.length === 0) {
-    eventStatus = "ignored";
-  } else if (statuses.some((s) => s === "ongoing")) {
-    eventStatus = "ongoing";
-  } else if (statuses.every((s) => s === "complete")) {
-    eventStatus = "complete";
-  } else if (
-    statuses.some(
-      (s) => s === "failed" || s === "misconfigured" || s === "lost",
-    )
-  ) {
-    eventStatus = "failed";
-  }
-
+  eventTitle?: (e: EventWithDispatches) => string;
+}> = ({ event, formatDate, refreshIntervalSeconds, eventTitle }) => {
+  const title = eventTitle ? eventTitle(event) : event.id;
   const payload = JSON.stringify(event.payload, null, 4);
   const rows = payload.split("\n").length;
 
@@ -50,11 +34,11 @@ export const Event: FC<{
       hx-swap-oob={`#event-${event.id}`}
     >
       <div class="flex justify-between font-semibold leading-7">
-        <div class="flex place-items-center gap-2">
-          <StatusIndicator status={eventStatus} />
-          <p class="text-gray-900">{formatDate(event.createdAt)}</p>
+        <div class="flex place-items-center gap-1">
+          <SunMedium title="" />
+          <p class="text-gray-900">{title}</p>
         </div>
-        <p class="text-gray-500">{event.id}</p>
+        <p class="text-gray-500">{formatDate(event.createdAt)}</p>
       </div>
       <div class="relative my-4 text-gray-500 flex flex-col]">
         <Textarea rows={rows} readonly>

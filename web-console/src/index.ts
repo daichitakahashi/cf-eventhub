@@ -21,6 +21,8 @@ export const createWebConsole = ({
         dateFormatter,
         color,
         environment,
+        eventTitle: (e) =>
+          e.payload.eventName ? String(e.payload.eventName) : e.id,
       }),
     )
     .route("/api", api);

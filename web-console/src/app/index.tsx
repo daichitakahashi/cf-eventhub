@@ -1,8 +1,8 @@
 import { vValidator } from "@hono/valibot-validator";
+import { clsx } from "clsx";
 import { Style } from "hono/css";
 import { jsxRenderer } from "hono/jsx-renderer";
 import "typed-htmx";
-import { clsx } from "clsx";
 import * as v from "valibot";
 
 import { Button } from "../components/Button";
@@ -11,6 +11,7 @@ import { DispatchDetails, Event, EventDispatches } from "../components/Event";
 import { SunMedium } from "../components/Icon";
 import { Modal, useSharedModal } from "../components/Modal";
 import { Pagination } from "../components/Pagination";
+import type { EventWithDispatches } from "../components/types";
 import { type DateTime, factory } from "../factory";
 
 declare module "hono/jsx" {
@@ -57,6 +58,7 @@ export const createHandler = ({
   refreshIntervalSeconds = 5,
   color,
   environment,
+  eventTitle,
 }: {
   /** Number of events that displayed in each page. */
   pageSize?: number;
@@ -68,6 +70,8 @@ export const createHandler = ({
   color?: `#${string}`;
   /** Environment display. */
   environment?: string;
+  /** Custom event title function. */
+  eventTitle?: (e: EventWithDispatches) => string;
 }) =>
   factory
     .createApp()
@@ -154,6 +158,7 @@ export const createHandler = ({
                       event={e}
                       formatDate={c.var.dateFormatter}
                       refreshIntervalSeconds={refreshIntervalSeconds}
+                      eventTitle={eventTitle}
                     />
                   ))
                 ) : (
