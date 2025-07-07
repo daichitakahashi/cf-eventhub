@@ -11,8 +11,8 @@ export const Modal: FC<{
         call dialog.showModal()
       end
     `)}
-    <dialog class="outline-none rounded-xl backdrop:bg-gray-100/30 backdrop:backdrop-blur-[2px]">
-      <div class="m-[1px] p-4 rounded-xl outline outline-1 outline-gray-900/20">
+    <dialog class=" outline outline-1 outline-gray-900/20 rounded-xl backdrop:bg-gray-100/30 backdrop:backdrop-blur-[2px]">
+      <div class="m-[1px] p-4 rounded-xl">
         {children(`
           on click
           set dialog to closest <dialog/>
@@ -43,12 +43,9 @@ export const useSharedModal = () => {
   const SharedModal: FC = () => (
     <dialog
       id={modalId}
-      class="outline-none rounded-xl backdrop:bg-gray-100/30 backdrop:backdrop-blur-[2px]"
+      class="outline outline-1 outline-gray-900/20 rounded-xl backdrop:bg-gray-100/30 backdrop:backdrop-blur-[2px]"
     >
-      <div
-        id={modalFrameId}
-        class="m-[1px] p-4 rounded-xl outline outline-1 outline-gray-900/20"
-      />
+      <div id={modalFrameId} class="m-[1px] p-4 rounded-xl" />
     </dialog>
   );
 
