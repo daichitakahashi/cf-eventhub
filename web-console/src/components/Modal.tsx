@@ -25,24 +25,21 @@ export const Modal: FC<{
   </div>
 );
 
-export type SharedModalData = {
-  getOpenModalScript: (contentFrameId: string) => string;
-};
+const modalId = "dispatch-detail-modal";
+const modalFrameId = `modal-frame-${modalId}`;
 
-export const useSharedModal = ({ modalId }: { modalId: string }) => {
-  const modalFrameId = `modal-frame-${modalId}`;
+export const openModalScript = (contentFrameId: string) => `
+  on click
+    set dialog to #${modalId}
+    set frame to #${modalFrameId}
+    if dialog does not match @open
+      put innerHTML of #${contentFrameId} into frame
+      call htmx.process(frame)
+      call dialog.showModal()
+    end
+`;
 
-  const getOpenModalScript = (contentFrameId: string) => `
-    on click
-      set dialog to #${modalId}
-      set frame to #${modalFrameId}
-      if dialog does not match @open
-        put innerHTML of #${contentFrameId} into frame
-        call htmx.process(frame)
-        call dialog.showModal()
-      end
-  `;
-
+export const useSharedModal = () => {
   const SharedModal: FC = () => (
     <dialog
       id={modalId}
@@ -55,29 +52,18 @@ export const useSharedModal = ({ modalId }: { modalId: string }) => {
     </dialog>
   );
 
-  return [
-    SharedModal,
-    {
-      getOpenModalScript,
-    } satisfies SharedModalData as SharedModalData,
-  ] as const;
+  return SharedModal;
 };
 
 export const SharedModalContent: FC<{
-  sharedModal: SharedModalData;
   contentFrameId: string;
   trigger: (openModalScript: string) => Child;
   children: Child;
-}> = ({
-  sharedModal: { getOpenModalScript },
-  contentFrameId,
-  trigger,
-  children,
-}) => {
-  const openModalScript = getOpenModalScript(contentFrameId);
+}> = ({ contentFrameId, trigger, children }) => {
+  const script = openModalScript(contentFrameId);
   return (
     <div>
-      {trigger(openModalScript)}
+      {trigger(script)}
       <template id={contentFrameId}>{children}</template>
     </div>
   );

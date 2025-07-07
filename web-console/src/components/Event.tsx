@@ -4,7 +4,7 @@ import type { DateTime } from "../factory";
 import { Button } from "./Button";
 import { Description, DescriptionList } from "./DescriptionList";
 import { ScanSearch, Spinner, Sunrise } from "./Icon";
-import { SharedModalContent, type SharedModalData } from "./Modal";
+import { SharedModalContent } from "./Modal";
 import { StatusIndicator } from "./StatusIndicator";
 import {
   Table,
@@ -20,8 +20,8 @@ import type { EventWithDispatches } from "./types";
 export const Event: FC<{
   event: EventWithDispatches;
   formatDate: (d: DateTime) => string;
-  sharedModal: SharedModalData;
-}> = ({ event, formatDate, sharedModal }) => {
+  refreshIntervalSeconds: number;
+}> = ({ event, formatDate, refreshIntervalSeconds }) => {
   let eventStatus: "ongoing" | "complete" | "ignored" | "failed" = "ongoing";
   const statuses = event.dispatches
     .map((d) => d.status)
@@ -80,34 +80,64 @@ export const Event: FC<{
             <TableHead>Details</TableHead>
           </TableRow>
         </TableHeader>
-        <TableBody>
-          {event.dispatches.length > 0 ? (
-            event.dispatches.map((dispatch) => (
-              <Dispatch
-                key={dispatch.id}
-                dispatch={dispatch}
-                formatDate={formatDate}
-                sharedModal={sharedModal}
-              />
-            ))
-          ) : (
-            <TableRow>
-              <TableCell class="text-center pt-6 pb-2" colspan={5}>
-                no dispatches.
-              </TableCell>
-            </TableRow>
-          )}
-        </TableBody>
+        <EventDispatches
+          eventId={event.id}
+          dispatches={event.dispatches}
+          formatDate={formatDate}
+          refreshIntervalSeconds={refreshIntervalSeconds}
+        />
       </Table>
     </div>
+  );
+};
+
+export const EventDispatches = ({
+  eventId,
+  dispatches,
+  formatDate,
+  refreshIntervalSeconds,
+}: {
+  eventId: string;
+  dispatches: EventWithDispatches["dispatches"];
+  formatDate: (d: DateTime) => string;
+  refreshIntervalSeconds: number;
+}) => {
+  const id = `event-dispatches-${eventId}`;
+  const inProgress = dispatches.some((d) => d.status === "ongoing");
+  const updateAttributes = inProgress
+    ? {
+        "hx-get": `/components/event/${encodeURIComponent(eventId)}/dispatches`,
+        "hx-target": "this",
+        "hx-swap": "outerHTML",
+        "hx-trigger": `every ${refreshIntervalSeconds}s[document.visibilityState === 'visible']`,
+      }
+    : {};
+
+  return (
+    <TableBody id={id} {...updateAttributes}>
+      {dispatches.length > 0 ? (
+        dispatches.map((dispatch) => (
+          <Dispatch
+            key={dispatch.id}
+            dispatch={dispatch}
+            formatDate={formatDate}
+          />
+        ))
+      ) : (
+        <TableRow>
+          <TableCell class="text-center pt-6 pb-2" colspan={5}>
+            no dispatches.
+          </TableCell>
+        </TableRow>
+      )}
+    </TableBody>
   );
 };
 
 export const Dispatch: FC<{
   dispatch: EventWithDispatches["dispatches"][number];
   formatDate: (d: DateTime) => string;
-  sharedModal: SharedModalData;
-}> = ({ dispatch, formatDate, sharedModal }) => {
+}> = ({ dispatch, formatDate }) => {
   const indicatorId = `loading-${dispatch.id}`;
   return (
     <TableRow>
@@ -132,14 +162,9 @@ export const Dispatch: FC<{
       </TableCell>
       <TableCell>
         <SharedModalContent
-          sharedModal={sharedModal}
           contentFrameId={`dispatch-${dispatch.id}`}
           trigger={(openModal) => (
-            <div
-              class="w-fit cursor-pointer hover:text-gray-500"
-              hx-swap-oob={`.dispatch-${dispatch.id}`}
-              _={openModal}
-            >
+            <div class="w-fit cursor-pointer hover:text-gray-500" _={openModal}>
               <ScanSearch title="Show detail" />
             </div>
           )}

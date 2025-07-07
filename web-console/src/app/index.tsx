@@ -7,7 +7,7 @@ import * as v from "valibot";
 
 import { Button } from "../components/Button";
 import { CreateEvent } from "../components/CreateEvent";
-import { DispatchDetails, Event } from "../components/Event";
+import { DispatchDetails, Event, EventDispatches } from "../components/Event";
 import { SunMedium } from "../components/Icon";
 import { Modal, useSharedModal } from "../components/Modal";
 import { Pagination } from "../components/Pagination";
@@ -104,16 +104,6 @@ export const createHandler = ({
         });
 
         const events = list.list;
-        const refreshUrl = (() => {
-          const query = new URLSearchParams();
-          if (currentCursor) {
-            query.set("cursor", currentCursor);
-          }
-          if (maxItems !== 5) {
-            query.set("pageSize", maxItems.toString());
-          }
-          return `/?${query.toString()}`;
-        })();
         const nextUrl = list.continuationToken
           ? (() => {
               const query = new URLSearchParams();
@@ -125,9 +115,7 @@ export const createHandler = ({
             })()
           : undefined;
 
-        const [SharedModal, sharedModalData] = useSharedModal({
-          modalId: "dispatch-detail-modal",
-        });
+        const SharedModal = useSharedModal();
 
         return c.render(
           <div>
@@ -162,7 +150,7 @@ export const createHandler = ({
                       key={e.id}
                       event={e}
                       formatDate={c.var.dateFormatter}
-                      sharedModal={sharedModalData}
+                      refreshIntervalSeconds={refreshIntervalSeconds}
                     />
                   ))
                 ) : (
@@ -187,13 +175,31 @@ export const createHandler = ({
                 />
               </div>
             </div>
-            <div
-              class="invisible"
-              hx-get={refreshUrl}
-              hx-trigger={`every ${refreshIntervalSeconds}s[document.visibilityState === 'visible']`}
-              aria-hidden
-            />
           </div>,
+        );
+      },
+    )
+    .get(
+      "/components/event/:id/dispatches",
+      vValidator(
+        "param",
+        v.object({
+          id: v.pipe(v.string(), v.minLength(1)),
+        }),
+      ),
+      async (c) => {
+        const event = await c.env.EVENTHUB.getEvent(c.req.valid("param").id);
+        if (!event) {
+          return c.newResponse(null, { status: 404 });
+        }
+
+        return c.render(
+          <EventDispatches
+            eventId={event.id}
+            dispatches={event.dispatches}
+            formatDate={c.var.dateFormatter}
+            refreshIntervalSeconds={refreshIntervalSeconds}
+          />,
         );
       },
     )
