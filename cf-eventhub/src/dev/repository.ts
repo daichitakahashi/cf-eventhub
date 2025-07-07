@@ -51,9 +51,18 @@ export class DevRepository implements Repository {
 
   async readEvent(
     eventId: string,
-  ): Promise<Result<Event | null, "INTERNAL_SERVER_ERROR">> {
+  ): Promise<Result<EventWithDispatches | null, "INTERNAL_SERVER_ERROR">> {
     const event = this.events.get(eventId);
-    return ok(event || null);
+    if (!event) {
+      return ok(null);
+    }
+    const dispatches = [...this.dispatches.values()].filter(
+      (d) => d.eventId === eventId,
+    );
+    return ok({
+      ...event,
+      dispatches,
+    });
   }
 
   async readDispatches(

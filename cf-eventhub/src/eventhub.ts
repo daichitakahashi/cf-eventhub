@@ -5,7 +5,7 @@ import type { Handler } from "./core/executor/handler";
 import { EventSink } from "./core/hub";
 import { Config, type ConfigInput } from "./core/hub/routing";
 import { DefaultLogger, type LogLevel, type Logger } from "./core/logger";
-import type { Dispatch, Event, ResultedDispatch } from "./core/model";
+import type { Dispatch, ResultedDispatch } from "./core/model";
 import type { EventWithDispatches, Repository } from "./core/repository";
 import type { EventPayload, RpcSerializable } from "./core/type";
 
@@ -116,7 +116,9 @@ export abstract class RpcEventHub<Env extends RpcEnv = RpcEnv>
    * Get event.
    * @param eventId Event ID to get.
    */
-  async getEvent(eventId: string): Promise<RpcSerializable<Event> | null> {
+  async getEvent(
+    eventId: string,
+  ): Promise<RpcSerializable<EventWithDispatches> | null> {
     return this.sink.getEvent(eventId);
   }
 

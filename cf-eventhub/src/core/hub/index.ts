@@ -4,7 +4,6 @@ import type { Logger } from "../logger";
 import {
   type CreatedEvent,
   type Dispatch,
-  type Event,
   type NewDispatch,
   type NewEvent,
   type ResultedDispatch,
@@ -146,7 +145,7 @@ export class EventSink {
     return result.value;
   }
 
-  async getEvent(eventId: string): Promise<Event | null> {
+  async getEvent(eventId: string): Promise<EventWithDispatches | null> {
     const result = await this.repo.readEvent(eventId);
     if (result.isErr()) {
       return Promise.reject(result.error);
