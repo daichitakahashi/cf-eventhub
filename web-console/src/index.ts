@@ -17,6 +17,7 @@ export const createWebConsole = ({
     .route(
       "/",
       createHandler({
+        pageSize: 10,
         dateFormatter,
         color,
         environment,

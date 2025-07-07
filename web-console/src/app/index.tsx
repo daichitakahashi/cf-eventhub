@@ -52,11 +52,14 @@ const renderer = (environment?: string) =>
  * @returns Hono handler.
  */
 export const createHandler = ({
+  pageSize = 5,
   dateFormatter,
   refreshIntervalSeconds = 5,
   color,
   environment,
 }: {
+  /** Number of events that displayed in each page. */
+  pageSize?: number;
   /** Date formatter for displaying date and time. */
   dateFormatter: Intl.DateTimeFormat;
   /** Interval seconds of auto-refreshing event list. */
@@ -87,9 +90,9 @@ export const createHandler = ({
         v.fallback(
           v.object({
             cursor: v.nullish(v.string()),
-            pageSize: v.nullish(v.number(), 5),
+            pageSize: v.nullish(v.number(), pageSize),
           }),
-          { cursor: null, pageSize: 5 },
+          { cursor: null, pageSize },
         ),
       ),
       renderer(environment),
@@ -108,7 +111,7 @@ export const createHandler = ({
           ? (() => {
               const query = new URLSearchParams();
               query.set("cursor", list.continuationToken);
-              if (maxItems !== 5) {
+              if (maxItems !== pageSize) {
                 query.set("pageSize", maxItems.toString());
               }
               return `/?${query.toString()}`;
