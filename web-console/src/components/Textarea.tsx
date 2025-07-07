@@ -7,6 +7,7 @@ export const Textarea = (props: ElementProps<"textarea">) => {
       class="
         flex
         min-h-[80px]
+        max-h-[300px]
         w-full
         rounded-md
         border

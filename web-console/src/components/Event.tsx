@@ -39,6 +39,10 @@ export const Event: FC<{
   ) {
     eventStatus = "failed";
   }
+
+  const payload = JSON.stringify(event.payload, null, 4);
+  const rows = payload.split("\n").length;
+
   return (
     <div
       id={`event-${event.id}`}
@@ -53,7 +57,9 @@ export const Event: FC<{
         <p class="text-gray-500">{event.id}</p>
       </div>
       <div class="relative my-4 text-gray-500 flex flex-col]">
-        <Textarea readonly>{JSON.stringify(event.payload, null, 4)}</Textarea>
+        <Textarea rows={rows} readonly>
+          {payload}
+        </Textarea>
         <button
           class="
             absolute
