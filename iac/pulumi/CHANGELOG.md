@@ -1,5 +1,11 @@
 # @cf-eventhub/pulumi
 
+## 0.0.23
+
+### Patch Changes
+
+- f8d31af: fix(pulumi): fix dependency problem
+
 ## 0.0.22
 
 ### Patch Changes
