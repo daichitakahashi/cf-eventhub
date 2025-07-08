@@ -103,26 +103,65 @@ export class PgRepository implements Repository {
 
   async readEvent(
     eventId: string,
-  ): Promise<Result<Event | null, "INTERNAL_SERVER_ERROR">> {
+  ): Promise<Result<EventWithDispatches | null, "INTERNAL_SERVER_ERROR">> {
     const db = this.db;
     const logger = this.logger;
     return fromAsyncThrowable(
       async () => {
-        const rows = await db
-          .select()
-          .from(schema.events)
-          .where(eq(schema.events.id, eventId))
-          .limit(1);
-
-        const row = rows.at(0);
+        const row = await db.query.events.findFirst({
+          with: {
+            dispatches: {
+              with: {
+                executions: {
+                  orderBy: schema.dispatchExecutions.executedAt,
+                },
+                result: true,
+              },
+              orderBy: schema.dispatches.createdAt,
+            },
+          },
+          where: eq(schema.events.id, eventId),
+        });
         if (!row) {
           return null;
         }
 
-        return createdEvent(row.id, {
+        const event = createdEvent(row.id, {
           payload: row.payload,
           createdAt: row.createdAt,
         });
+        const dispatches = row.dispatches.map(
+          ({ executions, result, ...dispatch }) => {
+            let d: Dispatch = ongoingDispatch(dispatch.id, {
+              eventId: dispatch.eventId,
+              destination: dispatch.destination,
+              createdAt: dispatch.createdAt,
+              delaySeconds: dispatch.delaySeconds,
+              maxRetries: dispatch.maxRetries,
+              retryDelay: dispatch.retryDelay,
+            });
+            if (executions) {
+              for (const ex of executions) {
+                if (d.status === "ongoing") {
+                  d = appendExecutionLog(
+                    d,
+                    dispatchExecution(
+                      ex.id,
+                      ex.result,
+                      new Date(ex.executedAt),
+                    ),
+                  );
+                }
+              }
+            }
+            if (result?.result === "lost" && d.status === "ongoing") {
+              d = makeDispatchLost(d, result.resultedAt);
+            }
+            return d;
+          },
+        );
+
+        return { ...event, dispatches };
       },
       (e) => {
         logger.error("error on getEvent", { error: formatException(e) });
@@ -396,7 +435,7 @@ export class PgRepository implements Repository {
               }
             }
             if (result?.result === "lost" && d.status === "ongoing") {
-              d = makeDispatchLost(d, e.createdAt);
+              d = makeDispatchLost(d, result.resultedAt);
             }
             return d;
           },

@@ -1,16 +1,18 @@
 import { vValidator } from "@hono/valibot-validator";
+import { clsx } from "clsx";
 import { Style } from "hono/css";
 import { jsxRenderer } from "hono/jsx-renderer";
 import "typed-htmx";
-import { clsx } from "clsx";
 import * as v from "valibot";
 
 import { Button } from "../components/Button";
 import { CreateEvent } from "../components/CreateEvent";
-import { Event } from "../components/Event";
+import { DispatchDetails, Event, EventDispatches } from "../components/Event";
 import { SunMedium } from "../components/Icon";
 import { Modal, useSharedModal } from "../components/Modal";
+import { useNotification } from "../components/Notification";
 import { Pagination } from "../components/Pagination";
+import type { EventWithDispatches } from "../components/types";
 import { type DateTime, factory } from "../factory";
 
 declare module "hono/jsx" {
@@ -52,23 +54,28 @@ const renderer = (environment?: string) =>
  * @returns Hono handler.
  */
 export const createHandler = ({
+  pageSize = 5,
   dateFormatter,
   refreshIntervalSeconds = 5,
   color,
   environment,
+  eventTitle,
 }: {
+  /** Number of events that displayed in each page. */
+  pageSize?: number;
   /** Date formatter for displaying date and time. */
   dateFormatter: Intl.DateTimeFormat;
-  /** Interval seconds of auto-refreshing event list. */
+  /** Interval seconds of auto-refreshing dispatch list for each event. */
   refreshIntervalSeconds?: number;
   /** Custom color. */
   color?: `#${string}`;
   /** Environment display. */
   environment?: string;
+  /** Custom event title function. */
+  eventTitle?: (e: EventWithDispatches) => string;
 }) =>
   factory
     .createApp()
-    .use(renderer(environment))
     .use((c, next) => {
       c.set("dateFormatter", (d: DateTime) => {
         return dateFormatter.format(d as unknown as Date);
@@ -88,11 +95,12 @@ export const createHandler = ({
         v.fallback(
           v.object({
             cursor: v.nullish(v.string()),
-            pageSize: v.nullish(v.number(), 5),
+            pageSize: v.nullish(v.number(), pageSize),
           }),
-          { cursor: null, pageSize: 5 },
+          { cursor: null, pageSize },
         ),
       ),
+      renderer(environment),
       async (c) => {
         const currentCursor = c.req.valid("query").cursor || undefined;
         const maxItems = c.req.valid("query").pageSize;
@@ -102,35 +110,73 @@ export const createHandler = ({
           continuationToken: currentCursor,
           orderBy: "CREATED_AT_DESC",
         });
+        let lastUpdatedAt: number;
+        if (!currentCursor) {
+          // first page
+          lastUpdatedAt = list.list.at(0)?.createdAt.getTime() || Date.now();
+        } else {
+          // other page
+          const list = await c.env.EVENTHUB.listEvents({
+            maxItems: 1,
+            orderBy: "CREATED_AT_DESC",
+          });
+          lastUpdatedAt = list.list.at(0)?.createdAt.getTime() || Date.now();
+        }
 
         const events = list.list;
-        const refreshUrl = (() => {
-          const query = new URLSearchParams();
-          if (currentCursor) {
-            query.set("cursor", currentCursor);
-          }
-          if (maxItems !== 5) {
-            query.set("pageSize", maxItems.toString());
-          }
-          return `/?${query.toString()}`;
-        })();
         const nextUrl = list.continuationToken
           ? (() => {
               const query = new URLSearchParams();
               query.set("cursor", list.continuationToken);
-              if (maxItems !== 5) {
+              if (maxItems !== pageSize) {
                 query.set("pageSize", maxItems.toString());
               }
               return `/?${query.toString()}`;
             })()
           : undefined;
 
-        const [SharedModal, sharedModalData] = useSharedModal({
-          modalId: "dispatch-detail-modal",
+        const SharedModal = useSharedModal();
+
+        const [Notification, openNotification] = useNotification({
+          id: "notification",
+          onDismiss: "send dismiss to #notification-checker",
         });
 
         return c.render(
           <div>
+            <div
+              id="notification-checker"
+              _={`
+                set :checking to true
+                on load
+                  repeat while :checking
+                    fetch '/api/events/latest' as json
+                    log the result
+                    if the result.lastUpdatedAt > ${lastUpdatedAt}
+                      log 'new event created'
+                      ${openNotification}
+                    end
+                    wait 5s
+                  end
+                end
+                on dismiss
+                  set :checking to false
+                  log 'notification dismissed, stop checker'
+                end
+              `}
+            >
+              <Notification icon={<SunMedium title="event" />}>
+                <a
+                  class="hover:underline"
+                  href="/"
+                  noopener
+                  noreferrer
+                  title="Go to the latest events"
+                >
+                  New event created
+                </a>
+              </Notification>
+            </div>
             <div class={clsx("h-2", color ? `bg-[${color}]` : "bg-blue-300")} />
             <div class="pb-6">
               <div class="mx-16 my-12 flex justify-between">
@@ -162,7 +208,8 @@ export const createHandler = ({
                       key={e.id}
                       event={e}
                       formatDate={c.var.dateFormatter}
-                      sharedModal={sharedModalData}
+                      refreshIntervalSeconds={refreshIntervalSeconds}
+                      eventTitle={eventTitle}
                     />
                   ))
                 ) : (
@@ -187,13 +234,54 @@ export const createHandler = ({
                 />
               </div>
             </div>
-            <div
-              class="invisible"
-              hx-get={refreshUrl}
-              hx-trigger={`every ${refreshIntervalSeconds}s[document.visibilityState === 'visible']`}
-              aria-hidden
-            />
           </div>,
+        );
+      },
+    )
+    .get(
+      "/components/event/:id/dispatches",
+      vValidator(
+        "param",
+        v.object({
+          id: v.pipe(v.string(), v.minLength(1)),
+        }),
+      ),
+      async (c) => {
+        const event = await c.env.EVENTHUB.getEvent(c.req.valid("param").id);
+        if (!event) {
+          return c.newResponse(null, { status: 404 });
+        }
+
+        return c.render(
+          <EventDispatches
+            eventId={event.id}
+            dispatches={event.dispatches}
+            formatDate={c.var.dateFormatter}
+            refreshIntervalSeconds={refreshIntervalSeconds}
+          />,
+        );
+      },
+    )
+    .get(
+      "/components/dispatch-detail-modal/:id",
+      vValidator(
+        "param",
+        v.object({
+          id: v.pipe(v.string(), v.minLength(1)),
+        }),
+      ),
+      async (c) => {
+        const dispatch = await c.env.EVENTHUB.getDispatch(
+          c.req.valid("param").id,
+        );
+        if (!dispatch) {
+          return c.newResponse(null, { status: 404 });
+        }
+        return c.render(
+          <DispatchDetails
+            dispatch={dispatch}
+            formatDate={c.var.dateFormatter}
+          />,
         );
       },
     );

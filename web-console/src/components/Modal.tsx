@@ -6,13 +6,13 @@ export const Modal: FC<{
 }> = ({ target, children }) => (
   <div>
     {target(`
-        on click set dialog to the next <dialog/>
-        if dialog does not match @open
-          call dialog.showModal()
-        end
-      `)}
-    <dialog class="outline-none rounded-xl backdrop:bg-gray-100/30 backdrop:backdrop-blur-[2px]">
-      <div class="m-[1px] p-4 rounded-xl outline outline-1 outline-gray-900/20">
+      on click set dialog to the next <dialog/>
+      if dialog does not match @open
+        call dialog.showModal()
+      end
+    `)}
+    <dialog class=" outline outline-1 outline-gray-900/20 rounded-xl backdrop:bg-gray-100/30 backdrop:backdrop-blur-[2px]">
+      <div class="m-[1px] p-4 rounded-xl">
         {children(`
           on click
           set dialog to closest <dialog/>
@@ -25,67 +25,43 @@ export const Modal: FC<{
   </div>
 );
 
-export type SharedModalData = {
-  getOpenModalScript: (contentFrameId: string) => string;
-  closeModalScript: string;
-};
+const modalId = "dispatch-detail-modal";
+const modalFrameId = `modal-frame-${modalId}`;
 
-export const useSharedModal = ({ modalId }: { modalId: string }) => {
-  const modalFrameId = `modal-frame-${modalId}`;
-
-  const getOpenModalScript = (contentFrameId: string) => `
-    on click
+export const openModalScript = (contentFrameId: string) => `
+  on click
     set dialog to #${modalId}
     set frame to #${modalFrameId}
     if dialog does not match @open
       put innerHTML of #${contentFrameId} into frame
       call htmx.process(frame)
       call dialog.showModal()
-    end`;
-  const closeModalScript = `
-    on click
-    set dialog to #${modalId}
-    if dialog match @open
-      call dialog.close()
-    end`;
+    end
+`;
 
+export const useSharedModal = () => {
   const SharedModal: FC = () => (
     <dialog
       id={modalId}
-      class="outline-none rounded-xl backdrop:bg-gray-100/30 backdrop:backdrop-blur-[2px]"
+      class="outline outline-1 outline-gray-900/20 rounded-xl backdrop:bg-gray-100/30 backdrop:backdrop-blur-[2px]"
     >
-      <div
-        id={modalFrameId}
-        class="m-[1px] p-4 rounded-xl outline outline-1 outline-gray-900/20"
-      />
+      <div id={modalFrameId} class="m-[1px] p-4 rounded-xl" />
     </dialog>
   );
 
-  return [
-    SharedModal,
-    {
-      getOpenModalScript,
-      closeModalScript,
-    } satisfies SharedModalData as SharedModalData,
-  ] as const;
+  return SharedModal;
 };
 
 export const SharedModalContent: FC<{
-  sharedModal: SharedModalData;
   contentFrameId: string;
   trigger: (openModalScript: string) => Child;
-  children: (closeModalScript: string) => Child;
-}> = ({
-  sharedModal: { getOpenModalScript, closeModalScript },
-  contentFrameId,
-  trigger,
-  children,
-}) => {
-  const openModalScript = getOpenModalScript(contentFrameId);
+  children: Child;
+}> = ({ contentFrameId, trigger, children }) => {
+  const script = openModalScript(contentFrameId);
   return (
     <div>
-      {trigger(openModalScript)}
-      <template id={contentFrameId}>{children(closeModalScript)}</template>
+      {trigger(script)}
+      <template id={contentFrameId}>{children}</template>
     </div>
   );
 };

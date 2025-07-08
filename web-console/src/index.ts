@@ -17,9 +17,12 @@ export const createWebConsole = ({
     .route(
       "/",
       createHandler({
+        pageSize: 10,
         dateFormatter,
         color,
         environment,
+        eventTitle: (e) =>
+          e.payload.eventName ? String(e.payload.eventName) : e.id,
       }),
     )
     .route("/api", api);

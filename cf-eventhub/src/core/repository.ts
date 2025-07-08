@@ -30,7 +30,7 @@ export interface Repository {
    */
   readEvent: (
     eventId: string,
-  ) => Promise<Result<Event | null, "INTERNAL_SERVER_ERROR">>;
+  ) => Promise<Result<EventWithDispatches | null, "INTERNAL_SERVER_ERROR">>;
 
   /**
    * Get dispatches.

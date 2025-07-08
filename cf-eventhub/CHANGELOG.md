@@ -1,5 +1,12 @@
 # cf-eventhub
 
+## 0.3.2
+
+### Patch Changes
+
+- 755b618: feat: improve web-console experience
+- 1b3fb41: feat(cf-eventhub): add `getDispatch` to EventHub
+
 ## 0.3.1
 
 ### Patch Changes
