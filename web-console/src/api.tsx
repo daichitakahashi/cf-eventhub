@@ -5,6 +5,19 @@ import { factory } from "./factory";
 
 const handler = factory
   .createApp()
+  // Get timestamp of the latest event.
+  .get("/events/latest", async (c) => {
+    const events = await c.env.EVENTHUB.listEvents({
+      maxItems: 1,
+      orderBy: "CREATED_AT_DESC",
+    });
+
+    if (events.list.length === 0) {
+      return c.json({ lastUpdatedAt: Date.now() });
+    }
+    const lastUpdatedAt = events.list[0].createdAt.getTime();
+    return c.json({ lastUpdatedAt });
+  })
   // Retry dispatch.
   .post(
     "/dispatches/:id/retry",

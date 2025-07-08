@@ -10,6 +10,7 @@ import { CreateEvent } from "../components/CreateEvent";
 import { DispatchDetails, Event, EventDispatches } from "../components/Event";
 import { SunMedium } from "../components/Icon";
 import { Modal, useSharedModal } from "../components/Modal";
+import { useNotification } from "../components/Notification";
 import { Pagination } from "../components/Pagination";
 import type { EventWithDispatches } from "../components/types";
 import { type DateTime, factory } from "../factory";
@@ -64,7 +65,7 @@ export const createHandler = ({
   pageSize?: number;
   /** Date formatter for displaying date and time. */
   dateFormatter: Intl.DateTimeFormat;
-  /** Interval seconds of auto-refreshing event list. */
+  /** Interval seconds of auto-refreshing dispatch list for each event. */
   refreshIntervalSeconds?: number;
   /** Custom color. */
   color?: `#${string}`;
@@ -109,6 +110,18 @@ export const createHandler = ({
           continuationToken: currentCursor,
           orderBy: "CREATED_AT_DESC",
         });
+        let lastUpdatedAt: number;
+        if (!currentCursor) {
+          // first page
+          lastUpdatedAt = list.list.at(0)?.createdAt.getTime() || Date.now();
+        } else {
+          // other page
+          const list = await c.env.EVENTHUB.listEvents({
+            maxItems: 1,
+            orderBy: "CREATED_AT_DESC",
+          });
+          lastUpdatedAt = list.list.at(0)?.createdAt.getTime() || Date.now();
+        }
 
         const events = list.list;
         const nextUrl = list.continuationToken
@@ -124,8 +137,46 @@ export const createHandler = ({
 
         const SharedModal = useSharedModal();
 
+        const [Notification, openNotification] = useNotification({
+          id: "notification",
+          onDismiss: "send dismiss to #notification-checker",
+        });
+
         return c.render(
           <div>
+            <div
+              id="notification-checker"
+              _={`
+                set :checking to true
+                on load
+                  repeat while :checking
+                    fetch '/api/events/latest' as json
+                    log the result
+                    if the result.lastUpdatedAt > ${lastUpdatedAt}
+                      log 'new event created'
+                      ${openNotification}
+                    end
+                    wait 5s
+                  end
+                end
+                on dismiss
+                  set :checking to false
+                  log 'notification dismissed, stop checker'
+                end
+              `}
+            >
+              <Notification icon={<SunMedium title="event" />}>
+                <a
+                  class="hover:underline"
+                  href="/"
+                  noopener
+                  noreferrer
+                  title="Go to the latest events"
+                >
+                  New event created
+                </a>
+              </Notification>
+            </div>
             <div class={clsx("h-2", color ? `bg-[${color}]` : "bg-blue-300")} />
             <div class="pb-6">
               <div class="mx-16 my-12 flex justify-between">
