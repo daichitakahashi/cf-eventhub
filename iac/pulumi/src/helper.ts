@@ -1,8 +1,13 @@
-import { RunError, log } from "@pulumi/pulumi";
+import { type Input, RunError, log } from "@pulumi/pulumi";
 import type { ConfigInput } from "cf-eventhub/core";
 
-type Handler = { service: string; entrypoint?: string | undefined };
+type Handler = { service: Input<string>; entrypoint?: string | undefined };
 type Destination<C extends ConfigInput> = C["routes"][number]["destination"];
+type ServiceBindingInput = {
+  binding: string;
+  service: Input<string>;
+  entrypoint?: string | undefined;
+};
 
 /**
  * Helper to construct EventHub and its Executor
@@ -49,7 +54,7 @@ export class EventHubHelper<C extends ConfigInput = ConfigInput> {
    * If there are destinations that are not assigned, it will log a warning or throw error.
    * @returns Array of handler bindings.
    */
-  public getHandlers() {
+  public getHandlers(): ServiceBindingInput[] {
     const handlers = [...this.destinations.entries()];
     const notRegistered = handlers
       .filter(([, handler]) => handler === null)
@@ -66,10 +71,12 @@ export class EventHubHelper<C extends ConfigInput = ConfigInput> {
     }
     return handlers
       .filter((h): h is [string, Handler] => h[1] !== null)
-      .map(([destination, { service, entrypoint }]) => ({
-        binding: destination,
-        service,
-        entrypoint,
-      }));
+      .map(
+        ([destination, { service, entrypoint }]): ServiceBindingInput => ({
+          binding: destination,
+          service,
+          entrypoint,
+        }),
+      );
   }
 }
