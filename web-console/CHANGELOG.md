@@ -1,5 +1,12 @@
 # @cf-eventhub/web-console
 
+## 0.0.13
+
+### Patch Changes
+
+- c3ad623: feat(web-console): add copy payload button
+- 755b618: feat: improve web-console experience
+
 ## 0.0.12
 
 ### Patch Changes
