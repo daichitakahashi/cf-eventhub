@@ -13,7 +13,7 @@ const handler = factory
     });
 
     if (events.list.length === 0) {
-      return c.json({ lastUpdatedAt: Date.now() });
+      return c.json({ lastUpdatedAt: 0 });
     }
     const lastUpdatedAt = events.list[0].createdAt.getTime();
     return c.json({ lastUpdatedAt });
