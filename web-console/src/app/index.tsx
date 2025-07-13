@@ -55,7 +55,7 @@ const renderer = (environment?: string) =>
  */
 export const createHandler = ({
   pageSize = 5,
-  dateFormatter,
+  dateFormatter = new Intl.DateTimeFormat(),
   refreshIntervalSeconds = 5,
   color,
   environment,
@@ -64,7 +64,7 @@ export const createHandler = ({
   /** Number of events that displayed in each page. */
   pageSize?: number;
   /** Date formatter for displaying date and time. */
-  dateFormatter: Intl.DateTimeFormat;
+  dateFormatter?: Intl.DateTimeFormat;
   /** Interval seconds of auto-refreshing dispatch list for each event. */
   refreshIntervalSeconds?: number;
   /** Custom color. */

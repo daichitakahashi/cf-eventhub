@@ -1,5 +1,11 @@
 # @cf-eventhub/web-console
 
+## 0.0.14
+
+### Patch Changes
+
+- 3104362: fix(web-console): fix some mistakes
+
 ## 0.0.13
 
 ### Patch Changes
