@@ -1,5 +1,11 @@
 # @cf-eventhub/web-console
 
+## 0.0.15
+
+### Patch Changes
+
+- 2c37a12: Update dependencies
+
 ## 0.0.14
 
 ### Patch Changes
