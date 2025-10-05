@@ -390,7 +390,7 @@ describe("retryDispatch", () => {
     assert(createdDispatch.status === "ongoing");
 
     // Retry.
-    expect(
+    await expect(
       execute(async (sink) => {
         await sink.retryDispatch({
           dispatchId: createdDispatch.id,

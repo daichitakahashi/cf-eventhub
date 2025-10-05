@@ -4,9 +4,9 @@ packages:
   - iac/pulumi
   - internal/*
 catalog:
-  wrangler: 4.22.0
-  '@cloudflare/workers-types': 4.20250628.0
-  '@cloudflare/vitest-pool-workers': 0.6.10
+  wrangler: 4.42.0
+  '@cloudflare/workers-types': 4.20251004.0
+  '@cloudflare/vitest-pool-workers': 0.9.10
 onlyBuiltDependencies:
   - esbuild
   - workerd

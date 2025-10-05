@@ -1,5 +1,11 @@
 # cf-eventhub
 
+## 0.3.3
+
+### Patch Changes
+
+- 2c37a12: Update dependencies
+
 ## 0.3.2
 
 ### Patch Changes
