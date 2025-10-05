@@ -8,10 +8,10 @@
     "build": "tsup"
   },
   "dependencies": {
-    "@hono/valibot-validator": "^0.5.1",
+    "@hono/valibot-validator": "^0.5.3",
     "clsx": "^2.1.1",
-    "hono": "^4.6.10",
-    "valibot": "^0.42.0"
+    "hono": "^4.9.10",
+    "valibot": "^1.1.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "catalog:",
