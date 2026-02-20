@@ -2,6 +2,9 @@
   "name": "@cf-eventhub/web-console",
   "type": "module",
   "version": "0.0.17",
+  "repository": {
+    "url": "https://github.com/daichitakahashi/cf-eventhub"
+  },
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy --minify",
@@ -21,15 +24,10 @@
     "wrangler": "catalog:"
   },
   "tsup": {
-    "entry": [
-      "src/index.ts"
-    ],
+    "entry": ["src/index.ts"],
     "splitting": false,
     "sourcemap": true,
-    "format": [
-      "esm",
-      "cjs"
-    ],
+    "format": ["esm", "cjs"],
     "dts": true,
     "clean": true
   },
@@ -37,7 +35,5 @@
     "import": "./dist/index.js",
     "require": "./dist/index.cjs"
   },
-  "files": [
-    "dist"
-  ]
+  "files": ["dist"]
 }
