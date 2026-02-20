@@ -13,6 +13,13 @@ const eventPayload = {
   timestamp: Date.now(),
 };
 
+const validDate = {
+  asymmetricMatch: (value: unknown) =>
+    value instanceof Date && !Number.isNaN(value.getTime()),
+  toString: () => "ValidDate",
+  getExpectedType: () => "date",
+};
+
 // Create event and dispatch.
 const createEvent = (repo: Repository) =>
   repo.mutate(async (tx) =>
@@ -122,7 +129,7 @@ export const testRepositoryPersistsCompleteDispatch = async (
   expect(event).toMatchObject({
     id: expect.any(String),
     payload: eventPayload,
-    createdAt: expect.any(Date),
+    createdAt: validDate,
   });
 
   // Dispatch is executed 6 times(first try and 5 retries).
@@ -131,7 +138,7 @@ export const testRepositoryPersistsCompleteDispatch = async (
     eventId: event.id,
     status: "complete",
     destination: "WORKER_1",
-    createdAt: expect.any(Date),
+    createdAt: validDate,
     delaySeconds: 0,
     maxRetries: 5,
     retryDelay: { type: "constant", interval: 3 },
@@ -139,32 +146,32 @@ export const testRepositoryPersistsCompleteDispatch = async (
       {
         id: expect.any(String),
         result: "failed",
-        executedAt: expect.any(Date),
+        executedAt: validDate,
       },
       {
         id: expect.any(String),
         result: "failed",
-        executedAt: expect.any(Date),
+        executedAt: validDate,
       },
       {
         id: expect.any(String),
         result: "failed",
-        executedAt: expect.any(Date),
+        executedAt: validDate,
       },
       {
         id: expect.any(String),
         result: "failed",
-        executedAt: expect.any(Date),
+        executedAt: validDate,
       },
       {
         id: expect.any(String),
         result: "failed",
-        executedAt: expect.any(Date),
+        executedAt: validDate,
       },
       {
         id: expect.any(String),
         result: "complete",
-        executedAt: expect.any(Date),
+        executedAt: validDate,
       },
     ],
   });
@@ -193,7 +200,7 @@ export const testRepositoryPersistsFailedDispatch = async (
   expect(event).toMatchObject({
     id: expect.any(String),
     payload: eventPayload,
-    createdAt: expect.any(Date),
+    createdAt: validDate,
   });
 
   // Dispatch is executed 6 times(first try and 5 retries).
@@ -202,7 +209,7 @@ export const testRepositoryPersistsFailedDispatch = async (
     eventId: event.id,
     status: "failed",
     destination: "WORKER_1",
-    createdAt: expect.any(Date),
+    createdAt: validDate,
     delaySeconds: 0,
     maxRetries: 5,
     retryDelay: { type: "constant", interval: 3 },
@@ -210,32 +217,32 @@ export const testRepositoryPersistsFailedDispatch = async (
       {
         id: expect.any(String),
         result: "failed",
-        executedAt: expect.any(Date),
+        executedAt: validDate,
       },
       {
         id: expect.any(String),
         result: "failed",
-        executedAt: expect.any(Date),
+        executedAt: validDate,
       },
       {
         id: expect.any(String),
         result: "failed",
-        executedAt: expect.any(Date),
+        executedAt: validDate,
       },
       {
         id: expect.any(String),
         result: "failed",
-        executedAt: expect.any(Date),
+        executedAt: validDate,
       },
       {
         id: expect.any(String),
         result: "failed",
-        executedAt: expect.any(Date),
+        executedAt: validDate,
       },
       {
         id: expect.any(String),
         result: "failed",
-        executedAt: expect.any(Date),
+        executedAt: validDate,
       },
     ],
   });
@@ -272,7 +279,7 @@ export const testRepositoryPersistsIgnoredDispatch = async (
   expect(event).toMatchObject({
     id: expect.any(String),
     payload: eventPayload,
-    createdAt: expect.any(Date),
+    createdAt: validDate,
   });
 
   // Dispatch is ignored in first try.
@@ -281,7 +288,7 @@ export const testRepositoryPersistsIgnoredDispatch = async (
     eventId: event.id,
     status: "ignored",
     destination: "WORKER_1",
-    createdAt: expect.any(Date),
+    createdAt: validDate,
     delaySeconds: 0,
     maxRetries: 5,
     retryDelay: { type: "constant", interval: 3 },
@@ -289,7 +296,7 @@ export const testRepositoryPersistsIgnoredDispatch = async (
       {
         id: expect.any(String),
         result: "ignored",
-        executedAt: expect.any(Date),
+        executedAt: validDate,
       },
     ],
   });
@@ -327,7 +334,7 @@ export const testRepositoryPersistsMisconfiguredDispatch = async (
   expect(event).toMatchObject({
     id: expect.any(String),
     payload: eventPayload,
-    createdAt: expect.any(Date),
+    createdAt: validDate,
   });
 
   // Dispatch is ignored in first try.
@@ -336,7 +343,7 @@ export const testRepositoryPersistsMisconfiguredDispatch = async (
     eventId: event.id,
     status: "misconfigured",
     destination: "WORKER_1",
-    createdAt: expect.any(Date),
+    createdAt: validDate,
     delaySeconds: 0,
     maxRetries: 5,
     retryDelay: { type: "constant", interval: 3 },
@@ -344,7 +351,7 @@ export const testRepositoryPersistsMisconfiguredDispatch = async (
       {
         id: expect.any(String),
         result: "misconfigured",
-        executedAt: expect.any(Date),
+        executedAt: validDate,
       },
     ],
   });
@@ -380,7 +387,7 @@ export const testRepositoryPersistsLostDispatch = async (repo: Repository) => {
   expect(event).toMatchObject({
     id: expect.any(String),
     payload: eventPayload,
-    createdAt: expect.any(Date),
+    createdAt: validDate,
   });
 
   // Dispatch is executed once and failed. After that, it has been lost.
@@ -389,7 +396,7 @@ export const testRepositoryPersistsLostDispatch = async (repo: Repository) => {
     eventId: event.id,
     status: "lost",
     destination: "WORKER_1",
-    createdAt: expect.any(Date),
+    createdAt: validDate,
     delaySeconds: 0,
     maxRetries: 5,
     retryDelay: { type: "constant", interval: 3 },
@@ -397,7 +404,7 @@ export const testRepositoryPersistsLostDispatch = async (repo: Repository) => {
       {
         id: expect.any(String),
         result: "failed",
-        executedAt: expect.any(Date),
+        executedAt: validDate,
       },
     ],
   });
@@ -464,7 +471,7 @@ export const testRepositoryListOngoingDispatches = async (repo: Repository) => {
         delaySeconds: 4,
         maxRetries: 1,
         retryDelay: { type: "constant", interval: 10 },
-        createdAt: expect.any(Date),
+        createdAt: validDate,
         executionLog: [],
       },
       {
@@ -474,11 +481,11 @@ export const testRepositoryListOngoingDispatches = async (repo: Repository) => {
         delaySeconds: 4,
         maxRetries: 1,
         retryDelay: { type: "constant", interval: 10 },
-        createdAt: expect.any(Date),
+        createdAt: validDate,
         executionLog: [
           {
             result: "failed",
-            executedAt: expect.any(Date),
+            executedAt: validDate,
           },
         ],
       },
@@ -489,7 +496,7 @@ export const testRepositoryListOngoingDispatches = async (repo: Repository) => {
         delaySeconds: 4,
         maxRetries: 1,
         retryDelay: { type: "constant", interval: 10 },
-        createdAt: expect.any(Date),
+        createdAt: validDate,
         executionLog: [],
       },
     ],
@@ -511,11 +518,11 @@ export const testRepositoryListOngoingDispatches = async (repo: Repository) => {
         delaySeconds: 4,
         maxRetries: 1,
         retryDelay: { type: "constant", interval: 10 },
-        createdAt: expect.any(Date),
+        createdAt: validDate,
         executionLog: [
           {
             result: "failed",
-            executedAt: expect.any(Date),
+            executedAt: validDate,
           },
         ],
       },
@@ -526,7 +533,7 @@ export const testRepositoryListOngoingDispatches = async (repo: Repository) => {
         delaySeconds: 4,
         maxRetries: 1,
         retryDelay: { type: "constant", interval: 10 },
-        createdAt: expect.any(Date),
+        createdAt: validDate,
         executionLog: [],
       },
       {
@@ -536,11 +543,11 @@ export const testRepositoryListOngoingDispatches = async (repo: Repository) => {
         delaySeconds: 4,
         maxRetries: 1,
         retryDelay: { type: "constant", interval: 10 },
-        createdAt: expect.any(Date),
+        createdAt: validDate,
         executionLog: [
           {
             result: "failed",
-            executedAt: expect.any(Date),
+            executedAt: validDate,
           },
         ],
       },
@@ -563,7 +570,7 @@ export const testRepositoryListOngoingDispatches = async (repo: Repository) => {
         delaySeconds: 4,
         maxRetries: 1,
         retryDelay: { type: "constant", interval: 10 },
-        createdAt: expect.any(Date),
+        createdAt: validDate,
         executionLog: [],
       },
       {
@@ -573,11 +580,11 @@ export const testRepositoryListOngoingDispatches = async (repo: Repository) => {
         delaySeconds: 4,
         maxRetries: 1,
         retryDelay: { type: "constant", interval: 10 },
-        createdAt: expect.any(Date),
+        createdAt: validDate,
         executionLog: [
           {
             result: "failed",
-            executedAt: expect.any(Date),
+            executedAt: validDate,
           },
         ],
       },
@@ -588,7 +595,7 @@ export const testRepositoryListOngoingDispatches = async (repo: Repository) => {
         delaySeconds: 4,
         maxRetries: 1,
         retryDelay: { type: "constant", interval: 10 },
-        createdAt: expect.any(Date),
+        createdAt: validDate,
         executionLog: [],
       },
     ],
@@ -610,11 +617,11 @@ export const testRepositoryListOngoingDispatches = async (repo: Repository) => {
         delaySeconds: 4,
         maxRetries: 1,
         retryDelay: { type: "constant", interval: 10 },
-        createdAt: expect.any(Date),
+        createdAt: validDate,
         executionLog: [
           {
             result: "failed",
-            executedAt: expect.any(Date),
+            executedAt: validDate,
           },
         ],
       },
@@ -625,7 +632,7 @@ export const testRepositoryListOngoingDispatches = async (repo: Repository) => {
         delaySeconds: 4,
         maxRetries: 1,
         retryDelay: { type: "constant", interval: 10 },
-        createdAt: expect.any(Date),
+        createdAt: validDate,
         executionLog: [],
       },
       {
@@ -635,11 +642,11 @@ export const testRepositoryListOngoingDispatches = async (repo: Repository) => {
         delaySeconds: 4,
         maxRetries: 1,
         retryDelay: { type: "constant", interval: 10 },
-        createdAt: expect.any(Date),
+        createdAt: validDate,
         executionLog: [
           {
             result: "failed",
-            executedAt: expect.any(Date),
+            executedAt: validDate,
           },
         ],
       },
@@ -679,12 +686,12 @@ export const testRepositoryListEventsAsc = async (
     {
       id: events[0].id,
       payload: events[0].payload,
-      createdAt: expect.any(Date),
+      createdAt: validDate,
     },
     {
       id: events[1].id,
       payload: events[1].payload,
-      createdAt: expect.any(Date),
+      createdAt: validDate,
     },
   ]);
   assert(result.value.continuationToken !== undefined);
@@ -695,7 +702,7 @@ export const testRepositoryListEventsAsc = async (
     {
       id: events[2].id,
       payload: events[2].payload,
-      createdAt: expect.any(Date),
+      createdAt: validDate,
     },
   ]);
   expect(result2.value.continuationToken).toBeUndefined();
@@ -712,12 +719,12 @@ export const testRepositoryListEventsDesc = async (
     {
       id: events[2].id,
       payload: events[2].payload,
-      createdAt: expect.any(Date),
+      createdAt: validDate,
     },
     {
       id: events[1].id,
       payload: events[1].payload,
-      createdAt: expect.any(Date),
+      createdAt: validDate,
     },
   ]);
   assert(result.value.continuationToken !== undefined);
@@ -732,7 +739,7 @@ export const testRepositoryListEventsDesc = async (
     {
       id: events[0].id,
       payload: events[0].payload,
-      createdAt: expect.any(Date),
+      createdAt: validDate,
     },
   ]);
   expect(result2.value.continuationToken).toBeUndefined();
@@ -781,7 +788,7 @@ export const testRepositoryListEventDispatches = async (repo: Repository) => {
         eventId,
         status: "complete",
         destination: "WORKER_1",
-        createdAt: expect.any(Date),
+        createdAt: validDate,
         delaySeconds: 0,
         maxRetries: 5,
         retryDelay: { type: "constant", interval: 3 },
@@ -789,17 +796,17 @@ export const testRepositoryListEventDispatches = async (repo: Repository) => {
           {
             id: expect.any(String),
             result: "failed",
-            executedAt: expect.any(Date),
+            executedAt: validDate,
           },
           {
             id: expect.any(String),
             result: "failed",
-            executedAt: expect.any(Date),
+            executedAt: validDate,
           },
           {
             id: expect.any(String),
             result: "complete",
-            executedAt: expect.any(Date),
+            executedAt: validDate,
           },
         ],
       },
@@ -807,20 +814,20 @@ export const testRepositoryListEventDispatches = async (repo: Repository) => {
         eventId,
         status: "ongoing",
         destination: "WORKER_2",
-        createdAt: expect.any(Date),
+        createdAt: validDate,
         delaySeconds: 5,
         maxRetries: 10,
         retryDelay: { type: "exponential", base: 2, max: 30 },
         executionLog: [],
       },
     ],
-    createdAt: expect.any(Date),
+    createdAt: validDate,
   });
   expect(ascResult.value.list[1]).toMatchObject({
     id: expect.any(String),
     payload: { key: "value" },
     dispatches: [],
-    createdAt: expect.any(Date),
+    createdAt: validDate,
   });
 
   const descResult = await repo.readEvents(2, undefined, "CREATED_AT_DESC");
@@ -829,7 +836,7 @@ export const testRepositoryListEventDispatches = async (repo: Repository) => {
     id: expect.any(String),
     payload: { key: "value" },
     dispatches: [],
-    createdAt: expect.any(Date),
+    createdAt: validDate,
   });
   expect(descResult.value.list[1]).toMatchObject({
     id: eventId,
@@ -839,7 +846,7 @@ export const testRepositoryListEventDispatches = async (repo: Repository) => {
         eventId,
         status: "complete",
         destination: "WORKER_1",
-        createdAt: expect.any(Date),
+        createdAt: validDate,
         delaySeconds: 0,
         maxRetries: 5,
         retryDelay: { type: "constant", interval: 3 },
@@ -847,17 +854,17 @@ export const testRepositoryListEventDispatches = async (repo: Repository) => {
           {
             id: expect.any(String),
             result: "failed",
-            executedAt: expect.any(Date),
+            executedAt: validDate,
           },
           {
             id: expect.any(String),
             result: "failed",
-            executedAt: expect.any(Date),
+            executedAt: validDate,
           },
           {
             id: expect.any(String),
             result: "complete",
-            executedAt: expect.any(Date),
+            executedAt: validDate,
           },
         ],
       },
@@ -865,14 +872,14 @@ export const testRepositoryListEventDispatches = async (repo: Repository) => {
         eventId,
         status: "ongoing",
         destination: "WORKER_2",
-        createdAt: expect.any(Date),
+        createdAt: validDate,
         delaySeconds: 5,
         maxRetries: 10,
         retryDelay: { type: "exponential", base: 2, max: 30 },
         executionLog: [],
       },
     ],
-    createdAt: expect.any(Date),
+    createdAt: validDate,
   });
 };
 
@@ -912,12 +919,12 @@ export const testRepositoryRollback = async (
         {
           id: expect.any(String),
           payload: eventPayload,
-          createdAt: expect.any(Date),
+          createdAt: validDate,
         },
         {
           id: expect.any(String),
           payload: { key: "value" },
-          createdAt: expect.any(Date),
+          createdAt: validDate,
         },
       ]);
 
@@ -953,7 +960,7 @@ export const testRepositoryRollback = async (
           eventId: createdEvent.id,
           status: "ongoing",
           destination: "WORKER_1",
-          createdAt: expect.any(Date),
+          createdAt: validDate,
           delaySeconds: 0,
           maxRetries: 5,
           retryDelay: { type: "constant", interval: 3 },
@@ -962,7 +969,7 @@ export const testRepositoryRollback = async (
           eventId: createdEvent.id,
           status: "ongoing",
           destination: "WORKER_2",
-          createdAt: expect.any(Date),
+          createdAt: validDate,
           delaySeconds: 5,
           maxRetries: 10,
           retryDelay: { type: "exponential", base: 2, max: 30 },

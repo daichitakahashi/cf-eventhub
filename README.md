@@ -65,6 +65,7 @@ sequenceDiagram
 ## To run demo
 1. Launch demo workers
     ```shell
+    $ pnpm --filter cf-eventhub --filter web-console build
     $ pnpm dev
     ```
 2. Open `http://localhost:3011` in your browser
