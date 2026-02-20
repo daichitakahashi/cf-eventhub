@@ -14,7 +14,6 @@
     "valibot": "^1.1.0"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "catalog:",
     "cf-eventhub": "^0.3.3",
     "tsup": "^8.3.5",
     "typed-htmx": "^0.3.1",
