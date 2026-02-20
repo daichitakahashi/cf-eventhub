@@ -3,10 +3,17 @@ packages:
   - web-console
   - iac/pulumi
   - internal/*
+
 catalog:
-  wrangler: 4.42.0
-  '@cloudflare/workers-types': 4.20251004.0
-  '@cloudflare/vitest-pool-workers': 0.9.10
+  '@cloudflare/vitest-pool-workers': 0.12.14
+  '@cloudflare/workers-types': 4.20260219.0
+  wrangler: 4.67.0
+
 onlyBuiltDependencies:
+  - '@biomejs/biome'
+  - cpu-features
   - esbuild
+  - protobufjs
+  - sharp
+  - ssh2
   - workerd

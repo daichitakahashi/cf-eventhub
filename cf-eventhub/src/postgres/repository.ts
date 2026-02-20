@@ -26,7 +26,6 @@ import type { Logger } from "../core/logger";
 import {
   type CreatedEvent,
   type Dispatch,
-  type Event,
   type NewDispatch,
   type NewEvent,
   type OngoingDispatch,
@@ -536,6 +535,7 @@ class PgMutationRepository implements MutationRepository {
     )();
   }
 
+  // TODO:
   async getTargetDispatch(
     dispatchId: string,
   ): Promise<
@@ -554,14 +554,17 @@ class PgMutationRepository implements MutationRepository {
           .select({
             data: sql<
               | {
+                  /** dispatch execution id */
                   id: string;
+                  /** dispatch id */
+                  dispatch_id: string;
                   result:
                     | "complete"
                     | "ignored"
                     | "failed"
                     | "misconfigured"
                     | "notfound";
-                  executedAt: string;
+                  executed_at: string;
                 }[]
               | null
             >`jsonb_agg(row_to_json("ex") order by "ex"."executed_at")`.as(
@@ -615,7 +618,7 @@ class PgMutationRepository implements MutationRepository {
             if (dispatch.status === "ongoing") {
               dispatch = appendExecutionLog(
                 dispatch,
-                dispatchExecution(e.id, e.result, new Date(e.executedAt)),
+                dispatchExecution(e.id, e.result, new Date(e.executed_at)),
               );
             }
           }

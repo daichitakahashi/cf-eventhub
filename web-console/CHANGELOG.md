@@ -1,5 +1,17 @@
 # @cf-eventhub/web-console
 
+## 0.0.17
+
+### Patch Changes
+
+- c7783c2: updpate lockfile
+
+## 0.0.16
+
+### Patch Changes
+
+- 42c1b70: chore(web-console): remove @cloudflare/workers-types from dependencies
+
 ## 0.0.15
 
 ### Patch Changes
