@@ -6,7 +6,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "node internal/index.mjs",
-    "ci:publish": "pnpm publish -r"
+    "ci:publish": "pnpm publish -r --access public --no-git-checks"
   },
   "keywords": [],
   "author": "",
