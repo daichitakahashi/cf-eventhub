@@ -3,10 +3,10 @@
   "main": "src/index.ts",
   "type": "commonjs",
   "version": "0.0.23",
-  "keywords": [
-    "pulumi",
-    "cloudflare"
-  ],
+  "keywords": ["pulumi", "cloudflare"],
+  "repository": {
+    "url": "https://github.com/daichitakahashi/cf-eventhub"
+  },
   "scripts": {
     "build": "tsup"
   },
@@ -20,15 +20,10 @@
     "cf-eventhub": "^0.3.0"
   },
   "tsup": {
-    "entry": [
-      "src/index.ts"
-    ],
+    "entry": ["src/index.ts"],
     "splitting": false,
     "sourcemap": true,
-    "format": [
-      "esm",
-      "cjs"
-    ],
+    "format": ["esm", "cjs"],
     "dts": true,
     "clean": true
   },
@@ -36,7 +31,5 @@
     "import": "./dist/index.mjs",
     "require": "./dist/index.js"
   },
-  "files": [
-    "dist"
-  ]
+  "files": ["dist"]
 }
