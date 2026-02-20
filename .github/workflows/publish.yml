@@ -28,6 +28,7 @@ jobs:
     permissions:
       pull-requests: write
       contents: write
+      id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v2
@@ -36,8 +37,9 @@ jobs:
           run_install: false
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: "pnpm"
+          registry-url: "https://registry.npmjs.org"
       - run: pnpm install
       - run: pnpm build
         working-directory: cf-eventhub
@@ -52,4 +54,3 @@ jobs:
           title: Release npm packages
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
