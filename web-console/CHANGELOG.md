@@ -1,5 +1,11 @@
 # @cf-eventhub/web-console
 
+## 0.0.17
+
+### Patch Changes
+
+- c7783c2: updpate lockfile
+
 ## 0.0.16
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # cf-eventhub
 
+## 0.3.5
+
+### Patch Changes
+
+- c7783c2: updpate lockfile
+
 ## 0.3.4
 
 ### Patch Changes
