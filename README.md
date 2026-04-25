@@ -62,6 +62,20 @@ sequenceDiagram
   end
 ```
 
+### Fast path
+
+Set `EVENTHUB_FAST_PATH_URL` and `EVENTHUB_FAST_PATH_SECRET` on both eventhub
+and executor workers to start zero-delay dispatches via signed HTTP before the
+Queue consumer receives them. Queue messages are still enqueued as fallback.
+
+- The eventhub sends `POST /__cf_eventhub/fast-path` with an HMAC-SHA256
+  signature.
+- The executor verifies the signature and calls the same dispatcher used by the
+  Queue consumer.
+- Only dispatches with `delaySeconds: 0` use the fast path.
+- If the fast path fails, the Queue message is retried using the configured
+  retry delay.
+
 ## To run demo
 1. Launch demo workers
     ```shell

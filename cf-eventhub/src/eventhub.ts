@@ -2,6 +2,7 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 import * as v from "valibot";
 
 import type { Handler } from "./core/executor/handler";
+import { FAST_PATH_PATH } from "./core/fast-path";
 import { EventSink } from "./core/hub";
 import { Config, type ConfigInput } from "./core/hub/routing";
 import { DefaultLogger, type LogLevel, type Logger } from "./core/logger";
@@ -14,6 +15,8 @@ export type RpcEnv = Record<string, unknown> & {
   EVENTHUB_ROUTING: string | ConfigInput;
   EVENTHUB_LOG_LEVEL?: string;
   EVENTHUB_LOST_DETECTION_ELAPSED_SECONDS?: string;
+  EVENTHUB_FAST_PATH_URL?: string;
+  EVENTHUB_FAST_PATH_SECRET?: string;
 };
 
 const getQueue = (env: RpcEnv) => {
@@ -55,6 +58,22 @@ const getLostDetectionElapsedSeconds = (env: RpcEnv) => {
 const getLogLevel = (env: RpcEnv) =>
   (env.EVENTHUB_LOG_LEVEL as LogLevel) || "INFO";
 
+const getFastPathOptions = (env: RpcEnv, ctx: ExecutionContext) => {
+  if (!env.EVENTHUB_FAST_PATH_URL && !env.EVENTHUB_FAST_PATH_SECRET) {
+    return undefined;
+  }
+  if (!env.EVENTHUB_FAST_PATH_URL || !env.EVENTHUB_FAST_PATH_SECRET) {
+    throw new Error(
+      "cf-eventhub: both EVENTHUB_FAST_PATH_URL and EVENTHUB_FAST_PATH_SECRET must be set",
+    );
+  }
+  return {
+    url: new URL(FAST_PATH_PATH, env.EVENTHUB_FAST_PATH_URL).toString(),
+    secret: env.EVENTHUB_FAST_PATH_SECRET,
+    waitUntil: ctx.waitUntil.bind(ctx),
+  };
+};
+
 export abstract class RpcEventHub<Env extends RpcEnv = RpcEnv>
   extends WorkerEntrypoint<Env>
   implements Handler
@@ -66,7 +85,13 @@ export abstract class RpcEventHub<Env extends RpcEnv = RpcEnv>
     super(ctx, env);
     const logger = this.getLogger();
     const repo = this.getRepository(logger);
-    this.sink = new EventSink(repo, getQueue(env), getRouteConfig(env), logger);
+    this.sink = new EventSink(
+      repo,
+      getQueue(env),
+      getRouteConfig(env),
+      logger,
+      getFastPathOptions(env, ctx),
+    );
     this.lostDetectionElapsedSeconds = getLostDetectionElapsedSeconds(env);
   }
 

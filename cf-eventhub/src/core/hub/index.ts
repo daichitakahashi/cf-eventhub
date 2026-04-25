@@ -1,5 +1,7 @@
 import { err, ok, safeTry } from "neverthrow";
 
+import { formatException } from "../../utils/format-exception";
+import { FastPathClient } from "../fast-path";
 import type { Logger } from "../logger";
 import {
   type CreatedEvent,
@@ -16,13 +18,30 @@ import { type Config, findRoutes } from "./routing";
 
 const constVoid = (() => {})();
 
+export type FastPathOptions = {
+  url: string;
+  secret: string;
+  waitUntil?: (promise: Promise<unknown>) => void;
+};
+
 export class EventSink {
+  private fastPath: FastPathClient | undefined;
+
   constructor(
     private repo: Repository,
     private queue: Queue,
     private routeConfig: Config,
     private logger: Logger,
-  ) {}
+    private fastPathOptions?: FastPathOptions,
+  ) {
+    if (fastPathOptions) {
+      this.fastPath = new FastPathClient(
+        fastPathOptions.url,
+        fastPathOptions.secret,
+        logger,
+      );
+    }
+  }
 
   async putEvent(events: EventPayload[]): Promise<void> {
     // Skip empty.
@@ -33,6 +52,7 @@ export class EventSink {
     const queue = this.queue;
     const repo = this.repo;
     const logger = this.logger;
+    const fastPathMessages: QueueMessage[] = [];
 
     const result = await repo.mutate(async (tx) =>
       safeTry(async function* () {
@@ -98,6 +118,11 @@ export class EventSink {
               delaySeconds: d.delaySeconds || undefined, // first delay
             }),
           );
+          fastPathMessages.push(
+            ...messages
+              .filter((m) => !m.delaySeconds)
+              .map((m): QueueMessage => m.body),
+          );
           yield* enqueue(queue, messages, logger);
         } else {
           logger.info("no dispatches created");
@@ -109,6 +134,21 @@ export class EventSink {
     if (result.isErr()) {
       return Promise.reject(result.error);
     }
+    await this.dispatchFastPath(fastPathMessages);
+  }
+
+  private dispatchFastPath(messages: QueueMessage[]) {
+    if (!this.fastPath || messages.length === 0) {
+      return;
+    }
+    const promise = this.fastPath.dispatch(messages).catch((e) => {
+      this.logger.error("fast path rejected", { error: formatException(e) });
+    });
+    if (this.fastPathOptions?.waitUntil) {
+      this.fastPathOptions.waitUntil(promise);
+      return;
+    }
+    return promise;
   }
 
   async listDispatches(args?: {
@@ -174,6 +214,7 @@ export class EventSink {
     const queue = this.queue;
     const repo = this.repo;
     const logger = this.logger;
+    const fastPathMessages: QueueMessage[] = [];
 
     const result = await repo.mutate(async (tx) =>
       safeTry(async function* () {
@@ -209,6 +250,9 @@ export class EventSink {
           contentType: "v8",
           delaySeconds: created.delaySeconds || undefined, // first delay
         };
+        if (!message.delaySeconds) {
+          fastPathMessages.push(message.body);
+        }
 
         yield* await enqueue(queue, [message], logger);
         return ok(constVoid);
@@ -218,6 +262,7 @@ export class EventSink {
     if (result.isErr()) {
       return Promise.reject(result.error);
     }
+    await this.dispatchFastPath(fastPathMessages);
   }
 
   private async markDispatchLost(args: {

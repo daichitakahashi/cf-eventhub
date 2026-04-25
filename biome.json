@@ -23,5 +23,23 @@
         "useShorthandFunctionType": "off"
       }
     }
+  },
+  "javascript": {
+    "globals": [
+      "Queue",
+      "MessageSendRequest",
+      "Message",
+      "MessageBatch",
+      "QueueSendOptions",
+      "QueueSendBatchOptions",
+      "ExecutionContext",
+      "ScheduledController",
+      "Service",
+      "Rpc",
+      "HtmxAttributes",
+      "Hyperdrive",
+      "R2Bucket",
+      "R2Object"
+    ]
   }
 }

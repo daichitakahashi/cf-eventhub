@@ -1,7 +1,8 @@
-import { assert, describe, expect, test } from "vitest";
+import { assert, describe, expect, test, vi } from "vitest";
 
 import { EventSink } from ".";
 import { DevRepository } from "../../dev/repository";
+import { FAST_PATH_PATH, parseFastPathRequest } from "../fast-path";
 import { DefaultLogger } from "../logger";
 import { appendExecutionLog, makeDispatchLost } from "../model";
 import type { Repository } from "../repository";
@@ -234,6 +235,77 @@ describe("putEvent", () => {
 
     // Check sent messages.
     expect(queue.sentMessages).toHaveLength(0);
+  });
+
+  test("putEvent dispatches zero-delay messages via fast path", async () => {
+    const repo = new DevRepository();
+    const secret = "test-secret";
+    const fastRoute: Config = {
+      defaultDelaySeconds: 0,
+      defaultMaxRetries: 5,
+      defaultRetryDelay: { type: "constant", interval: 7 },
+      routes: [
+        {
+          condition: { path: "$.kind", exact: "fast" },
+          destination: "FAST",
+        },
+        {
+          condition: { path: "$.kind", exact: "slow" },
+          destination: "SLOW",
+          delaySeconds: 3,
+        },
+      ],
+    };
+    const queue = new QueueMock();
+    const fastPathPayloads: QueueMessage[][] = [];
+    vi.stubGlobal(
+      "fetch",
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = new Request(input, init);
+        expect(new URL(request.url).pathname).toBe(FAST_PATH_PATH);
+        const payload = await parseFastPathRequest(request, secret);
+        assert(payload);
+        fastPathPayloads.push(payload.dispatches);
+        return Response.json({ ok: true });
+      },
+    );
+
+    try {
+      const sink = new EventSink(
+        repo,
+        queue,
+        fastRoute,
+        new DefaultLogger("ERROR"),
+        {
+          url: `https://executor.example${FAST_PATH_PATH}`,
+          secret,
+        },
+      );
+      await sink.putEvent([{ kind: "fast" }, { kind: "slow" }]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    const dispatches = await repo.readDispatches(100);
+    assert(dispatches.isOk());
+    const fastDispatch = dispatches.value.list.find(
+      (d) => d.destination === "FAST",
+    );
+    const slowDispatch = dispatches.value.list.find(
+      (d) => d.destination === "SLOW",
+    );
+    assert(fastDispatch);
+    assert(slowDispatch);
+
+    expect(queue.sentMessages).toHaveLength(2);
+    expect(fastPathPayloads).toEqual([
+      [
+        {
+          dispatchId: fastDispatch.id,
+          retryDelay: { type: "constant", interval: 7 },
+        },
+      ],
+    ]);
   });
 });
 
