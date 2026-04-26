@@ -30,21 +30,19 @@ export abstract class RpcExecutor<
 
   private async dispatch(msg: Message<QueueMessage>) {
     const logger = this.getLogger();
-    const postponedDelaySeconds =
-      await this.dispatcher.getPostponedRetryDelaySeconds(
-        msg.body,
-        msg.attempts,
-      );
-    if (postponedDelaySeconds) {
-      msg.retry({ delaySeconds: postponedDelaySeconds });
+    const attempt = await this.dispatcher.attemptDispatch(
+      msg.body,
+      msg.attempts,
+    );
+    if (attempt.type === "postponed") {
+      msg.retry({ delaySeconds: attempt.delaySeconds });
       return;
     }
     const nextDelaySeconds = nextDelay({
       retryDelay: msg.body.retryDelay,
       attempts: msg.attempts,
     });
-    return this.dispatcher
-      .dispatch(msg.body)
+    return Promise.resolve(attempt.result)
       .then((result) => {
         switch (result) {
           case "complete":
@@ -88,26 +86,30 @@ export abstract class RpcExecutor<
       return new Response(null, { status: 404 });
     }
 
-    const payload = await parseFastPathRequest(request, secret);
+    const payload = await parseFastPathRequest(request, secret).catch((e) => {
+      this.getLogger().error("failed to parse fast path request", {
+        error: formatException(e),
+      });
+      return null;
+    });
     if (!payload) {
       return new Response(null, { status: 401 });
     }
 
     const results = [];
     for (const msg of payload.dispatches) {
-      const postponedDelaySeconds =
-        await this.dispatcher.getPostponedRetryDelaySeconds(msg);
-      if (postponedDelaySeconds) {
+      const attempt = await this.dispatcher.attemptDispatch(msg);
+      if (attempt.type === "postponed") {
         results.push({
           dispatchId: msg.dispatchId,
           result: "postponed",
-          delaySeconds: postponedDelaySeconds,
+          delaySeconds: attempt.delaySeconds,
         });
         continue;
       }
       results.push({
         dispatchId: msg.dispatchId,
-        result: await this.dispatcher.dispatch(msg),
+        result: attempt.result,
       });
     }
 

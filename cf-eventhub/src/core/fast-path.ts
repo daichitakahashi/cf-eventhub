@@ -131,10 +131,5 @@ export const parseFastPathRequest = async (
     return null;
   }
 
-  try {
-    return v.parse(FastPathPayload, JSON.parse(body));
-  } catch (e) {
-    console.error("invalid fast path payload", formatException(e));
-    return null;
-  }
+  return v.parse(FastPathPayload, JSON.parse(body));
 };
