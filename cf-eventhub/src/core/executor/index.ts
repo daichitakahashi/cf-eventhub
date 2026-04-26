@@ -119,6 +119,9 @@ export class Dispatcher {
     );
   }
 
+  /**
+   * @deprecated Use `attemptDispatch()` to preserve postponed retry semantics.
+   */
   async dispatch(msg: QueueMessage): Promise<DispatchExecution["result"]> {
     const result = await this.attemptDispatch(msg);
     return result.type === "dispatched" ? result.result : "failed";

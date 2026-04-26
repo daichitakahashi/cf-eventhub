@@ -23,6 +23,12 @@ const Payload = v.object({
 });
 
 describe("dispatch", () => {
+  const defaultRetryDelay = { type: "exponential", base: 2, max: 20 } as const;
+  const createMessage = (dispatchId: string) => ({
+    dispatchId,
+    retryDelay: defaultRetryDelay,
+  });
+
   const createDispatch = async (
     repo: Repository,
     destination: string,
@@ -71,11 +77,11 @@ describe("dispatch", () => {
     });
 
     // Execute and check result.
-    const result = await d.dispatch({
-      dispatchId,
-      retryDelay: { type: "exponential", base: 2, max: 20 },
+    const result = await d.attemptDispatch(createMessage(dispatchId));
+    expect(result).toMatchObject({
+      type: "dispatched",
+      result: "complete",
     });
-    expect(result).toBe("complete");
 
     // Check dispatch status.
     const dispatch = await repo.mutate((tx) =>
@@ -90,11 +96,11 @@ describe("dispatch", () => {
     const d = new Dispatcher(repo, env, new DefaultLogger("ERROR"));
 
     // Execute and check result.
-    const result = await d.dispatch({
-      dispatchId: "not_found_dispatch",
-      retryDelay: { type: "exponential", base: 2, max: 20 },
+    const result = await d.attemptDispatch(createMessage("not_found_dispatch"));
+    expect(result).toMatchObject({
+      type: "dispatched",
+      result: "notfound",
     });
-    expect(result).toBe("notfound");
   });
 
   test("resulted dispatch causes dispatch 'notfound'", async () => {
@@ -118,11 +124,11 @@ describe("dispatch", () => {
     assert(createResult.isOk());
 
     // Execute and check result.
-    const result = await d.dispatch({
-      dispatchId,
-      retryDelay: { type: "exponential", base: 2, max: 20 },
+    const result = await d.attemptDispatch(createMessage(dispatchId));
+    expect(result).toMatchObject({
+      type: "dispatched",
+      result: "notfound",
     });
-    expect(result).toBe("notfound");
 
     // Check dispatch status.
     const dispatch = await repo.mutate((tx) =>
@@ -141,11 +147,11 @@ describe("dispatch", () => {
     });
 
     // Execute and check result.
-    const result = await d.dispatch({
-      dispatchId,
-      retryDelay: { type: "exponential", base: 2, max: 20 },
+    const result = await d.attemptDispatch(createMessage(dispatchId));
+    expect(result).toMatchObject({
+      type: "dispatched",
+      result: "failed",
     });
-    expect(result).toBe("failed");
 
     // Check dispatch status.
     const dispatch = await repo.mutate((tx) =>
@@ -162,27 +168,40 @@ describe("dispatch", () => {
     const dispatchId = await createDispatch(repo, "HANDLER", {
       expectedResult: "failed",
     });
+    const retryDelay = { type: "constant", interval: 1 } as const;
+    const msg = {
+      dispatchId,
+      retryDelay,
+    };
 
     // Execute and check result.
-    const result = await d.dispatch({
-      dispatchId,
-      retryDelay: { type: "exponential", base: 2, max: 20 },
+    const firstAttempt = await d.attemptDispatch(msg);
+    expect(firstAttempt).toMatchObject({
+      type: "dispatched",
+      result: "failed",
     });
-    expect(result).toBe("failed");
 
     // First retry.
-    const firstRetryResult = await d.dispatch({
-      dispatchId,
-      retryDelay: { type: "exponential", base: 2, max: 20 },
+    const firstRetryResult = await d.attemptDispatch(
+      msg,
+      0,
+      new Date(Date.now() + 1_100),
+    );
+    expect(firstRetryResult).toMatchObject({
+      type: "dispatched",
+      result: "failed",
     });
-    expect(firstRetryResult).toBe("failed");
 
-    // Last retry.
-    const lastRetry = await d.dispatch({
-      dispatchId,
-      retryDelay: { type: "exponential", base: 2, max: 20 },
+    // Second retry.
+    const secondRetryResult = await d.attemptDispatch(
+      msg,
+      0,
+      new Date(Date.now() + 2_200),
+    );
+    expect(secondRetryResult).toMatchObject({
+      type: "dispatched",
+      result: "failed",
     });
-    expect(lastRetry).toBe("failed");
 
     // Check dispatch status.
     const dispatch = await repo.mutate((tx) =>
@@ -191,12 +210,16 @@ describe("dispatch", () => {
     assert(dispatch.isOk());
     expect(dispatch.value?.dispatch.status).toBe("failed");
 
-    // Extra retry.
-    const extraResult = await d.dispatch({
-      dispatchId,
-      retryDelay: { type: "exponential", base: 2, max: 20 },
+    // Retry after resulted dispatch.
+    const afterExhaustedResult = await d.attemptDispatch(
+      msg,
+      0,
+      new Date(Date.now() + 3_300),
+    );
+    expect(afterExhaustedResult).toMatchObject({
+      type: "dispatched",
+      result: "notfound",
     });
-    expect(extraResult).toBe("notfound");
   });
 
   test("not found destination makes dispatch 'misconfigured'", async () => {
@@ -208,11 +231,11 @@ describe("dispatch", () => {
     });
 
     // Execute and check result.
-    const result = await d.dispatch({
-      dispatchId,
-      retryDelay: { type: "exponential", base: 2, max: 20 },
+    const result = await d.attemptDispatch(createMessage(dispatchId));
+    expect(result).toMatchObject({
+      type: "dispatched",
+      result: "misconfigured",
     });
-    expect(result).toBe("misconfigured");
 
     // Check dispatch status.
     const dispatch = await repo.mutate((tx) =>
@@ -247,11 +270,11 @@ describe("dispatch", () => {
     });
 
     // Execute and check result.
-    const result = await d.dispatch({
-      dispatchId,
-      retryDelay: { type: "exponential", base: 2, max: 20 },
+    const result = await d.attemptDispatch(createMessage(dispatchId));
+    expect(result).toMatchObject({
+      type: "dispatched",
+      result: "complete",
     });
-    expect(result).toBe("complete");
 
     // Check dispatch status.
     const dispatch = await repo.mutate((tx) =>
