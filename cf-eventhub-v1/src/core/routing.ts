@@ -108,41 +108,15 @@ const LogicalOperator: v.GenericSchema<LogicalOperatorInput, LogicalOperator> =
 
 const Condition = v.union([Comparator, LogicalOperator]);
 
-const positiveInteger = v.pipe(v.number(), v.integer(), v.minValue(0));
-
-export const ConstantRetryDelay = v.object({
-	type: v.literal("constant"),
-	interval: positiveInteger,
-});
-export type ConstantRetryDelay = v.InferOutput<typeof ConstantRetryDelay>;
-
-export const ExponentialRetryDelay = v.object({
-	type: v.literal("exponential"),
-	base: positiveInteger,
-	max: positiveInteger,
-});
-export type ExponentialRetryDelay = v.InferOutput<typeof ExponentialRetryDelay>;
-
-const RetryDelay = v.variant("type", [
-	ConstantRetryDelay,
-	ExponentialRetryDelay,
-]);
-
 const Route = v.object({
 	condition: Condition,
 	destination: v.pipe(v.string(), v.minLength(1)),
-	delaySeconds: v.optional(positiveInteger),
-	maxRetries: v.optional(positiveInteger),
-	retryDelay: v.optional(RetryDelay),
 });
 
 /**
  * Route configuration schema.
  */
 export const Config = v.object({
-	defaultDelaySeconds: v.optional(positiveInteger, 0),
-	defaultMaxRetries: v.optional(positiveInteger, 5),
-	defaultRetryDelay: v.optional(RetryDelay, { type: "constant", interval: 5 }),
 	routes: v.array(Route),
 });
 export type ConfigInput = v.InferInput<typeof Config>;
@@ -201,9 +175,6 @@ const matchCond =
 
 type FoundRoute = {
 	destination: string;
-	delaySeconds: number;
-	maxRetries: number;
-	retryDelay: ConstantRetryDelay | ExponentialRetryDelay;
 };
 
 export const findRoutes = (c: Config, message: unknown): FoundRoute[] => {
@@ -211,10 +182,7 @@ export const findRoutes = (c: Config, message: unknown): FoundRoute[] => {
 
 	return c.routes
 		.filter((r) => matcher(r.condition))
-		.map(({ destination, delaySeconds, maxRetries, retryDelay }) => ({
+		.map(({ destination }) => ({
 			destination,
-			delaySeconds: delaySeconds || c.defaultDelaySeconds,
-			maxRetries: maxRetries || c.defaultMaxRetries,
-			retryDelay: retryDelay || c.defaultRetryDelay,
 		}));
 };
