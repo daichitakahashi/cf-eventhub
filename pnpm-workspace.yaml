@@ -1,16 +1,19 @@
 packages:
   - cf-eventhub
+  - cf-eventhub-v1
   - web-console
   - iac/pulumi
   - internal/*
 
 catalog:
-  '@cloudflare/vitest-pool-workers': 0.12.14
-  '@cloudflare/workers-types': 4.20260219.0
+  "@cloudflare/vitest-pool-workers": 0.12.14
+  "@cloudflare/workers-types": 4.20260219.0
   wrangler: 4.67.0
 
+minimumReleaseAge: 1440
+
 onlyBuiltDependencies:
-  - '@biomejs/biome'
+  - "@biomejs/biome"
   - cpu-features
   - esbuild
   - protobufjs

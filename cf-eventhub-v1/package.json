@@ -1,0 +1,24 @@
+{
+	"name": "cf-eventhub-v1",
+	"version": "0.0.0",
+	"private": true,
+	"scripts": {
+		"deploy": "wrangler deploy",
+		"dev": "wrangler dev",
+		"start": "wrangler dev",
+		"cf-typegen": "wrangler types",
+		"test": "vitest run"
+	},
+	"devDependencies": {
+		"@cloudflare/vitest-pool-workers": "~0.12.21",
+		"@types/jsonpath": "^0.2.4",
+		"@types/node": "^25.6.0",
+		"typescript": "^5.5.2",
+		"vitest": "~3.2.0",
+		"wrangler": "^4.87.0"
+	},
+	"dependencies": {
+		"jsonpath": "^1.3.0",
+		"valibot": "^1.3.1"
+	}
+}
