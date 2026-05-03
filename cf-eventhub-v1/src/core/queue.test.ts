@@ -1,6 +1,10 @@
 import { describe, expect, test } from "vitest";
 
-import { createDestinationMessages, publishToQueues } from "./queue";
+import {
+	createDeliveryJobs,
+	createDestinationMessages,
+	deliverJobs,
+} from "./queue";
 import type { Config } from "./routing";
 import type { EventPayload } from "./type";
 
@@ -83,7 +87,7 @@ describe("createDestinationMessages", () => {
 	});
 });
 
-describe("publishToQueues", () => {
+describe("deliverJobs", () => {
 	test("sends matched payloads to destination queues", async () => {
 		const env = createEnv();
 		const payloads = [
@@ -92,7 +96,8 @@ describe("publishToQueues", () => {
 			{ kind: "other" },
 		] as const;
 
-		await publishToQueues(env, routeConfig, payloads);
+		const jobs = createDeliveryJobs(env, routeConfig, payloads);
+		await deliverJobs(jobs);
 
 		expect(env.OKAYAMA.sentBatches).toStrictEqual([
 			[{ body: payloads[0], contentType: "json" }],
@@ -115,7 +120,8 @@ describe("publishToQueues", () => {
 			}),
 		) as [EventPayload, ...EventPayload[]];
 
-		await publishToQueues(env, routeConfig, payloads);
+		const jobs = createDeliveryJobs(env, routeConfig, payloads);
+		await deliverJobs(jobs);
 
 		expect(env.OKAYAMA.sentBatches).toHaveLength(2);
 		expect(env.OKAYAMA.sentBatches[0]).toHaveLength(100);
@@ -131,9 +137,13 @@ describe("publishToQueues", () => {
 		};
 		const payloads = [{ kind: "nature", avoidUrban: false }] as const;
 
-		await expect(publishToQueues(env, routeConfig, payloads)).rejects.toThrow(
+		expect(() => createDeliveryJobs(env, routeConfig, payloads)).toThrow(
 			/cf-eventhub-v1: OKINAWA not set/,
 		);
+		await expect(async () => {
+			const jobs = createDeliveryJobs(env, routeConfig, payloads);
+			await deliverJobs(jobs);
+		}).rejects.toThrow(/cf-eventhub-v1: OKINAWA not set/);
 		expect(env.HOKKAIDO.sentBatches).toHaveLength(0);
 		expect(env.OKAYAMA.sentBatches).toHaveLength(0);
 	});

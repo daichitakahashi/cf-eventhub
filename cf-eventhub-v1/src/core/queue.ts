@@ -4,6 +4,11 @@ import { findRoutes } from "./routing";
 
 const MAX_SEND_BATCH_COUNT = 100;
 
+export type DeliveryJob = {
+	queue: Queue<EventPayload>;
+	messages: MessageSendRequest<EventPayload>[];
+};
+
 const getQueue = (
 	env: Record<string, unknown>,
 	name: string,
@@ -50,11 +55,11 @@ export const createDestinationMessages = (
 	return messagesByDestination;
 };
 
-export const publishToQueues = async (
+export const createDeliveryJobs = (
 	env: Record<string, unknown>,
 	config: Config,
 	payloads: readonly [EventPayload, ...EventPayload[]],
-): Promise<void> => {
+): DeliveryJob[] => {
 	const messagesByDestination = createDestinationMessages(config, payloads);
 	const queuesByDestination = new Map<string, Queue<EventPayload>>();
 
@@ -62,11 +67,26 @@ export const publishToQueues = async (
 		queuesByDestination.set(destination, getQueue(env, destination));
 	}
 
-	for (const [destination, messages] of messagesByDestination) {
-		const queue = queuesByDestination.get(destination);
-		if (!queue) {
-			throw new Error(`cf-eventhub-v1: ${destination} not resolved`);
-		}
+	return Array.from(
+		messagesByDestination,
+		([destination, messages]): DeliveryJob => {
+			const queue = queuesByDestination.get(destination);
+			if (!queue) {
+				throw new Error(`cf-eventhub-v1: ${destination} not resolved`);
+			}
+
+			return {
+				queue,
+				messages,
+			};
+		},
+	);
+};
+
+export const deliverJobs = async (
+	jobs: readonly DeliveryJob[],
+): Promise<void> => {
+	for (const { queue, messages } of jobs) {
 		await sendBatches(queue, messages);
 	}
 };

@@ -1,7 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import * as v from "valibot";
 
-import { publishToQueues } from "./core/queue";
+import { createDeliveryJobs, deliverJobs } from "./core/queue";
 import { Config, type ConfigInput } from "./core/routing";
 import type { EventPayload } from "./core/type";
 
@@ -29,6 +29,10 @@ export class EventHub extends DurableObject<EventHubEnv> {
 	}
 
 	async publish(payload: EventPayload, ...rest: EventPayload[]): Promise<void> {
-		await publishToQueues(this.env, this.routeConfig, [payload, ...rest]);
+		const jobs = createDeliveryJobs(this.env, this.routeConfig, [
+			payload,
+			...rest,
+		]);
+		this.ctx.waitUntil(deliverJobs(jobs));
 	}
 }
