@@ -63,7 +63,7 @@ export const assertQueuesExist = (
 
 export const deliverJobs = async (
 	jobs: readonly DeliveryJob[],
-	onDelivered?: (jobIds: readonly number[]) => void | Promise<void>,
+	onDelivered?: (jobIds: readonly string[]) => void | Promise<void>,
 ): Promise<void> => {
 	const jobsByDestination = new Map<string, DeliveryJob[]>();
 

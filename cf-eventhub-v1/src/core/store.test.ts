@@ -2,18 +2,19 @@ import { env } from "cloudflare:workers";
 import { runInDurableObject } from "cloudflare:test";
 import { describe, expect, test, vi } from "vitest";
 
-import { createPendingDeliveryJobs } from "./store";
+import { ULID_LENGTH } from "./id";
+import { createPendingDeliveryJobs, persistDeliveryJobs } from "./store";
 import type { Config } from "./routing";
 
 type PayloadRow = {
-	id: number;
+	id: string;
 	body: string;
 	created_at: string;
 };
 
 type DeliveryJobRow = {
-	id: number;
-	payload_id: number;
+	id: string;
+	payload_id: string;
 	destination: string;
 	created_at: string;
 	completed_at: string | null;
@@ -76,6 +77,41 @@ describe("createPendingDeliveryJobs", () => {
 });
 
 describe("persisted delivery jobs", () => {
+	test("persists delivery jobs with monotonic ids from an injected generator", () => {
+		const sql = {
+			exec: vi.fn(),
+		} as unknown as SqlStorage;
+		const ids = [
+			"01TEST00000000000000000000",
+			"01TEST00000000000000000001",
+			"01TEST00000000000000000002",
+		];
+		const generateId = vi.fn(() => ids.shift() ?? "");
+
+		const jobs = persistDeliveryJobs(
+			sql,
+			createPendingDeliveryJobs(routeConfig, [{ kind: "nature", avoidUrban: false }]),
+			generateId,
+			new Date("2026-05-04T00:00:00.000Z"),
+		);
+
+		expect(generateId).toHaveBeenCalledTimes(3);
+		expect(jobs).toStrictEqual([
+			{
+				id: "01TEST00000000000000000001",
+				payloadId: "01TEST00000000000000000000",
+				destination: "HOKKAIDO",
+				payload: { kind: "nature", avoidUrban: false },
+			},
+			{
+				id: "01TEST00000000000000000002",
+				payloadId: "01TEST00000000000000000000",
+				destination: "OKINAWA",
+				payload: { kind: "nature", avoidUrban: false },
+			},
+		]);
+	});
+
 	test("persists payloads and delivery jobs in SQLite", async () => {
 		const stub = getStub("persisted-delivery-jobs");
 		const payload1 = { kind: "culture", avoidUrban: true };
@@ -100,14 +136,28 @@ describe("persisted delivery jobs", () => {
 				.toArray();
 
 			expect(payloads).toHaveLength(2);
+			expect(payloads.every((payload) => payload.id.length === ULID_LENGTH)).toBe(
+				true,
+			);
+			expect(payloads.map((payload) => payload.id).sort()).toStrictEqual(
+				payloads.map((payload) => payload.id),
+			);
 			expect(JSON.parse(payloads[0].body)).toStrictEqual(payload1);
 			expect(JSON.parse(payloads[1].body)).toStrictEqual(payload2);
 			expect(deliveryJobs).toHaveLength(3);
+			expect(
+				deliveryJobs.every((deliveryJob) => deliveryJob.id.length === ULID_LENGTH),
+			).toBe(true);
 			expect(deliveryJobs.map((job) => job.destination)).toStrictEqual([
 				"OKAYAMA",
 				"HOKKAIDO",
 				"OKINAWA",
 			]);
+			expect(
+				deliveryJobs.every((deliveryJob) =>
+					payloads.some((payload) => payload.id === deliveryJob.payload_id),
+				),
+			).toBe(true);
 			expect(deliveryJobs.every((job) => job.completed_at === null)).toBe(
 				false,
 			);

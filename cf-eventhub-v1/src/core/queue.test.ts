@@ -91,14 +91,14 @@ describe("resolveDeliveryJobs", () => {
 		const payload = { kind: "nature", avoidUrban: false } as const;
 		const jobs: PersistedDeliveryJob[] = [
 			{
-				id: 1,
-				payloadId: 1,
+				id: "01TEST00000000000000000001",
+				payloadId: "01TEST00000000000000000000",
 				destination: "HOKKAIDO",
 				payload,
 			},
 			{
-				id: 2,
-				payloadId: 1,
+				id: "01TEST00000000000000000002",
+				payloadId: "01TEST00000000000000000000",
 				destination: "OKINAWA",
 				payload,
 			},
@@ -123,9 +123,24 @@ describe("deliverJobs", () => {
 		const payload1 = { kind: "culture", avoidUrban: true };
 		const payload2 = { kind: "nature", avoidUrban: false };
 		const jobs = resolveDeliveryJobs(env, [
-			{ id: 1, payloadId: 1, destination: "OKAYAMA", payload: payload1 },
-			{ id: 2, payloadId: 2, destination: "HOKKAIDO", payload: payload2 },
-			{ id: 3, payloadId: 2, destination: "OKINAWA", payload: payload2 },
+			{
+				id: "01TEST00000000000000000001",
+				payloadId: "01TEST00000000000000000000",
+				destination: "OKAYAMA",
+				payload: payload1,
+			},
+			{
+				id: "01TEST00000000000000000003",
+				payloadId: "01TEST00000000000000000002",
+				destination: "HOKKAIDO",
+				payload: payload2,
+			},
+			{
+				id: "01TEST00000000000000000004",
+				payloadId: "01TEST00000000000000000002",
+				destination: "OKINAWA",
+				payload: payload2,
+			},
 		]);
 
 		await deliverJobs(jobs);
@@ -146,8 +161,8 @@ describe("deliverJobs", () => {
 		const jobs = resolveDeliveryJobs(
 			env,
 			Array.from({ length: 101 }, (_, i) => ({
-				id: i + 1,
-				payloadId: i + 1,
+				id: `01TEST0000000000000000${String(i + 1).padStart(4, "0")}`,
+				payloadId: `01PAYL000000000000000${String(i + 1).padStart(4, "0")}`,
 				destination: "OKAYAMA",
 				payload: {
 					kind: "culture",
@@ -172,8 +187,8 @@ describe("deliverJobs", () => {
 		};
 		const jobs = [
 			{
-				id: 1,
-				payloadId: 1,
+				id: "01TEST00000000000000000001",
+				payloadId: "01TEST00000000000000000000",
 				destination: "OKINAWA",
 				payload: { kind: "nature", avoidUrban: false } as EventPayload,
 			},
@@ -191,8 +206,8 @@ describe("deliverJobs", () => {
 		const jobs = resolveDeliveryJobs(
 			env,
 			Array.from({ length: 101 }, (_, i) => ({
-				id: i + 1,
-				payloadId: i + 1,
+				id: `01TEST0000000000000001${String(i + 1).padStart(4, "0")}`,
+				payloadId: `01PAYL0000000000000001${String(i + 1).padStart(4, "0")}`,
 				destination: "OKAYAMA",
 				payload: {
 					kind: "culture",
@@ -200,7 +215,7 @@ describe("deliverJobs", () => {
 				} satisfies EventPayload,
 			})),
 		);
-		const delivered: number[][] = [];
+		const delivered: string[][] = [];
 
 		await deliverJobs(jobs, async (jobIds) => {
 			delivered.push([...jobIds]);
@@ -208,6 +223,6 @@ describe("deliverJobs", () => {
 
 		expect(delivered).toHaveLength(2);
 		expect(delivered[0]).toHaveLength(100);
-		expect(delivered[1]).toStrictEqual([101]);
+		expect(delivered[1]).toStrictEqual(["01TEST00000000000000010101"]);
 	});
 });

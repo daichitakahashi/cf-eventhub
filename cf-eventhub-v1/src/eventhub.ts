@@ -1,7 +1,12 @@
 import { DurableObject } from "cloudflare:workers";
 import * as v from "valibot";
 
-import { assertQueuesExist, deliverJobs, resolveDeliveryJobs } from "./core/queue";
+import {
+	assertQueuesExist,
+	deliverJobs,
+	resolveDeliveryJobs,
+} from "./core/queue";
+import { MonotonicUlidGenerator } from "./core/id";
 import { Config, type ConfigInput } from "./core/routing";
 import {
 	createPendingDeliveryJobs,
@@ -27,23 +32,28 @@ const getRouteConfig = (env: EventHubEnv) => {
 };
 
 export class EventHub extends DurableObject<EventHubEnv> {
-	private readonly routeConfig: v.InferOutput<typeof Config>;
+	private readonly idGenerator: MonotonicUlidGenerator;
 
 	constructor(ctx: DurableObjectState, env: EventHubEnv) {
 		super(ctx, env);
-		this.routeConfig = getRouteConfig(env);
+		this.idGenerator = new MonotonicUlidGenerator();
 		initializeSchema(this.ctx.storage.sql);
 	}
 
 	async publish(payload: EventPayload, ...rest: EventPayload[]): Promise<void> {
-		const pendingDeliveryJobs = createPendingDeliveryJobs(this.routeConfig, [
+		const routeConfig = getRouteConfig(this.env);
+		const pendingDeliveryJobs = createPendingDeliveryJobs(routeConfig, [
 			payload,
 			...rest,
 		]);
 		assertQueuesExist(this.env, pendingDeliveryJobs);
 
 		const persistedJobs = this.ctx.storage.transactionSync(() =>
-			persistDeliveryJobs(this.ctx.storage.sql, pendingDeliveryJobs),
+			persistDeliveryJobs(
+				this.ctx.storage.sql,
+				pendingDeliveryJobs,
+				(now) => this.idGenerator.generate(now),
+			),
 		);
 		const jobs = resolveDeliveryJobs(this.env, persistedJobs);
 		this.ctx.waitUntil(

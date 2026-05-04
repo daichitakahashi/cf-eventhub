@@ -11,66 +11,60 @@ export type PendingDeliveryJobs = {
 };
 
 export type PersistedDeliveryJob = {
-	id: number;
-	payloadId: number;
+	id: string;
+	payloadId: string;
 	destination: string;
 	payload: EventPayload;
 };
 
 const insertPayload = (
 	sql: SqlStorage,
+	id: string,
 	payload: EventPayload,
 	createdAt: string,
-): number => {
-	const row = sql
-		.exec<{ id: number }>(
-			`
-				INSERT INTO payloads (body, created_at)
-				VALUES (?, ?)
-				RETURNING id
-			`,
-			JSON.stringify(payload),
-			createdAt,
-		)
-		.one();
-
-	return row.id;
+): void => {
+	sql.exec(
+		`
+			INSERT INTO payloads (id, body, created_at)
+			VALUES (?, ?, ?)
+		`,
+		id,
+		JSON.stringify(payload),
+		createdAt,
+	);
 };
 
 const insertDeliveryJob = (
 	sql: SqlStorage,
-	payloadId: number,
+	id: string,
+	payloadId: string,
 	destination: string,
 	createdAt: string,
-): number => {
-	const row = sql
-		.exec<{ id: number }>(
-			`
-				INSERT INTO delivery_jobs (payload_id, destination, created_at, completed_at)
-				VALUES (?, ?, ?, NULL)
-				RETURNING id
-			`,
-			payloadId,
-			destination,
-			createdAt,
-		)
-		.one();
-
-	return row.id;
+): void => {
+	sql.exec(
+		`
+			INSERT INTO delivery_jobs (id, payload_id, destination, created_at, completed_at)
+			VALUES (?, ?, ?, ?, NULL)
+		`,
+		id,
+		payloadId,
+		destination,
+		createdAt,
+	);
 };
 
 export const initializeSchema = (sql: SqlStorage): void => {
 	sql.exec(`
 		CREATE TABLE IF NOT EXISTS payloads (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			id TEXT PRIMARY KEY,
 			body TEXT NOT NULL,
 			created_at TEXT NOT NULL
 		)
 	`);
 	sql.exec(`
 		CREATE TABLE IF NOT EXISTS delivery_jobs (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			payload_id INTEGER NOT NULL,
+			id TEXT PRIMARY KEY,
+			payload_id TEXT NOT NULL,
 			destination TEXT NOT NULL,
 			created_at TEXT NOT NULL,
 			completed_at TEXT,
@@ -93,23 +87,29 @@ export const createPendingDeliveryJobs = (
 ): PendingDeliveryJobs => ({
 	payloads: payloads.map((payload) => ({
 		payload,
-		destinations: findRoutes(config, payload).map(({ destination }) => destination),
+		destinations: findRoutes(config, payload).map(
+			({ destination }) => destination,
+		),
 	})),
 });
 
 export const persistDeliveryJobs = (
 	sql: SqlStorage,
 	pendingDeliveryJobs: PendingDeliveryJobs,
+	generateId: (now: number) => string,
 	now = new Date(),
 ): PersistedDeliveryJob[] => {
 	const createdAt = now.toISOString();
 	const jobs: PersistedDeliveryJob[] = [];
+	const nowMs = now.getTime();
 
 	for (const { payload, destinations } of pendingDeliveryJobs.payloads) {
-		const payloadId = insertPayload(sql, payload, createdAt);
+		const payloadId = generateId(nowMs);
+		insertPayload(sql, payloadId, payload, createdAt);
 
 		for (const destination of destinations) {
-			const jobId = insertDeliveryJob(sql, payloadId, destination, createdAt);
+			const jobId = generateId(nowMs);
+			insertDeliveryJob(sql, jobId, payloadId, destination, createdAt);
 			jobs.push({
 				id: jobId,
 				payloadId,
@@ -124,7 +124,7 @@ export const persistDeliveryJobs = (
 
 export const markDeliveryJobsCompleted = (
 	sql: SqlStorage,
-	jobIds: readonly number[],
+	jobIds: readonly string[],
 	now = new Date(),
 ): void => {
 	if (jobIds.length === 0) {
