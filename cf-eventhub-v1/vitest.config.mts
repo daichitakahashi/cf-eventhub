@@ -5,6 +5,36 @@ export default defineWorkersConfig({
 		poolOptions: {
 			workers: {
 				wrangler: { configPath: "./wrangler.jsonc" },
+				miniflare: {
+					bindings: {
+						EVENTHUB_ROUTING: {
+							routes: [
+								{
+									condition: {
+										path: "$.kind",
+										exact: "culture",
+									},
+									destination: "OKAYAMA",
+								},
+								{
+									condition: {
+										path: "$.kind",
+										exact: "nature",
+									},
+									destination: "HOKKAIDO",
+								},
+								{
+									condition: {
+										path: "$.kind",
+										exact: "nature",
+									},
+									destination: "OKINAWA",
+								},
+							],
+						},
+					},
+					queueProducers: ["OKAYAMA", "HOKKAIDO", "OKINAWA"],
+				},
 			},
 		},
 	},

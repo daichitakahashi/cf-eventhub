@@ -1,12 +1,10 @@
+import type { PendingDeliveryJobs, PersistedDeliveryJob } from "./store";
 import type { EventPayload } from "./type";
-import type { Config } from "./routing";
-import { findRoutes } from "./routing";
 
 const MAX_SEND_BATCH_COUNT = 100;
 
-export type DeliveryJob = {
+export type DeliveryJob = PersistedDeliveryJob & {
 	queue: Queue<EventPayload>;
-	messages: MessageSendRequest<EventPayload>[];
 };
 
 const getQueue = (
@@ -23,70 +21,69 @@ const getQueue = (
 	return queue as Queue<EventPayload>;
 };
 
-const sendBatches = async (
-	queue: Queue<EventPayload>,
-	messages: readonly MessageSendRequest<EventPayload>[],
-): Promise<void> => {
-	for (let i = 0; i < messages.length; i += MAX_SEND_BATCH_COUNT) {
-		await queue.sendBatch(messages.slice(i, i + MAX_SEND_BATCH_COUNT));
-	}
-};
-
-export const createDestinationMessages = (
-	config: Config,
-	payloads: readonly [EventPayload, ...EventPayload[]],
-): Map<string, MessageSendRequest<EventPayload>[]> => {
-	const messagesByDestination = new Map<
-		string,
-		MessageSendRequest<EventPayload>[]
-	>();
-
-	for (const payload of payloads) {
-		for (const { destination } of findRoutes(config, payload)) {
-			const messages = messagesByDestination.get(destination) ?? [];
-			messages.push({
-				body: payload,
-				contentType: "json",
-			});
-			messagesByDestination.set(destination, messages);
-		}
-	}
-
-	return messagesByDestination;
-};
-
-export const createDeliveryJobs = (
+export const resolveDeliveryJobs = (
 	env: Record<string, unknown>,
-	config: Config,
-	payloads: readonly [EventPayload, ...EventPayload[]],
+	jobs: readonly PersistedDeliveryJob[],
 ): DeliveryJob[] => {
-	const messagesByDestination = createDestinationMessages(config, payloads);
 	const queuesByDestination = new Map<string, Queue<EventPayload>>();
 
-	for (const destination of messagesByDestination.keys()) {
+	for (const { destination } of jobs) {
 		queuesByDestination.set(destination, getQueue(env, destination));
 	}
 
-	return Array.from(
-		messagesByDestination,
-		([destination, messages]): DeliveryJob => {
-			const queue = queuesByDestination.get(destination);
-			if (!queue) {
-				throw new Error(`cf-eventhub-v1: ${destination} not resolved`);
-			}
+	return jobs.map((job) => {
+		const queue = queuesByDestination.get(job.destination);
+		if (!queue) {
+			throw new Error(`cf-eventhub-v1: ${job.destination} not resolved`);
+		}
 
-			return {
-				queue,
-				messages,
-			};
-		},
-	);
+		return {
+			...job,
+			queue,
+		};
+	});
+};
+
+export const assertQueuesExist = (
+	env: Record<string, unknown>,
+	pendingDeliveryJobs: PendingDeliveryJobs,
+): void => {
+	const destinations = new Set<string>();
+
+	for (const { destinations: items } of pendingDeliveryJobs.payloads) {
+		for (const destination of items) {
+			destinations.add(destination);
+		}
+	}
+
+	for (const destination of destinations) {
+		getQueue(env, destination);
+	}
 };
 
 export const deliverJobs = async (
 	jobs: readonly DeliveryJob[],
+	onDelivered?: (jobIds: readonly number[]) => void | Promise<void>,
 ): Promise<void> => {
-	for (const { queue, messages } of jobs) {
-		await sendBatches(queue, messages);
+	const jobsByDestination = new Map<string, DeliveryJob[]>();
+
+	for (const job of jobs) {
+		const items = jobsByDestination.get(job.destination) ?? [];
+		items.push(job);
+		jobsByDestination.set(job.destination, items);
+	}
+
+	for (const destinationJobs of jobsByDestination.values()) {
+		const [{ queue }] = destinationJobs;
+		for (let i = 0; i < destinationJobs.length; i += MAX_SEND_BATCH_COUNT) {
+			const chunk = destinationJobs.slice(i, i + MAX_SEND_BATCH_COUNT);
+			await queue.sendBatch(
+				chunk.map((job) => ({
+					body: job.payload,
+					contentType: "json",
+				})),
+			);
+			await onDelivered?.(chunk.map((job) => job.id));
+		}
 	}
 };

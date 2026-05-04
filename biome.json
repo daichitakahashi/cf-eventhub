@@ -43,7 +43,11 @@
       "Hyperdrive",
       "R2Bucket",
       "R2Object",
-      "DurableObjectState"
+      "DurableObjectState",
+      "SqlStorage",
+      "SqlStorageValue",
+      "SqlStorageStatement",
+      "SqlStorageCursor"
     ]
   }
 }

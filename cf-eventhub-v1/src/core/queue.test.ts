@@ -1,11 +1,11 @@
 import { describe, expect, test } from "vitest";
 
-import {
-	createDeliveryJobs,
-	createDestinationMessages,
-	deliverJobs,
-} from "./queue";
+import { assertQueuesExist, deliverJobs, resolveDeliveryJobs } from "./queue";
 import type { Config } from "./routing";
+import {
+	createPendingDeliveryJobs,
+	type PersistedDeliveryJob,
+} from "./store";
 import type { EventPayload } from "./type";
 
 class QueueMock implements Queue<EventPayload> {
@@ -69,20 +69,50 @@ const routeConfig: Config = {
 	],
 };
 
-describe("createDestinationMessages", () => {
-	test("groups messages by destination", () => {
-		const payloads = [
-			{ kind: "culture", avoidUrban: true },
+describe("assertQueuesExist", () => {
+	test("fails before persistence when a destination queue is missing", () => {
+		const env = {
+			OKAYAMA: new QueueMock(),
+			HOKKAIDO: new QueueMock(),
+		};
+		const pendingDeliveryJobs = createPendingDeliveryJobs(routeConfig, [
 			{ kind: "nature", avoidUrban: false },
-			{ kind: "other" },
-		] as const;
+		]);
 
-		expect(
-			Array.from(createDestinationMessages(routeConfig, payloads).entries()),
-		).toStrictEqual([
-			["OKAYAMA", [{ body: payloads[0], contentType: "json" }]],
-			["HOKKAIDO", [{ body: payloads[1], contentType: "json" }]],
-			["OKINAWA", [{ body: payloads[1], contentType: "json" }]],
+		expect(() => assertQueuesExist(env, pendingDeliveryJobs)).toThrow(
+			/cf-eventhub-v1: OKINAWA not set/,
+		);
+	});
+});
+
+describe("resolveDeliveryJobs", () => {
+	test("resolves queues before sending", () => {
+		const env = createEnv();
+		const payload = { kind: "nature", avoidUrban: false } as const;
+		const jobs: PersistedDeliveryJob[] = [
+			{
+				id: 1,
+				payloadId: 1,
+				destination: "HOKKAIDO",
+				payload,
+			},
+			{
+				id: 2,
+				payloadId: 1,
+				destination: "OKINAWA",
+				payload,
+			},
+		];
+
+		expect(resolveDeliveryJobs(env, jobs)).toStrictEqual([
+			{
+				...jobs[0],
+				queue: env.HOKKAIDO,
+			},
+			{
+				...jobs[1],
+				queue: env.OKINAWA,
+			},
 		]);
 	});
 });
@@ -90,37 +120,42 @@ describe("createDestinationMessages", () => {
 describe("deliverJobs", () => {
 	test("sends matched payloads to destination queues", async () => {
 		const env = createEnv();
-		const payloads = [
-			{ kind: "culture", avoidUrban: true },
-			{ kind: "nature", avoidUrban: false },
-			{ kind: "other" },
-		] as const;
+		const payload1 = { kind: "culture", avoidUrban: true };
+		const payload2 = { kind: "nature", avoidUrban: false };
+		const jobs = resolveDeliveryJobs(env, [
+			{ id: 1, payloadId: 1, destination: "OKAYAMA", payload: payload1 },
+			{ id: 2, payloadId: 2, destination: "HOKKAIDO", payload: payload2 },
+			{ id: 3, payloadId: 2, destination: "OKINAWA", payload: payload2 },
+		]);
 
-		const jobs = createDeliveryJobs(env, routeConfig, payloads);
 		await deliverJobs(jobs);
 
 		expect(env.OKAYAMA.sentBatches).toStrictEqual([
-			[{ body: payloads[0], contentType: "json" }],
+			[{ body: payload1, contentType: "json" }],
 		]);
 		expect(env.HOKKAIDO.sentBatches).toStrictEqual([
-			[{ body: payloads[1], contentType: "json" }],
+			[{ body: payload2, contentType: "json" }],
 		]);
 		expect(env.OKINAWA.sentBatches).toStrictEqual([
-			[{ body: payloads[1], contentType: "json" }],
+			[{ body: payload2, contentType: "json" }],
 		]);
 	});
 
 	test("splits batches per destination", async () => {
 		const env = createEnv();
-		const payloads = Array.from(
-			{ length: 101 },
-			(_, i): EventPayload => ({
-				kind: "culture",
-				index: i,
-			}),
-		) as [EventPayload, ...EventPayload[]];
+		const jobs = resolveDeliveryJobs(
+			env,
+			Array.from({ length: 101 }, (_, i) => ({
+				id: i + 1,
+				payloadId: i + 1,
+				destination: "OKAYAMA",
+				payload: {
+					kind: "culture",
+					index: i,
+				} satisfies EventPayload,
+			})),
+		);
 
-		const jobs = createDeliveryJobs(env, routeConfig, payloads);
 		await deliverJobs(jobs);
 
 		expect(env.OKAYAMA.sentBatches).toHaveLength(2);
@@ -130,21 +165,49 @@ describe("deliverJobs", () => {
 		expect(env.OKINAWA.sentBatches).toHaveLength(0);
 	});
 
-	test("does not send anything when any destination queue is missing", async () => {
+	test("does not send anything when any destination queue is missing", () => {
 		const env = {
 			OKAYAMA: new QueueMock(),
 			HOKKAIDO: new QueueMock(),
 		};
-		const payloads = [{ kind: "nature", avoidUrban: false }] as const;
+		const jobs = [
+			{
+				id: 1,
+				payloadId: 1,
+				destination: "OKINAWA",
+				payload: { kind: "nature", avoidUrban: false } as EventPayload,
+			},
+		] satisfies PersistedDeliveryJob[];
 
-		expect(() => createDeliveryJobs(env, routeConfig, payloads)).toThrow(
+		expect(() => resolveDeliveryJobs(env, jobs)).toThrow(
 			/cf-eventhub-v1: OKINAWA not set/,
 		);
-		await expect(async () => {
-			const jobs = createDeliveryJobs(env, routeConfig, payloads);
-			await deliverJobs(jobs);
-		}).rejects.toThrow(/cf-eventhub-v1: OKINAWA not set/);
 		expect(env.HOKKAIDO.sentBatches).toHaveLength(0);
 		expect(env.OKAYAMA.sentBatches).toHaveLength(0);
+	});
+
+	test("reports delivered job ids after each successful batch", async () => {
+		const env = createEnv();
+		const jobs = resolveDeliveryJobs(
+			env,
+			Array.from({ length: 101 }, (_, i) => ({
+				id: i + 1,
+				payloadId: i + 1,
+				destination: "OKAYAMA",
+				payload: {
+					kind: "culture",
+					index: i,
+				} satisfies EventPayload,
+			})),
+		);
+		const delivered: number[][] = [];
+
+		await deliverJobs(jobs, async (jobIds) => {
+			delivered.push([...jobIds]);
+		});
+
+		expect(delivered).toHaveLength(2);
+		expect(delivered[0]).toHaveLength(100);
+		expect(delivered[1]).toStrictEqual([101]);
 	});
 });
