@@ -1,5 +1,5 @@
 {
-	"name": "cf-eventhub-v1",
+	"name": "eventhub",
 	"version": "0.0.0",
 	"private": true,
 	"scripts": {
