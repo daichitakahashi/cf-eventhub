@@ -441,6 +441,45 @@ describe("delivery job state transitions", () => {
 			expect(updatedJob.lastError).toBeNull();
 		});
 	});
+
+	test("keeps the original completion timestamp on a duplicate success", async () => {
+		// 1. Mark a job as completed twice with different timestamps.
+		// 2. Verify the first completion timestamp is preserved.
+		const stub = getStub("store-duplicate-completion");
+
+		await runInDurableObject(stub, async (_instance, state) => {
+			let sequence = 0;
+			const [job] = state.storage.transactionSync(() =>
+				persistDeliveryJobs(
+					state.storage.sql,
+					createPendingDeliveryJobs(routeConfig, [
+						{ kind: "culture", avoidUrban: true },
+					]),
+					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
+					new Date("2026-05-04T00:00:00.000Z"),
+					10_000,
+				),
+			);
+
+			state.storage.transactionSync(() => {
+				markDeliveryJobsCompleted(
+					state.storage.sql,
+					[job.id],
+					new Date("2026-05-04T00:00:05.000Z"),
+				);
+				markDeliveryJobsCompleted(
+					state.storage.sql,
+					[job.id],
+					new Date("2026-05-04T00:00:10.000Z"),
+				);
+			});
+
+			const [updatedJob] = listDeliveryJobStatuses(state.storage.sql);
+			expect(updatedJob.finalStatus).toBe("completed");
+			expect(updatedJob.finalizedAt).toBe("2026-05-04T00:00:05.000Z");
+			expect(updatedJob.lastError).toBeNull();
+		});
+	});
 });
 
 describe("delivery job scheduling", () => {

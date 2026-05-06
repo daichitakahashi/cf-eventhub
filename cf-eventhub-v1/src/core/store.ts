@@ -209,6 +209,7 @@ export const markDeliveryJobsCompleted = (
 				finalized_at = ?,
 				last_error = NULL
 			WHERE id IN (${placeholders})
+				AND (final_status IS NULL OR final_status = 'failed')
 		`,
 		now.toISOString(),
 		...jobIds,
