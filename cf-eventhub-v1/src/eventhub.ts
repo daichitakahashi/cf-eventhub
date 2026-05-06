@@ -94,10 +94,14 @@ const getDeliveryConfig = (env: EventHubEnv): DeliveryConfig => {
 // Durable object that persists delivery jobs and retries them via alarms.
 export class EventHub extends DurableObject<EventHubEnv> {
 	private readonly idGenerator: MonotonicUlidGenerator;
+	private readonly routeConfig: Config;
+	private readonly deliveryConfig: DeliveryConfig;
 
 	constructor(ctx: DurableObjectState, env: EventHubEnv) {
 		super(ctx, env);
 		this.idGenerator = new MonotonicUlidGenerator();
+		this.routeConfig = getRouteConfig(env);
+		this.deliveryConfig = getDeliveryConfig(env);
 		initializeSchema(this.ctx.storage.sql);
 	}
 
@@ -133,7 +137,7 @@ export class EventHub extends DurableObject<EventHubEnv> {
 			this.ctx.storage.transactionSync(() =>
 				listDeliverableJobs(
 					this.ctx.storage.sql,
-					getDeliveryConfig(this.env).alarmBatchSize,
+					this.deliveryConfig.alarmBatchSize,
 					new Date(),
 				),
 			);
@@ -143,7 +147,6 @@ export class EventHub extends DurableObject<EventHubEnv> {
 			return;
 		}
 
-		const config = getDeliveryConfig(this.env);
 		await deliverPersistedJobs(this.env, targetJobs, {
 			onDelivered: async (jobIds) => {
 				this.ctx.storage.transactionSync(() => {
@@ -155,9 +158,9 @@ export class EventHub extends DurableObject<EventHubEnv> {
 					markDeliveryJobsFailed(
 						this.ctx.storage.sql,
 						jobIds,
-						config.maxDeliveryRetries,
-						config.initialRetryDelayMs,
-						config.maxRetryDelayMs,
+						this.deliveryConfig.maxDeliveryRetries,
+						this.deliveryConfig.initialRetryDelayMs,
+						this.deliveryConfig.maxRetryDelayMs,
 						error,
 					);
 				});
@@ -168,9 +171,7 @@ export class EventHub extends DurableObject<EventHubEnv> {
 
 	// Persists routed jobs and kicks off their first delivery attempt.
 	async publish(payload: EventPayload, ...rest: EventPayload[]): Promise<void> {
-		const routeConfig = getRouteConfig(this.env);
-		const deliveryConfig = getDeliveryConfig(this.env);
-		const pendingDeliveryJobs = createPendingDeliveryJobs(routeConfig, [
+		const pendingDeliveryJobs = createPendingDeliveryJobs(this.routeConfig, [
 			payload,
 			...rest,
 		]);
@@ -182,7 +183,7 @@ export class EventHub extends DurableObject<EventHubEnv> {
 				pendingDeliveryJobs,
 				(now) => this.idGenerator.generate(now),
 				new Date(),
-				deliveryConfig.initialRetryDelayMs,
+				this.deliveryConfig.initialRetryDelayMs,
 			),
 		);
 		await this.scheduleNextAlarmFromStorage();
