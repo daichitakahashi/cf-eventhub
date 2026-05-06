@@ -3,7 +3,6 @@ import { describe, expect, test } from "vitest";
 import { MonotonicUlidGenerator, ULID_LENGTH } from "./id";
 
 describe("MonotonicUlidGenerator", () => {
-
 	test("creates lexicographically increasing ids at the same timestamp", () => {
 		const now = 1_777_777_777_777;
 		const generator = new MonotonicUlidGenerator();
@@ -40,7 +39,7 @@ describe("MonotonicUlidGenerator", () => {
 		const generator = new MonotonicUlidGenerator();
 
 		expect(() => generator.generate(2 ** 48)).toThrowError(
-			"cf-eventhub-v1: invalid ULID timestamp",
+			"eventhub: invalid ULID timestamp",
 		);
 	});
 });

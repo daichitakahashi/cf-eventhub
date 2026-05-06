@@ -8,7 +8,7 @@ Developing message hub that works with Cloudflare Workers and Queues with follow
 ## Designs
 ### Delivery semantics
 
-`cf-eventhub-v1` provides `at-least-once` delivery semantics, not `exactly-once`.
+`eventhub` provides `at-least-once` delivery semantics, not `exactly-once`.
 It prioritizes avoiding message loss over preventing duplicate deliveries, so the
 same event may be delivered more than once in rare cases such as retry recovery
 or overlap between initial delivery and alarm-based retry.

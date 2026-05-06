@@ -17,22 +17,22 @@ describe("parsePositiveInteger", () => {
 
 	test("rejects partially numeric strings", () => {
 		expect(() => parsePositiveInteger("10ms", 50, "TEST_VALUE")).toThrow(
-			/cf-eventhub-v1: invalid TEST_VALUE/,
+			/eventhub: invalid TEST_VALUE/,
 		);
 	});
 
 	test("rejects decimal strings", () => {
 		expect(() => parsePositiveInteger("1.5", 50, "TEST_VALUE")).toThrow(
-			/cf-eventhub-v1: invalid TEST_VALUE/,
+			/eventhub: invalid TEST_VALUE/,
 		);
 	});
 
 	test("rejects non-positive values", () => {
 		expect(() => parsePositiveInteger("0", 50, "TEST_VALUE")).toThrow(
-			/cf-eventhub-v1: invalid TEST_VALUE/,
+			/eventhub: invalid TEST_VALUE/,
 		);
 		expect(() => parsePositiveInteger(-1, 50, "TEST_VALUE")).toThrow(
-			/cf-eventhub-v1: invalid TEST_VALUE/,
+			/eventhub: invalid TEST_VALUE/,
 		);
 	});
 });

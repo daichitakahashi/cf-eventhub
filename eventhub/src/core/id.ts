@@ -38,7 +38,7 @@ const incrementRandom = (value: Uint8Array) => {
 		next[i] = 0;
 	}
 
-	throw new Error("cf-eventhub-v1: monotonic ULID overflow");
+	throw new Error("eventhub: monotonic ULID overflow");
 };
 
 const encodeRandom = (value: Uint8Array): string =>
@@ -50,7 +50,7 @@ export class MonotonicUlidGenerator {
 
 	generate(now = Date.now()): string {
 		if (!Number.isInteger(now) || now < 0 || now > MAX_ULID_TIMESTAMP) {
-			throw new Error("cf-eventhub-v1: invalid ULID timestamp");
+			throw new Error("eventhub: invalid ULID timestamp");
 		}
 
 		const timestamp = now > this.lastTime ? now : this.lastTime;

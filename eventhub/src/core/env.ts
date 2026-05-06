@@ -10,12 +10,12 @@ export const parsePositiveInteger = (
 	}
 
 	if (typeof value === "string" && !POSITIVE_INTEGER_PATTERN.test(value)) {
-		throw new Error(`cf-eventhub-v1: invalid ${name}`);
+		throw new Error(`eventhub: invalid ${name}`);
 	}
 
 	const parsed = typeof value === "number" ? value : Number(value);
 	if (!Number.isInteger(parsed) || parsed <= 0) {
-		throw new Error(`cf-eventhub-v1: invalid ${name}`);
+		throw new Error(`eventhub: invalid ${name}`);
 	}
 
 	return parsed;

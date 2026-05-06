@@ -11,10 +11,7 @@ export type DeliveryJob = PersistedDeliveryJob & {
 // Lifecycle callbacks fired after each batch delivery attempt.
 type DeliverJobsHandlers = {
 	onDelivered: (jobIds: readonly string[]) => void | Promise<void>;
-	onFailed: (
-		jobIds: readonly string[],
-		error: unknown,
-	) => void | Promise<void>;
+	onFailed: (jobIds: readonly string[], error: unknown) => void | Promise<void>;
 };
 
 // Groups jobs so each queue can be sent in destination-local batches.
@@ -29,10 +26,10 @@ const getQueue = (
 ): Queue<EventPayload> => {
 	const queue = env[name];
 	if (!queue) {
-		throw new Error(`cf-eventhub-v1: ${name} not set`);
+		throw new Error(`eventhub: ${name} not set`);
 	}
 	if (typeof queue !== "object" || !("sendBatch" in queue)) {
-		throw new Error(`cf-eventhub-v1: value of ${name} is not a Queue`);
+		throw new Error(`eventhub: value of ${name} is not a Queue`);
 	}
 	return queue as Queue<EventPayload>;
 };
@@ -51,7 +48,7 @@ export const resolveDeliveryJobs = (
 	return jobs.map((job) => {
 		const queue = queuesByDestination.get(job.destination);
 		if (!queue) {
-			throw new Error(`cf-eventhub-v1: ${job.destination} not resolved`);
+			throw new Error(`eventhub: ${job.destination} not resolved`);
 		}
 
 		return {

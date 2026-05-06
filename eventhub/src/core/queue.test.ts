@@ -97,7 +97,7 @@ describe("assertQueuesExist", () => {
 		]);
 
 		expect(() => assertQueuesExist(env, pendingDeliveryJobs)).toThrow(
-			/cf-eventhub-v1: OKINAWA not set/,
+			/eventhub: OKINAWA not set/,
 		);
 	});
 });
@@ -222,7 +222,7 @@ describe("deliverJobs", () => {
 		] satisfies PersistedDeliveryJob[];
 
 		expect(() => resolveDeliveryJobs(env, jobs)).toThrow(
-			/cf-eventhub-v1: OKINAWA not set/,
+			/eventhub: OKINAWA not set/,
 		);
 		expect(env.HOKKAIDO.sentBatches).toHaveLength(0);
 		expect(env.OKAYAMA.sentBatches).toHaveLength(0);

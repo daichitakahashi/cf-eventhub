@@ -43,7 +43,7 @@ const DEFAULT_MAX_RETRY_DELAY_MS = 900_000;
 const getRouteConfig = (env: EventHubEnv) => {
 	const routing = env.EVENTHUB_ROUTING;
 	if (!routing) {
-		throw new Error("cf-eventhub-v1: EVENTHUB_ROUTING not set");
+		throw new Error("eventhub: EVENTHUB_ROUTING not set");
 	}
 
 	const maybeConfig =
@@ -59,7 +59,7 @@ const getDeliveryConfig = (env: EventHubEnv): DeliveryConfig => {
 		"EVENTHUB_ALARM_BATCH_SIZE",
 	);
 	if (alarmBatchSize > 100) {
-		throw new Error("cf-eventhub-v1: EVENTHUB_ALARM_BATCH_SIZE must be <= 100");
+		throw new Error("eventhub: EVENTHUB_ALARM_BATCH_SIZE must be <= 100");
 	}
 
 	const maxDeliveryRetries = parsePositiveInteger(
@@ -79,7 +79,7 @@ const getDeliveryConfig = (env: EventHubEnv): DeliveryConfig => {
 	);
 	if (initialRetryDelayMs > maxRetryDelayMs) {
 		throw new Error(
-			"cf-eventhub-v1: EVENTHUB_INITIAL_RETRY_DELAY_MS must be <= EVENTHUB_MAX_RETRY_DELAY_MS",
+			"eventhub: EVENTHUB_INITIAL_RETRY_DELAY_MS must be <= EVENTHUB_MAX_RETRY_DELAY_MS",
 		);
 	}
 
@@ -121,7 +121,7 @@ export class EventHub extends DurableObject<EventHubEnv> {
 
 		const nextTime = Date.parse(nextRetryAt);
 		if (Number.isNaN(nextTime)) {
-			throw new Error("cf-eventhub-v1: invalid next_retry_at");
+			throw new Error("eventhub: invalid next_retry_at");
 		}
 		if (currentAlarm === null || nextTime !== currentAlarm) {
 			await this.ctx.storage.setAlarm(nextTime);
