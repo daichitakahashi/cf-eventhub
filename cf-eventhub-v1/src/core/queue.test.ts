@@ -83,6 +83,8 @@ const routeConfig: Config = {
 
 describe("assertQueuesExist", () => {
 	test("fails before persistence when a destination queue is missing", () => {
+		// 1. Build a routed job plan with a missing queue binding.
+		// 2. Confirm validation fails before delivery starts.
 		const env = {
 			OKAYAMA: new QueueMock(),
 			HOKKAIDO: new QueueMock(),
@@ -131,6 +133,8 @@ describe("resolveDeliveryJobs", () => {
 
 describe("deliverJobs", () => {
 	test("sends matched payloads to destination queues", async () => {
+		// 1. Resolve jobs into queue-backed delivery jobs.
+		// 2. Send them and verify each destination received the right payload.
 		const env = createEnv();
 		const payload1 = { kind: "culture", avoidUrban: true };
 		const payload2 = { kind: "nature", avoidUrban: false };
@@ -193,6 +197,8 @@ describe("deliverJobs", () => {
 	});
 
 	test("does not send anything when any destination queue is missing", () => {
+		// 1. Try to resolve jobs with a missing queue binding.
+		// 2. Verify no queue receives any messages.
 		const env = {
 			OKAYAMA: new QueueMock(),
 			HOKKAIDO: new QueueMock(),
@@ -214,6 +220,8 @@ describe("deliverJobs", () => {
 	});
 
 	test("reports delivered job ids after each successful batch", async () => {
+		// 1. Deliver enough jobs to produce two batches.
+		// 2. Verify the success callback is invoked once per batch with the delivered job IDs.
 		const env = createEnv();
 		const jobs = resolveDeliveryJobs(
 			env,
@@ -241,6 +249,8 @@ describe("deliverJobs", () => {
 	});
 
 	test("reports failed job ids and continues with other destinations", async () => {
+		// 1. Make one destination fail while keeping another healthy.
+		// 2. Verify failure reporting does not block delivery to other destinations.
 		const env = {
 			OKAYAMA: new QueueMock([0]),
 			HOKKAIDO: new QueueMock(),
@@ -278,6 +288,8 @@ describe("deliverJobs", () => {
 
 describe("deliverPersistedJobs", () => {
 	test("continues delivering other destinations when one destination queue is missing", async () => {
+		// 1. Deliver persisted jobs with one unresolved destination.
+		// 2. Verify the remaining destination still succeeds.
 		const env = {
 			HOKKAIDO: new QueueMock(),
 			// OKINAWA is missing

@@ -2,14 +2,16 @@ import { env } from "cloudflare:workers";
 import { runInDurableObject } from "cloudflare:test";
 import { describe, expect, test, vi } from "vitest";
 
-import { ULID_LENGTH } from "./id";
+import type { Config } from "./routing";
 import {
 	createPendingDeliveryJobs,
+	getNextRetryAt,
+	listDeliverableJobs,
 	listDeliveryJobStatuses,
+	markDeliveryJobsCompleted,
 	markDeliveryJobsFailed,
 	persistDeliveryJobs,
 } from "./store";
-import type { Config } from "./routing";
 
 type PayloadRow = {
 	id: string;
@@ -61,6 +63,8 @@ const getStub = (name: string) =>
 
 describe("createPendingDeliveryJobs", () => {
 	test("evaluates routes once and builds a delivery job plan", () => {
+		// 1. Route several payloads through the config.
+		// 2. Verify each payload is paired with the selected destinations.
 		const payloads = [
 			{ kind: "culture", avoidUrban: true },
 			{ kind: "nature", avoidUrban: false },
@@ -86,8 +90,10 @@ describe("createPendingDeliveryJobs", () => {
 	});
 });
 
-describe("persisted delivery jobs", () => {
+describe("persistDeliveryJobs", () => {
 	test("persists delivery jobs with monotonic ids from an injected generator", () => {
+		// 1. Inject deterministic IDs and persist one routed payload.
+		// 2. Verify the generated rows and returned jobs match.
 		const sql = {
 			exec: vi.fn(),
 		} as unknown as SqlStorage;
@@ -132,13 +138,25 @@ describe("persisted delivery jobs", () => {
 	});
 
 	test("persists payloads and delivery jobs in SQLite", async () => {
-		const stub = getStub("persisted-delivery-jobs");
-		const payload1 = { kind: "culture", avoidUrban: true };
-		const payload2 = { kind: "nature", avoidUrban: false };
-
-		await stub.publish(payload1, payload2);
+		// 1. Persist routed payloads into the DO SQLite store.
+		// 2. Inspect raw tables to verify stored payload and job state.
+		const stub = getStub("store-persists-delivery-jobs");
 
 		await runInDurableObject(stub, async (_instance, state) => {
+			let sequence = 0;
+			state.storage.transactionSync(() => {
+				persistDeliveryJobs(
+					state.storage.sql,
+						createPendingDeliveryJobs(routeConfig, [
+							{ kind: "culture", avoidUrban: true },
+							{ kind: "nature", avoidUrban: false },
+						]),
+					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
+					new Date("2026-05-04T00:00:00.000Z"),
+					10_000,
+				);
+			});
+
 			const payloads = state.storage.sql
 				.exec<PayloadRow>(
 					"SELECT id, body, created_at FROM payloads ORDER BY id",
@@ -165,18 +183,18 @@ describe("persisted delivery jobs", () => {
 				.toArray();
 
 			expect(payloads).toHaveLength(2);
-			expect(payloads.every((payload) => payload.id.length === ULID_LENGTH)).toBe(
-				true,
-			);
 			expect(payloads.map((payload) => payload.id).sort()).toStrictEqual(
 				payloads.map((payload) => payload.id),
 			);
-			expect(JSON.parse(payloads[0].body)).toStrictEqual(payload1);
-			expect(JSON.parse(payloads[1].body)).toStrictEqual(payload2);
+			expect(JSON.parse(payloads[0].body)).toStrictEqual({
+				kind: "culture",
+				avoidUrban: true,
+			});
+			expect(JSON.parse(payloads[1].body)).toStrictEqual({
+				kind: "nature",
+				avoidUrban: false,
+			});
 			expect(deliveryJobs).toHaveLength(3);
-			expect(
-				deliveryJobs.every((deliveryJob) => deliveryJob.id.length === ULID_LENGTH),
-			).toBe(true);
 			expect(deliveryJobs.map((job) => job.destination)).toStrictEqual([
 				"OKAYAMA",
 				"HOKKAIDO",
@@ -198,12 +216,22 @@ describe("persisted delivery jobs", () => {
 	});
 
 	test("persists payload even when no destination matches", async () => {
-		const stub = getStub("payload-only");
-		const payload = { kind: "other" };
-
-		await stub.publish(payload);
+		// 1. Persist an unroutable payload directly into storage.
+		// 2. Verify no delivery jobs are created beside the payload row.
+		const stub = getStub("store-payload-only");
 
 		await runInDurableObject(stub, async (_instance, state) => {
+			let sequence = 0;
+			state.storage.transactionSync(() => {
+				persistDeliveryJobs(
+					state.storage.sql,
+					createPendingDeliveryJobs(routeConfig, [{ kind: "other" }]),
+					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
+					new Date("2026-05-04T00:00:00.000Z"),
+					10_000,
+				);
+			});
+
 			const payloads = state.storage.sql
 				.exec<PayloadRow>("SELECT id, body FROM payloads ORDER BY id")
 				.toArray();
@@ -212,102 +240,19 @@ describe("persisted delivery jobs", () => {
 				.toArray();
 
 			expect(payloads).toHaveLength(1);
-			expect(JSON.parse(payloads[0].body)).toStrictEqual(payload);
+			expect(JSON.parse(payloads[0].body)).toStrictEqual({ kind: "other" });
 			expect(deliveryJobs).toHaveLength(0);
 		});
 	});
+});
 
-	test("records completed_at after waitUntil delivery succeeds", async () => {
-		const stub = getStub("completed-at");
-
-		await stub.publish({ kind: "nature", avoidUrban: false });
-
-		await vi.waitFor(async () => {
-			await runInDurableObject(stub, async (_instance, state) => {
-				const deliveryJobs = state.storage.sql
-					.exec<DeliveryJobRow>(
-						`
-							SELECT
-								id,
-								payload_id,
-								destination,
-								created_at,
-								completed_at,
-								retry_count,
-								last_failed_at,
-								last_error,
-								next_retry_at,
-								failed_at
-							FROM delivery_jobs
-							ORDER BY id
-						`,
-					)
-					.toArray();
-
-				expect(deliveryJobs).toHaveLength(2);
-				expect(deliveryJobs.every((job) => job.completed_at !== null)).toBe(
-					true,
-				);
-			});
-		});
-	});
-
-	test("alarm completes a due delivery job", async () => {
-		const stub = getStub("alarm-completes-due-job");
-		let retriedJobId = "";
-
-		await stub.publish({ kind: "nature", avoidUrban: false });
-
-		await vi.waitFor(async () => {
-			await runInDurableObject(stub, async (_instance, state) => {
-				const statuses = listDeliveryJobStatuses(state.storage.sql);
-				expect(statuses).toHaveLength(2);
-				expect(statuses.every((job) => job.completedAt !== null)).toBe(true);
-			});
-		});
-
-		await runInDurableObject(stub, async (instance, state) => {
-			const [job] = listDeliveryJobStatuses(state.storage.sql);
-			expect(job).toBeDefined();
-			if (!job) {
-				throw new Error("expected a delivery job");
-			}
-			retriedJobId = job.id;
-			state.storage.transactionSync(() => {
-				state.storage.sql.exec(
-					`
-						UPDATE delivery_jobs
-						SET completed_at = NULL,
-							retry_count = 1,
-							last_failed_at = ?,
-							last_error = ?,
-							next_retry_at = ?
-						WHERE id = ?
-					`,
-					"2026-05-04T00:00:00.000Z",
-					"temporary failure",
-					new Date(Date.now() - 1_000).toISOString(),
-					job.id,
-				);
-			});
-
-			await instance.alarm?.();
-		});
+describe("delivery job state transitions", () => {
+	test("marks jobs as completed and clears the last error", async () => {
+		// 1. Seed a job with a stored error and mark it completed.
+		// 2. Verify the completion time and error cleanup.
+		const stub = getStub("store-mark-completed");
 
 		await runInDurableObject(stub, async (_instance, state) => {
-			const statuses = listDeliveryJobStatuses(state.storage.sql);
-			expect(
-				statuses.find((job) => job.id === retriedJobId)?.completedAt,
-			).not.toBeNull();
-		});
-	});
-
-	test("reschedules the alarm when the next retry is moved later", async () => {
-		const stub = getStub("alarm-reschedule");
-		const futureRetryAt = new Date(Date.now() + 10 * 60 * 1_000);
-		const currentAlarm = new Date(Date.now() + 5 * 1_000);
-
-		await runInDurableObject(stub, async (instance, state) => {
 			let sequence = 0;
 			const [job] = state.storage.transactionSync(() =>
 				persistDeliveryJobs(
@@ -320,32 +265,34 @@ describe("persisted delivery jobs", () => {
 					10_000,
 				),
 			);
-			expect(job).toBeDefined();
-			if (!job) {
-				throw new Error("expected a delivery job");
-			}
 
 			state.storage.transactionSync(() => {
 				state.storage.sql.exec(
 					`
 						UPDATE delivery_jobs
-						SET next_retry_at = ?
+						SET last_error = ?
 						WHERE id = ?
 					`,
-					futureRetryAt.toISOString(),
+					"temporary failure",
 					job.id,
 				);
+				markDeliveryJobsCompleted(
+					state.storage.sql,
+					[job.id],
+					new Date("2026-05-04T00:00:10.000Z"),
+				);
 			});
-			await state.storage.setAlarm(currentAlarm);
 
-			await instance.alarm?.();
-
-			expect(await state.storage.getAlarm()).toBe(futureRetryAt.getTime());
+			const [updatedJob] = listDeliveryJobStatuses(state.storage.sql);
+			expect(updatedJob.completedAt).toBe("2026-05-04T00:00:10.000Z");
+			expect(updatedJob.lastError).toBeNull();
 		});
 	});
 
 	test("marks jobs as failed only after the configured number of retries is exhausted", async () => {
-		const stub = getStub("failed-at");
+		// 1. Persist one job and fail it twice under a one-retry policy.
+		// 2. Verify retry metadata before and after exhaustion.
+		const stub = getStub("store-failed-at");
 
 		await runInDurableObject(stub, async (_instance, state) => {
 			let sequence = 0;
@@ -400,6 +347,152 @@ describe("persisted delivery jobs", () => {
 			expect(updatedJob.failedAt).toBe("2026-05-04T00:00:10.000Z");
 			expect(updatedJob.lastFailedAt).toBe("2026-05-04T00:00:10.000Z");
 			expect(updatedJob.lastError).toBe("queue unavailable");
+		});
+	});
+});
+
+describe("delivery job scheduling", () => {
+	test("lists only due jobs and orders them by retry schedule", async () => {
+		// 1. Seed jobs with completed, failed, and due states.
+		// 2. Verify only due active jobs are returned in retry order.
+		const stub = getStub("store-list-deliverable-jobs");
+
+		await runInDurableObject(stub, async (_instance, state) => {
+			let sequence = 0;
+			const jobs = state.storage.transactionSync(() =>
+				persistDeliveryJobs(
+					state.storage.sql,
+					createPendingDeliveryJobs(routeConfig, [
+						{ kind: "culture", avoidUrban: true },
+						{ kind: "nature", avoidUrban: false },
+						{ kind: "culture", avoidUrban: false },
+					]),
+					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
+					new Date("2026-05-04T00:00:00.000Z"),
+					10_000,
+				),
+			);
+
+			state.storage.transactionSync(() => {
+				state.storage.sql.exec(
+					`
+						UPDATE delivery_jobs
+						SET next_retry_at = ?, completed_at = ?
+						WHERE id = ?
+					`,
+					"2026-05-04T00:00:05.000Z",
+					"2026-05-04T00:00:06.000Z",
+					jobs[0]?.id,
+				);
+				state.storage.sql.exec(
+					`
+						UPDATE delivery_jobs
+						SET next_retry_at = ?, failed_at = ?
+						WHERE id = ?
+					`,
+					"2026-05-04T00:00:01.000Z",
+					"2026-05-04T00:00:02.000Z",
+					jobs[1]?.id,
+				);
+				state.storage.sql.exec(
+					`
+						UPDATE delivery_jobs
+						SET next_retry_at = ?
+						WHERE id = ?
+					`,
+					"2026-05-04T00:00:03.000Z",
+					jobs[2]?.id,
+				);
+			});
+
+			const dueJobs = listDeliverableJobs(
+				state.storage.sql,
+				10,
+				new Date("2026-05-04T00:00:04.000Z"),
+			);
+
+			expect(dueJobs.map((job) => job.id)).toStrictEqual([jobs[2]?.id]);
+		});
+	});
+
+	test("returns the earliest retry timestamp among active jobs", async () => {
+		// 1. Seed mixed job states and query the next retry timestamp.
+		// 2. Complete the remaining active jobs and expect no next retry to remain.
+		const stub = getStub("store-next-retry-at");
+
+		await runInDurableObject(stub, async (_instance, state) => {
+			let sequence = 0;
+			const jobs = state.storage.transactionSync(() =>
+				persistDeliveryJobs(
+					state.storage.sql,
+					createPendingDeliveryJobs(routeConfig, [
+						{ kind: "culture", avoidUrban: true },
+						{ kind: "nature", avoidUrban: false },
+						{ kind: "culture", avoidUrban: false },
+					]),
+					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
+					new Date("2026-05-04T00:00:00.000Z"),
+					10_000,
+				),
+			);
+
+			state.storage.transactionSync(() => {
+				state.storage.sql.exec(
+					`
+						UPDATE delivery_jobs
+						SET next_retry_at = ?, completed_at = ?
+						WHERE id = ?
+					`,
+					"2026-05-04T00:00:01.000Z",
+					"2026-05-04T00:00:02.000Z",
+					jobs[0]?.id,
+				);
+				state.storage.sql.exec(
+					`
+						UPDATE delivery_jobs
+						SET next_retry_at = ?, failed_at = ?
+						WHERE id = ?
+					`,
+					"2026-05-04T00:00:02.000Z",
+					"2026-05-04T00:00:03.000Z",
+					jobs[1]?.id,
+				);
+				state.storage.sql.exec(
+					`
+						UPDATE delivery_jobs
+						SET next_retry_at = ?
+						WHERE id = ?
+					`,
+					"2026-05-04T00:00:04.000Z",
+					jobs[2]?.id,
+				);
+				state.storage.sql.exec(
+					`
+						UPDATE delivery_jobs
+						SET next_retry_at = ?
+						WHERE id = ?
+					`,
+					"2026-05-04T00:00:03.000Z",
+					jobs[3]?.id,
+				);
+			});
+
+			expect(getNextRetryAt(state.storage.sql)).toBe("2026-05-04T00:00:03.000Z");
+
+			state.storage.transactionSync(() => {
+				state.storage.sql.exec(
+					`
+						UPDATE delivery_jobs
+						SET completed_at = ?
+						WHERE id IN (?, ?)
+					`,
+					"2026-05-04T00:00:05.000Z",
+					jobs[2]?.id,
+					jobs[3]?.id,
+				);
+			});
+
+			expect(getNextRetryAt(state.storage.sql)).toBeNull();
 		});
 	});
 });

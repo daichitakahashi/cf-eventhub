@@ -145,13 +145,13 @@ const match = (message: unknown, cond: Comparator) => {
 		match = (v: unknown) => typeof v === "string" && pattern.test(v);
 	} else if (cond.exists) {
 		match = () => true;
-	} else if (cond.lte) {
+	} else if (cond.lte !== undefined) {
 		match = (v: unknown) => typeof v === "number" && v <= cond.lte;
-	} else if (cond.gte) {
+	} else if (cond.gte !== undefined) {
 		match = (v: unknown) => typeof v === "number" && v >= cond.gte;
-	} else if (cond.lt) {
+	} else if (cond.lt !== undefined) {
 		match = (v: unknown) => typeof v === "number" && v < cond.lt;
-	} else if (cond.gt) {
+	} else if (cond.gt !== undefined) {
 		match = (v: unknown) => typeof v === "number" && v > cond.gt;
 	}
 

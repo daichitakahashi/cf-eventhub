@@ -106,6 +106,54 @@ describe("findRoutes", () => {
 		]);
 	});
 
+	test("evaluates zero-valued numeric comparators", () => {
+		const config = v.parse(Config, {
+			routes: [
+				{
+					condition: {
+						path: "$.value",
+						lte: 0,
+					},
+					destination: "LTE_ZERO",
+				},
+				{
+					condition: {
+						path: "$.value",
+						gte: 0,
+					},
+					destination: "GTE_ZERO",
+				},
+				{
+					condition: {
+						path: "$.value",
+						lt: 0,
+					},
+					destination: "LT_ZERO",
+				},
+				{
+					condition: {
+						path: "$.value",
+						gt: 0,
+					},
+					destination: "GT_ZERO",
+				},
+			],
+		} satisfies ConfigInput);
+
+		expect(findRoutes(config, { value: -1 })).toStrictEqual([
+			{ destination: "LTE_ZERO" },
+			{ destination: "LT_ZERO" },
+		]);
+		expect(findRoutes(config, { value: 0 })).toStrictEqual([
+			{ destination: "LTE_ZERO" },
+			{ destination: "GTE_ZERO" },
+		]);
+		expect(findRoutes(config, { value: 1 })).toStrictEqual([
+			{ destination: "GTE_ZERO" },
+			{ destination: "GT_ZERO" },
+		]);
+	});
+
 	test("evaluates logical operators", () => {
 		const config = v.parse(Config, {
 			routes: [
