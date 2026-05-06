@@ -27,6 +27,12 @@
 		"enabled": true
 	},
 	"upload_source_maps": true,
+	"vars": {
+		"EVENTHUB_ALARM_BATCH_SIZE": 50,
+		"EVENTHUB_MAX_DELIVERY_RETRIES": 10,
+		"EVENTHUB_INITIAL_RETRY_DELAY_MS": 10000,
+		"EVENTHUB_MAX_RETRY_DELAY_MS": 900000
+	},
 	"compatibility_flags": [
 		"nodejs_compat"
 	]
@@ -47,7 +53,6 @@
 	 * Note: Use secrets to store sensitive data.
 	 * https://developers.cloudflare.com/workers/configuration/secrets/
 	 */
-	// "vars": {  "MY_VARIABLE": "production_value" }
 	/**
 	 * Static Assets
 	 * https://developers.cloudflare.com/workers/static-assets/binding/

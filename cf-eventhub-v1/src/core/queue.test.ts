@@ -1,15 +1,22 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
-import { assertQueuesExist, deliverJobs, resolveDeliveryJobs } from "./queue";
-import type { Config } from "./routing";
 import {
-	createPendingDeliveryJobs,
-	type PersistedDeliveryJob,
-} from "./store";
+	assertQueuesExist,
+	deliverJobs,
+	deliverPersistedJobs,
+	resolveDeliveryJobs,
+} from "./queue";
+import type { Config } from "./routing";
+import { createPendingDeliveryJobs, type PersistedDeliveryJob } from "./store";
 import type { EventPayload } from "./type";
 
 class QueueMock implements Queue<EventPayload> {
 	readonly sentBatches: MessageSendRequest<EventPayload>[][] = [];
+	private readonly failingBatchIndexes: Set<number>;
+
+	constructor(failingBatchIndexes: number[] = []) {
+		this.failingBatchIndexes = new Set(failingBatchIndexes);
+	}
 
 	async metrics(): Promise<QueueMetrics> {
 		return {
@@ -25,7 +32,12 @@ class QueueMock implements Queue<EventPayload> {
 	async sendBatch(
 		messages: Iterable<MessageSendRequest<EventPayload>>,
 	): Promise<QueueSendBatchResponse> {
-		this.sentBatches.push(Array.from(messages));
+		const batch = Array.from(messages);
+		const batchIndex = this.sentBatches.length;
+		this.sentBatches.push(batch);
+		if (this.failingBatchIndexes.has(batchIndex)) {
+			throw new Error(`failed batch ${batchIndex}`);
+		}
 		return {
 			metadata: {
 				metrics: {
@@ -217,12 +229,96 @@ describe("deliverJobs", () => {
 		);
 		const delivered: string[][] = [];
 
-		await deliverJobs(jobs, async (jobIds) => {
-			delivered.push([...jobIds]);
+		await deliverJobs(jobs, {
+			onDelivered: async (jobIds) => {
+				delivered.push([...jobIds]);
+			},
 		});
 
 		expect(delivered).toHaveLength(2);
 		expect(delivered[0]).toHaveLength(100);
 		expect(delivered[1]).toStrictEqual(["01TEST00000000000000010101"]);
+	});
+
+	test("reports failed job ids and continues with other destinations", async () => {
+		const env = {
+			OKAYAMA: new QueueMock([0]),
+			HOKKAIDO: new QueueMock(),
+			OKINAWA: new QueueMock(),
+		};
+		const onDelivered = vi.fn();
+		const onFailed = vi.fn();
+		const jobs = resolveDeliveryJobs(env, [
+			{
+				id: "01TEST00000000000000000001",
+				payloadId: "01TEST00000000000000000000",
+				destination: "OKAYAMA",
+				payload: { kind: "culture", avoidUrban: true } as EventPayload,
+			},
+			{
+				id: "01TEST00000000000000000002",
+				payloadId: "01TEST00000000000000000000",
+				destination: "HOKKAIDO",
+				payload: { kind: "nature", avoidUrban: false } as EventPayload,
+			},
+		]);
+
+		await deliverJobs(jobs, { onDelivered, onFailed });
+
+		expect(onFailed).toHaveBeenCalledTimes(1);
+		expect(onFailed.mock.calls[0]?.[0]).toStrictEqual([
+			"01TEST00000000000000000001",
+		]);
+		expect(onDelivered).toHaveBeenCalledTimes(1);
+		expect(onDelivered.mock.calls[0]?.[0]).toStrictEqual([
+			"01TEST00000000000000000002",
+		]);
+	});
+});
+
+describe("deliverPersistedJobs", () => {
+	test("continues delivering other destinations when one destination queue is missing", async () => {
+		const env = {
+			HOKKAIDO: new QueueMock(),
+			// OKINAWA is missing
+		};
+		const onDelivered = vi.fn();
+		const onFailed = vi.fn();
+
+		await deliverPersistedJobs(
+			env,
+			[
+				{
+					id: "01TEST00000000000000000001",
+					payloadId: "01TEST00000000000000000000",
+					destination: "OKINAWA",
+					payload: { kind: "nature", avoidUrban: false } as EventPayload,
+				},
+				{
+					id: "01TEST00000000000000000002",
+					payloadId: "01TEST00000000000000000000",
+					destination: "HOKKAIDO",
+					payload: { kind: "nature", avoidUrban: false } as EventPayload,
+				},
+			],
+			{ onDelivered, onFailed },
+		);
+
+		expect(onFailed).toHaveBeenCalledTimes(1);
+		expect(onFailed.mock.calls[0]?.[0]).toStrictEqual([
+			"01TEST00000000000000000001",
+		]);
+		expect(onDelivered).toHaveBeenCalledTimes(1);
+		expect(onDelivered.mock.calls[0]?.[0]).toStrictEqual([
+			"01TEST00000000000000000002",
+		]);
+		expect(env.HOKKAIDO.sentBatches).toStrictEqual([
+			[
+				{
+					body: { kind: "nature", avoidUrban: false },
+					contentType: "json",
+				},
+			],
+		]);
 	});
 });

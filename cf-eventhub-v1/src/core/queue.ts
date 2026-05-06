@@ -3,10 +3,26 @@ import type { EventPayload } from "./type";
 
 const MAX_SEND_BATCH_COUNT = 100;
 
+// A persisted delivery job with its resolved destination queue.
 export type DeliveryJob = PersistedDeliveryJob & {
 	queue: Queue<EventPayload>;
 };
 
+// Lifecycle callbacks fired after each batch delivery attempt.
+type DeliverJobsHandlers = {
+	onDelivered?: (jobIds: readonly string[]) => void | Promise<void>;
+	onFailed?: (
+		jobIds: readonly string[],
+		error: unknown,
+	) => void | Promise<void>;
+};
+
+// Groups jobs so each queue can be sent in destination-local batches.
+const groupJobsByDestination = <T extends { destination: string }>(
+	jobs: readonly T[],
+) => Map.groupBy(jobs, (j) => j.destination);
+
+// Resolves a queue binding from the environment and validates its shape.
 const getQueue = (
 	env: Record<string, unknown>,
 	name: string,
@@ -21,6 +37,7 @@ const getQueue = (
 	return queue as Queue<EventPayload>;
 };
 
+// Attaches queue bindings to persisted jobs before sending them.
 export const resolveDeliveryJobs = (
 	env: Record<string, unknown>,
 	jobs: readonly PersistedDeliveryJob[],
@@ -44,6 +61,7 @@ export const resolveDeliveryJobs = (
 	});
 };
 
+// Fails fast if any configured destination queue is missing.
 export const assertQueuesExist = (
 	env: Record<string, unknown>,
 	pendingDeliveryJobs: PendingDeliveryJobs,
@@ -61,29 +79,45 @@ export const assertQueuesExist = (
 	}
 };
 
+// Sends jobs in queue batch units and reports success or failure per batch.
 export const deliverJobs = async (
 	jobs: readonly DeliveryJob[],
-	onDelivered?: (jobIds: readonly string[]) => void | Promise<void>,
+	handlers: DeliverJobsHandlers = {},
 ): Promise<void> => {
-	const jobsByDestination = new Map<string, DeliveryJob[]>();
-
-	for (const job of jobs) {
-		const items = jobsByDestination.get(job.destination) ?? [];
-		items.push(job);
-		jobsByDestination.set(job.destination, items);
-	}
-
-	for (const destinationJobs of jobsByDestination.values()) {
+	for (const destinationJobs of groupJobsByDestination(jobs).values()) {
 		const [{ queue }] = destinationJobs;
 		for (let i = 0; i < destinationJobs.length; i += MAX_SEND_BATCH_COUNT) {
 			const chunk = destinationJobs.slice(i, i + MAX_SEND_BATCH_COUNT);
-			await queue.sendBatch(
-				chunk.map((job) => ({
-					body: job.payload,
-					contentType: "json",
-				})),
+			const jobIds = chunk.map((job) => job.id);
+			try {
+				await queue.sendBatch(
+					chunk.map((job) => ({
+						body: job.payload,
+						contentType: "json",
+					})),
+				);
+				await handlers.onDelivered?.(jobIds);
+			} catch (error) {
+				await handlers.onFailed?.(jobIds, error);
+			}
+		}
+	}
+};
+
+// Resolves queues per destination and keeps other destinations moving on failure.
+export const deliverPersistedJobs = async (
+	env: Record<string, unknown>,
+	jobs: readonly PersistedDeliveryJob[],
+	handlers: DeliverJobsHandlers = {},
+): Promise<void> => {
+	for (const destinationJobs of groupJobsByDestination(jobs).values()) {
+		try {
+			await deliverJobs(resolveDeliveryJobs(env, destinationJobs), handlers);
+		} catch (error) {
+			await handlers.onFailed?.(
+				destinationJobs.map((job) => job.id),
+				error,
 			);
-			await onDelivered?.(chunk.map((job) => job.id));
 		}
 	}
 };

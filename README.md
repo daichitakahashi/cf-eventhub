@@ -6,6 +6,23 @@ Developing message hub that works with Cloudflare Workers and Queues with follow
 - Record execution info including lost job(**Cloudflare Queues is Beta**)
 
 ## Designs
+### Delivery semantics
+
+`cf-eventhub-v1` provides `at-least-once` delivery semantics, not `exactly-once`.
+It prioritizes avoiding message loss over preventing duplicate deliveries, so the
+same event may be delivered more than once in rare cases such as retry recovery
+or overlap between initial delivery and alarm-based retry.
+
+Consumers must therefore be idempotent. Each delivered payload should contain a
+stable unique event ID, and downstream systems are expected to deduplicate or
+safely ignore repeated deliveries based on that ID.
+
+`EVENTHUB_INITIAL_RETRY_DELAY_MS` should be configured long enough to cover
+normal initial delivery latency, reducing the chance that alarm-based retry
+overlaps with an in-flight first attempt. If a job reaches `failed_at`, it is no
+longer retried automatically and must be handled through operational monitoring
+and manual or automated recovery procedures.
+
 ### Sequence
 
 ```mermaid
