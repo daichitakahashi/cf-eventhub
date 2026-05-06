@@ -24,12 +24,12 @@ type DeliveryJobRow = {
 	payload_id: string;
 	destination: string;
 	created_at: string;
-	completed_at: string | null;
+	final_status: "completed" | "failed" | null;
+	finalized_at: string | null;
 	retry_count: number;
 	last_failed_at: string | null;
 	last_error: string | null;
 	next_retry_at: string;
-	failed_at: string | null;
 };
 
 const routeConfig: Config = {
@@ -170,12 +170,12 @@ describe("persistDeliveryJobs", () => {
 							payload_id,
 							destination,
 							created_at,
-							completed_at,
+							final_status,
+							finalized_at,
 							retry_count,
 							last_failed_at,
 							last_error,
-							next_retry_at,
-							failed_at
+							next_retry_at
 						FROM delivery_jobs
 						ORDER BY id
 					`,
@@ -208,7 +208,8 @@ describe("persistDeliveryJobs", () => {
 			expect(deliveryJobs.every((job) => job.retry_count === 0)).toBe(true);
 			expect(deliveryJobs.every((job) => job.last_failed_at === null)).toBe(true);
 			expect(deliveryJobs.every((job) => job.last_error === null)).toBe(true);
-			expect(deliveryJobs.every((job) => job.failed_at === null)).toBe(true);
+			expect(deliveryJobs.every((job) => job.final_status === null)).toBe(true);
+			expect(deliveryJobs.every((job) => job.finalized_at === null)).toBe(true);
 			expect(
 				deliveryJobs.every((job) => job.next_retry_at >= job.created_at),
 			).toBe(true);
@@ -284,7 +285,8 @@ describe("delivery job state transitions", () => {
 			});
 
 			const [updatedJob] = listDeliveryJobStatuses(state.storage.sql);
-			expect(updatedJob.completedAt).toBe("2026-05-04T00:00:10.000Z");
+			expect(updatedJob.finalStatus).toBe("completed");
+			expect(updatedJob.finalizedAt).toBe("2026-05-04T00:00:10.000Z");
 			expect(updatedJob.lastError).toBeNull();
 		});
 	});
@@ -325,7 +327,8 @@ describe("delivery job state transitions", () => {
 
 			let [updatedJob] = listDeliveryJobStatuses(state.storage.sql);
 			expect(updatedJob.retryCount).toBe(1);
-			expect(updatedJob.failedAt).toBeNull();
+			expect(updatedJob.finalStatus).toBeNull();
+			expect(updatedJob.finalizedAt).toBeNull();
 			expect(updatedJob.lastFailedAt).toBe("2026-05-04T00:00:00.000Z");
 			expect(updatedJob.lastError).toBe("queue unavailable");
 			expect(updatedJob.nextRetryAt).toBe("2026-05-04T00:00:10.000Z");
@@ -344,9 +347,98 @@ describe("delivery job state transitions", () => {
 
 			[updatedJob] = listDeliveryJobStatuses(state.storage.sql);
 			expect(updatedJob.retryCount).toBe(2);
-			expect(updatedJob.failedAt).toBe("2026-05-04T00:00:10.000Z");
+			expect(updatedJob.finalStatus).toBe("failed");
+			expect(updatedJob.finalizedAt).toBe("2026-05-04T00:00:10.000Z");
 			expect(updatedJob.lastFailedAt).toBe("2026-05-04T00:00:10.000Z");
 			expect(updatedJob.lastError).toBe("queue unavailable");
+		});
+	});
+
+	test("keeps a later completion as the final result after a terminal failure", async () => {
+		// 1. Mark a job as terminally failed, then mark it completed as if a late duplicate delivery succeeded.
+		// 2. Verify the final result is completed while retaining retry history.
+		const stub = getStub("store-completion-overrides-failure");
+
+		await runInDurableObject(stub, async (_instance, state) => {
+			let sequence = 0;
+			const [job] = state.storage.transactionSync(() =>
+				persistDeliveryJobs(
+					state.storage.sql,
+					createPendingDeliveryJobs(routeConfig, [
+						{ kind: "culture", avoidUrban: true },
+					]),
+					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
+					new Date("2026-05-04T00:00:00.000Z"),
+					10_000,
+				),
+			);
+
+			state.storage.transactionSync(() => {
+				markDeliveryJobsFailed(
+					state.storage.sql,
+					[job.id],
+					0,
+					10_000,
+					900_000,
+					new Error("queue unavailable"),
+					new Date("2026-05-04T00:00:00.000Z"),
+				);
+				markDeliveryJobsCompleted(
+					state.storage.sql,
+					[job.id],
+					new Date("2026-05-04T00:00:05.000Z"),
+				);
+			});
+
+			const [updatedJob] = listDeliveryJobStatuses(state.storage.sql);
+			expect(updatedJob.finalStatus).toBe("completed");
+			expect(updatedJob.finalizedAt).toBe("2026-05-04T00:00:05.000Z");
+			expect(updatedJob.lastFailedAt).toBe("2026-05-04T00:00:00.000Z");
+			expect(updatedJob.lastError).toBeNull();
+		});
+	});
+
+	test("keeps an earlier completion as the final result after a late failure", async () => {
+		// 1. Mark a job as completed, then apply a late failure update as if another delivery attempt finished afterwards.
+		// 2. Verify the final result stays completed and the late failure is ignored.
+		const stub = getStub("store-completion-wins-over-late-failure");
+
+		await runInDurableObject(stub, async (_instance, state) => {
+			let sequence = 0;
+			const [job] = state.storage.transactionSync(() =>
+				persistDeliveryJobs(
+					state.storage.sql,
+					createPendingDeliveryJobs(routeConfig, [
+						{ kind: "culture", avoidUrban: true },
+					]),
+					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
+					new Date("2026-05-04T00:00:00.000Z"),
+					10_000,
+				),
+			);
+
+			state.storage.transactionSync(() => {
+				markDeliveryJobsCompleted(
+					state.storage.sql,
+					[job.id],
+					new Date("2026-05-04T00:00:05.000Z"),
+				);
+				markDeliveryJobsFailed(
+					state.storage.sql,
+					[job.id],
+					0,
+					10_000,
+					900_000,
+					new Error("queue unavailable"),
+					new Date("2026-05-04T00:00:10.000Z"),
+				);
+			});
+
+			const [updatedJob] = listDeliveryJobStatuses(state.storage.sql);
+			expect(updatedJob.finalStatus).toBe("completed");
+			expect(updatedJob.finalizedAt).toBe("2026-05-04T00:00:05.000Z");
+			expect(updatedJob.lastFailedAt).toBeNull();
+			expect(updatedJob.lastError).toBeNull();
 		});
 	});
 });
@@ -377,20 +469,22 @@ describe("delivery job scheduling", () => {
 				state.storage.sql.exec(
 					`
 						UPDATE delivery_jobs
-						SET next_retry_at = ?, completed_at = ?
+						SET next_retry_at = ?, final_status = ?, finalized_at = ?
 						WHERE id = ?
 					`,
 					"2026-05-04T00:00:05.000Z",
+					"completed",
 					"2026-05-04T00:00:06.000Z",
 					jobs[0]?.id,
 				);
 				state.storage.sql.exec(
 					`
 						UPDATE delivery_jobs
-						SET next_retry_at = ?, failed_at = ?
+						SET next_retry_at = ?, final_status = ?, finalized_at = ?
 						WHERE id = ?
 					`,
 					"2026-05-04T00:00:01.000Z",
+					"failed",
 					"2026-05-04T00:00:02.000Z",
 					jobs[1]?.id,
 				);
@@ -440,20 +534,22 @@ describe("delivery job scheduling", () => {
 				state.storage.sql.exec(
 					`
 						UPDATE delivery_jobs
-						SET next_retry_at = ?, completed_at = ?
+						SET next_retry_at = ?, final_status = ?, finalized_at = ?
 						WHERE id = ?
 					`,
 					"2026-05-04T00:00:01.000Z",
+					"completed",
 					"2026-05-04T00:00:02.000Z",
 					jobs[0]?.id,
 				);
 				state.storage.sql.exec(
 					`
 						UPDATE delivery_jobs
-						SET next_retry_at = ?, failed_at = ?
+						SET next_retry_at = ?, final_status = ?, finalized_at = ?
 						WHERE id = ?
 					`,
 					"2026-05-04T00:00:02.000Z",
+					"failed",
 					"2026-05-04T00:00:03.000Z",
 					jobs[1]?.id,
 				);
@@ -483,9 +579,10 @@ describe("delivery job scheduling", () => {
 				state.storage.sql.exec(
 					`
 						UPDATE delivery_jobs
-						SET completed_at = ?
+						SET final_status = ?, finalized_at = ?
 						WHERE id IN (?, ?)
 					`,
+					"completed",
 					"2026-05-04T00:00:05.000Z",
 					jobs[2]?.id,
 					jobs[3]?.id,

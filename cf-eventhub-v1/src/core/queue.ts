@@ -10,8 +10,8 @@ export type DeliveryJob = PersistedDeliveryJob & {
 
 // Lifecycle callbacks fired after each batch delivery attempt.
 type DeliverJobsHandlers = {
-	onDelivered?: (jobIds: readonly string[]) => void | Promise<void>;
-	onFailed?: (
+	onDelivered: (jobIds: readonly string[]) => void | Promise<void>;
+	onFailed: (
 		jobIds: readonly string[],
 		error: unknown,
 	) => void | Promise<void>;
@@ -82,7 +82,7 @@ export const assertQueuesExist = (
 // Sends jobs in queue batch units and reports success or failure per batch.
 export const deliverJobs = async (
 	jobs: readonly DeliveryJob[],
-	handlers: DeliverJobsHandlers = {},
+	handlers: DeliverJobsHandlers,
 ): Promise<void> => {
 	for (const destinationJobs of groupJobsByDestination(jobs).values()) {
 		const [{ queue }] = destinationJobs;
@@ -96,9 +96,9 @@ export const deliverJobs = async (
 						contentType: "json",
 					})),
 				);
-				await handlers.onDelivered?.(jobIds);
+				await handlers.onDelivered(jobIds);
 			} catch (error) {
-				await handlers.onFailed?.(jobIds, error);
+				await handlers.onFailed(jobIds, error);
 			}
 		}
 	}
@@ -108,13 +108,13 @@ export const deliverJobs = async (
 export const deliverPersistedJobs = async (
 	env: Record<string, unknown>,
 	jobs: readonly PersistedDeliveryJob[],
-	handlers: DeliverJobsHandlers = {},
+	handlers: DeliverJobsHandlers,
 ): Promise<void> => {
 	for (const destinationJobs of groupJobsByDestination(jobs).values()) {
 		try {
 			await deliverJobs(resolveDeliveryJobs(env, destinationJobs), handlers);
 		} catch (error) {
-			await handlers.onFailed?.(
+			await handlers.onFailed(
 				destinationJobs.map((job) => job.id),
 				error,
 			);

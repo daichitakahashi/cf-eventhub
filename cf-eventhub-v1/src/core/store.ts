@@ -28,13 +28,16 @@ export type PersistedDeliveryJob = {
 	payload: EventPayload;
 };
 
+export type DeliveryFinalStatus = "completed" | "failed";
+
 // Retry-related fields tracked for each delivery job.
 export type DeliveryRetryState = {
 	retryCount: number;
 	lastFailedAt: string | null;
 	lastError: string | null;
 	nextRetryAt: string;
-	failedAt: string | null;
+	finalStatus: DeliveryFinalStatus | null;
+	finalizedAt: string | null;
 };
 
 // Full status view used by tests and operational inspection.
@@ -43,7 +46,6 @@ export type DeliveryJobStatus = {
 	payloadId: string;
 	destination: string;
 	createdAt: string;
-	completedAt: string | null;
 } & DeliveryRetryState;
 
 // Inserts a payload row once before creating per-destination jobs.
@@ -80,14 +82,14 @@ const insertDeliveryJob = (
 				payload_id,
 				destination,
 				created_at,
-				completed_at,
+				final_status,
+				finalized_at,
 				retry_count,
 				last_failed_at,
 				last_error,
-				next_retry_at,
-				failed_at
+				next_retry_at
 			)
-			VALUES (?, ?, ?, ?, NULL, 0, NULL, NULL, ?, NULL)
+			VALUES (?, ?, ?, ?, NULL, NULL, 0, NULL, NULL, ?)
 		`,
 		id,
 		payloadId,
@@ -112,12 +114,12 @@ export const initializeSchema = (sql: SqlStorage): void => {
 			payload_id TEXT NOT NULL,
 			destination TEXT NOT NULL,
 			created_at TEXT NOT NULL,
-			completed_at TEXT,
+			final_status TEXT CHECK (final_status IN ('completed', 'failed')),
+			finalized_at TEXT,
 			retry_count INTEGER NOT NULL DEFAULT 0,
 			last_failed_at TEXT,
 			last_error TEXT,
 			next_retry_at TEXT NOT NULL,
-			failed_at TEXT,
 			FOREIGN KEY (payload_id) REFERENCES payloads(id)
 		)
 	`);
@@ -126,12 +128,12 @@ export const initializeSchema = (sql: SqlStorage): void => {
 		ON delivery_jobs (payload_id)
 	`);
 	sql.exec(`
-		CREATE INDEX IF NOT EXISTS idx_delivery_jobs_completed_at
-		ON delivery_jobs (completed_at)
+		CREATE INDEX IF NOT EXISTS idx_delivery_jobs_final_status
+		ON delivery_jobs (final_status)
 	`);
 	sql.exec(`
 		CREATE INDEX IF NOT EXISTS idx_delivery_jobs_retry_schedule
-		ON delivery_jobs (completed_at, failed_at, next_retry_at, created_at, id)
+		ON delivery_jobs (final_status, next_retry_at, created_at, id)
 	`);
 };
 
@@ -203,7 +205,8 @@ export const markDeliveryJobsCompleted = (
 	sql.exec(
 		`
 			UPDATE delivery_jobs
-			SET completed_at = ?,
+			SET final_status = 'completed',
+				finalized_at = ?,
 				last_error = NULL
 			WHERE id IN (${placeholders})
 		`,
@@ -242,6 +245,7 @@ export const markDeliveryJobsFailed = (
 				SELECT id, retry_count
 				FROM delivery_jobs
 				WHERE id IN (${placeholders})
+					AND final_status IS NULL
 			`,
 			...jobIds,
 		)
@@ -264,7 +268,8 @@ export const markDeliveryJobsFailed = (
 					SET retry_count = ?,
 						last_failed_at = ?,
 						last_error = ?,
-						failed_at = ?
+						final_status = 'failed',
+						finalized_at = ?
 					WHERE id = ?
 				`,
 				nextRetryCount,
@@ -281,14 +286,14 @@ export const markDeliveryJobsFailed = (
 			maxRetryDelayMs,
 		);
 		sql.exec(
-			`
-				UPDATE delivery_jobs
-				SET retry_count = ?,
-					last_failed_at = ?,
-					last_error = ?,
-					next_retry_at = ?
-				WHERE id = ?
-			`,
+				`
+					UPDATE delivery_jobs
+					SET retry_count = ?,
+						last_failed_at = ?,
+						last_error = ?,
+						next_retry_at = ?
+					WHERE id = ?
+				`,
 			nextRetryCount,
 			failedAt,
 			message,
@@ -310,8 +315,7 @@ export const listDeliverableJobs = (
 				SELECT dj.id, dj.payload_id, dj.destination, p.body
 				FROM delivery_jobs dj
 				INNER JOIN payloads p ON p.id = dj.payload_id
-				WHERE dj.completed_at IS NULL
-					AND dj.failed_at IS NULL
+				WHERE dj.final_status IS NULL
 					AND dj.next_retry_at <= ?
 				ORDER BY dj.next_retry_at ASC, dj.created_at ASC, dj.id ASC
 				LIMIT ?
@@ -334,8 +338,7 @@ export const getNextRetryAt = (sql: SqlStorage): string | null => {
 			`
 				SELECT next_retry_at
 				FROM delivery_jobs
-				WHERE completed_at IS NULL
-					AND failed_at IS NULL
+				WHERE final_status IS NULL
 				ORDER BY next_retry_at ASC, created_at ASC, id ASC
 				LIMIT 1
 			`,
@@ -352,12 +355,12 @@ export const listDeliveryJobStatuses = (sql: SqlStorage): DeliveryJobStatus[] =>
 			payload_id: string;
 			destination: string;
 			created_at: string;
-			completed_at: string | null;
+			final_status: DeliveryFinalStatus | null;
+			finalized_at: string | null;
 			retry_count: number;
 			last_failed_at: string | null;
 			last_error: string | null;
 			next_retry_at: string;
-			failed_at: string | null;
 		}>(
 			`
 				SELECT
@@ -365,12 +368,12 @@ export const listDeliveryJobStatuses = (sql: SqlStorage): DeliveryJobStatus[] =>
 					payload_id,
 					destination,
 					created_at,
-					completed_at,
+					final_status,
+					finalized_at,
 					retry_count,
 					last_failed_at,
 					last_error,
-					next_retry_at,
-					failed_at
+					next_retry_at
 				FROM delivery_jobs
 				ORDER BY id
 			`,
@@ -381,10 +384,10 @@ export const listDeliveryJobStatuses = (sql: SqlStorage): DeliveryJobStatus[] =>
 			payloadId: row.payload_id,
 			destination: row.destination,
 			createdAt: row.created_at,
-			completedAt: row.completed_at,
+			finalStatus: row.final_status,
+			finalizedAt: row.finalized_at,
 			retryCount: row.retry_count,
 			lastFailedAt: row.last_failed_at,
 			lastError: row.last_error,
 			nextRetryAt: row.next_retry_at,
-			failedAt: row.failed_at,
 		}));

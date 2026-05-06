@@ -20,12 +20,12 @@ type DeliveryJobRow = {
 	payload_id: string;
 	destination: string;
 	created_at: string;
-	completed_at: string | null;
+	final_status: "completed" | "failed" | null;
+	finalized_at: string | null;
 	retry_count: number;
 	last_failed_at: string | null;
 	last_error: string | null;
 	next_retry_at: string;
-	failed_at: string | null;
 };
 
 const routeConfig: Config = {
@@ -81,12 +81,12 @@ describe("EventHub integration", () => {
 							payload_id,
 							destination,
 							created_at,
-							completed_at,
+							final_status,
+							finalized_at,
 							retry_count,
 							last_failed_at,
 							last_error,
-							next_retry_at,
-							failed_at
+							next_retry_at
 						FROM delivery_jobs
 						ORDER BY id
 					`,
@@ -139,17 +139,17 @@ describe("EventHub integration", () => {
 				const deliveryJobs = state.storage.sql
 					.exec<DeliveryJobRow>(
 						`
-							SELECT
-								id,
-								payload_id,
-								destination,
-								created_at,
-								completed_at,
-								retry_count,
-								last_failed_at,
-								last_error,
-								next_retry_at,
-								failed_at
+						SELECT
+							id,
+							payload_id,
+							destination,
+							created_at,
+							final_status,
+							finalized_at,
+							retry_count,
+							last_failed_at,
+							last_error,
+							next_retry_at
 							FROM delivery_jobs
 							ORDER BY id
 						`,
@@ -157,7 +157,10 @@ describe("EventHub integration", () => {
 					.toArray();
 
 				expect(deliveryJobs).toHaveLength(2);
-				expect(deliveryJobs.every((job) => job.completed_at !== null)).toBe(
+				expect(deliveryJobs.every((job) => job.final_status === "completed")).toBe(
+					true,
+				);
+				expect(deliveryJobs.every((job) => job.finalized_at !== null)).toBe(
 					true,
 				);
 			});
@@ -176,7 +179,9 @@ describe("EventHub integration", () => {
 			await runInDurableObject(stub, async (_instance, state) => {
 				const statuses = listDeliveryJobStatuses(state.storage.sql);
 				expect(statuses).toHaveLength(2);
-				expect(statuses.every((job) => job.completedAt !== null)).toBe(true);
+				expect(statuses.every((job) => job.finalStatus === "completed")).toBe(
+					true,
+				);
 			});
 		});
 
@@ -191,7 +196,8 @@ describe("EventHub integration", () => {
 				state.storage.sql.exec(
 					`
 						UPDATE delivery_jobs
-						SET completed_at = NULL,
+						SET final_status = NULL,
+							finalized_at = NULL,
 							retry_count = 1,
 							last_failed_at = ?,
 							last_error = ?,
@@ -212,7 +218,8 @@ describe("EventHub integration", () => {
 			const retriedJob = listDeliveryJobStatuses(state.storage.sql).find(
 				(job) => job.id === retriedJobId,
 			);
-			expect(retriedJob?.completedAt).not.toBeNull();
+			expect(retriedJob?.finalStatus).toBe("completed");
+			expect(retriedJob?.finalizedAt).not.toBeNull();
 			expect(retriedJob?.lastError).toBeNull();
 		});
 	});

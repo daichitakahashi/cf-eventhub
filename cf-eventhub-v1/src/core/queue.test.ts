@@ -55,6 +55,9 @@ const createEnv = () => ({
 	OKINAWA: new QueueMock(),
 });
 
+const noopOnDelivered = async (): Promise<void> => {};
+const noopOnFailed = async (): Promise<void> => {};
+
 const routeConfig: Config = {
 	routes: [
 		{
@@ -159,7 +162,10 @@ describe("deliverJobs", () => {
 			},
 		]);
 
-		await deliverJobs(jobs);
+		await deliverJobs(jobs, {
+			onDelivered: noopOnDelivered,
+			onFailed: noopOnFailed,
+		});
 
 		expect(env.OKAYAMA.sentBatches).toStrictEqual([
 			[{ body: payload1, contentType: "json" }],
@@ -187,7 +193,10 @@ describe("deliverJobs", () => {
 			})),
 		);
 
-		await deliverJobs(jobs);
+		await deliverJobs(jobs, {
+			onDelivered: noopOnDelivered,
+			onFailed: noopOnFailed,
+		});
 
 		expect(env.OKAYAMA.sentBatches).toHaveLength(2);
 		expect(env.OKAYAMA.sentBatches[0]).toHaveLength(100);
@@ -241,6 +250,7 @@ describe("deliverJobs", () => {
 			onDelivered: async (jobIds) => {
 				delivered.push([...jobIds]);
 			},
+			onFailed: noopOnFailed,
 		});
 
 		expect(delivered).toHaveLength(2);
