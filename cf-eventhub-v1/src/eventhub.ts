@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import * as v from "valibot";
 
 import { MonotonicUlidGenerator } from "./core/id";
+import { parsePositiveInteger } from "./core/env";
 import { assertQueuesExist, deliverPersistedJobs } from "./core/queue";
 import { Config, type ConfigInput } from "./core/routing";
 import {
@@ -48,23 +49,6 @@ const getRouteConfig = (env: EventHubEnv) => {
 	const maybeConfig =
 		typeof routing === "string" ? JSON.parse(routing) : routing;
 	return v.parse(Config, maybeConfig);
-};
-
-// Parses a positive integer env var with a fallback value.
-const parsePositiveInteger = (
-	value: string | number | undefined,
-	fallback: number,
-	name: string,
-): number => {
-	if (value === undefined) {
-		return fallback;
-	}
-
-	const parsed = typeof value === "number" ? value : Number.parseInt(value, 10);
-	if (!Number.isInteger(parsed) || parsed <= 0) {
-		throw new Error(`cf-eventhub-v1: invalid ${name}`);
-	}
-	return parsed;
 };
 
 // Parses and validates retry-related configuration knobs.
