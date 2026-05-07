@@ -1,13 +1,13 @@
 import { describe, expect, test, vi } from "vitest";
 
 import {
-	assertQueuesExist,
+	assertDestinationBindingsExist,
 	deliverJobs,
 	deliverPersistedJobs,
 	resolveDeliveryJobs,
-} from "./queue";
+} from "./delivery";
 import type { Config } from "./routing";
-import { createPendingDeliveryJobs, type PersistedDeliveryJob } from "./store";
+import { type PersistedDeliveryJob, createPendingDeliveryJobs } from "./store";
 import type { EventPayload } from "./type";
 
 class QueueMock implements Queue<EventPayload> {
@@ -49,10 +49,81 @@ class QueueMock implements Queue<EventPayload> {
 	}
 }
 
+class R2BucketMock {
+	readonly objects = new Map<string, { body: string; contentType?: string }>();
+	private readonly failingKeys: Set<string>;
+
+	constructor(failingKeys: string[] = []) {
+		this.failingKeys = new Set(failingKeys);
+	}
+
+	async head(): Promise<R2Object | null> {
+		return null;
+	}
+
+	async get(): Promise<R2ObjectBody | null> {
+		return null;
+	}
+
+	async put(
+		key: string,
+		value:
+			| ReadableStream
+			| ArrayBuffer
+			| ArrayBufferView
+			| string
+			| null
+			| Blob,
+		options?: R2PutOptions,
+	): Promise<R2Object> {
+		if (this.failingKeys.has(key)) {
+			throw new Error(`failed put ${key}`);
+		}
+		if (typeof value !== "string") {
+			throw new Error("expected string payload");
+		}
+		this.objects.set(key, {
+			body: value,
+			// @ts-expect-error: assume httpMetadata is always R2HTTPMetadata
+			contentType: options?.httpMetadata?.contentType,
+		});
+		return {
+			key,
+			version: "v1",
+			size: value.length,
+			etag: "etag",
+			httpEtag: "etag",
+			checksums: { toJSON: () => ({}) },
+			uploaded: new Date(),
+			storageClass: "Standard",
+			writeHttpMetadata: () => {},
+		} as R2Object;
+	}
+
+	async createMultipartUpload(): Promise<R2MultipartUpload> {
+		throw new Error("not implemented");
+	}
+
+	resumeMultipartUpload(): R2MultipartUpload {
+		throw new Error("not implemented");
+	}
+
+	async delete(): Promise<void> {}
+
+	async list(): Promise<R2Objects> {
+		return {
+			objects: [],
+			delimitedPrefixes: [],
+			truncated: false,
+		};
+	}
+}
+
 const createEnv = () => ({
 	OKAYAMA: new QueueMock(),
 	HOKKAIDO: new QueueMock(),
 	OKINAWA: new QueueMock(),
+	ARCHIVE: new R2BucketMock() as unknown as R2Bucket,
 });
 
 const noopOnDelivered = async (): Promise<void> => {};
@@ -84,9 +155,9 @@ const routeConfig: Config = {
 	],
 };
 
-describe("assertQueuesExist", () => {
-	test("fails before persistence when a destination queue is missing", () => {
-		// 1. Build a routed job plan with a missing queue binding.
+describe("assertDestinationBindingsExist", () => {
+	test("fails before persistence when a destination binding is missing", () => {
+		// 1. Build a routed job plan with a missing binding.
 		// 2. Confirm validation fails before delivery starts.
 		const env = {
 			OKAYAMA: new QueueMock(),
@@ -96,9 +167,33 @@ describe("assertQueuesExist", () => {
 			{ kind: "nature", avoidUrban: false },
 		]);
 
-		expect(() => assertQueuesExist(env, pendingDeliveryJobs)).toThrow(
-			/eventhub: OKINAWA not set/,
-		);
+		expect(() =>
+			assertDestinationBindingsExist(env, pendingDeliveryJobs),
+		).toThrow(/eventhub: OKINAWA not set/);
+	});
+
+	test("fails before persistence when a destination binding is neither Queue nor R2", () => {
+		const env = {
+			ARCHIVE: {},
+		};
+		const config: Config = {
+			routes: [
+				{
+					condition: {
+						path: "$.kind",
+						exact: "archive",
+					},
+					destination: "ARCHIVE",
+				},
+			],
+		};
+		const pendingDeliveryJobs = createPendingDeliveryJobs(config, [
+			{ kind: "archive", avoidUrban: false },
+		]);
+
+		expect(() =>
+			assertDestinationBindingsExist(env, pendingDeliveryJobs),
+		).toThrow(/eventhub: value of ARCHIVE is not a Queue or R2Bucket/);
 	});
 });
 
@@ -124,11 +219,40 @@ describe("resolveDeliveryJobs", () => {
 		expect(resolveDeliveryJobs(env, jobs)).toStrictEqual([
 			{
 				...jobs[0],
-				queue: env.HOKKAIDO,
+				target: {
+					kind: "queue",
+					queue: env.HOKKAIDO,
+				},
 			},
 			{
 				...jobs[1],
-				queue: env.OKINAWA,
+				target: {
+					kind: "queue",
+					queue: env.OKINAWA,
+				},
+			},
+		]);
+	});
+
+	test("resolves R2 buckets before sending", () => {
+		const env = createEnv();
+		const payload = { kind: "archive", avoidUrban: false } as const;
+		const jobs: PersistedDeliveryJob[] = [
+			{
+				id: "01TEST00000000000000000005",
+				payloadId: "01TEST00000000000000000004",
+				destination: "ARCHIVE",
+				payload,
+			},
+		];
+
+		expect(resolveDeliveryJobs(env, jobs)).toStrictEqual([
+			{
+				...jobs[0],
+				target: {
+					kind: "r2",
+					bucket: env.ARCHIVE,
+				},
 			},
 		]);
 	});
@@ -176,6 +300,7 @@ describe("deliverJobs", () => {
 		expect(env.OKINAWA.sentBatches).toStrictEqual([
 			[{ body: payload2, contentType: "json" }],
 		]);
+		expect((env.ARCHIVE as unknown as R2BucketMock).objects.size).toBe(0);
 	});
 
 	test("splits batches per destination", async () => {
@@ -226,6 +351,36 @@ describe("deliverJobs", () => {
 		);
 		expect(env.HOKKAIDO.sentBatches).toHaveLength(0);
 		expect(env.OKAYAMA.sentBatches).toHaveLength(0);
+	});
+
+	test("writes matched payloads to destination buckets", async () => {
+		const env = createEnv();
+		const payload = { kind: "archive", avoidUrban: false };
+		const jobs = resolveDeliveryJobs(env, [
+			{
+				id: "01TEST00000000000000000011",
+				payloadId: "01TEST00000000000000000010",
+				destination: "ARCHIVE",
+				payload,
+			},
+		]);
+
+		await deliverJobs(jobs, {
+			onDelivered: noopOnDelivered,
+			onFailed: noopOnFailed,
+		});
+
+		expect((env.ARCHIVE as unknown as R2BucketMock).objects).toStrictEqual(
+			new Map([
+				[
+					"01TEST00000000000000000010/01TEST00000000000000000011.json",
+					{
+						body: JSON.stringify(payload),
+						contentType: "application/json",
+					},
+				],
+			]),
+		);
 	});
 
 	test("reports delivered job ids after each successful batch", async () => {
@@ -294,10 +449,49 @@ describe("deliverJobs", () => {
 			"01TEST00000000000000000002",
 		]);
 	});
+
+	test("reports failed R2 job ids one by one and continues with queues", async () => {
+		const archive = new R2BucketMock([
+			"01TEST00000000000000000020/01TEST00000000000000000021.json",
+		]);
+		const env = {
+			OKAYAMA: new QueueMock(),
+			HOKKAIDO: new QueueMock(),
+			OKINAWA: new QueueMock(),
+			ARCHIVE: archive as unknown as R2Bucket,
+		};
+		const onDelivered = vi.fn();
+		const onFailed = vi.fn();
+		const jobs = resolveDeliveryJobs(env, [
+			{
+				id: "01TEST00000000000000000021",
+				payloadId: "01TEST00000000000000000020",
+				destination: "ARCHIVE",
+				payload: { kind: "archive", avoidUrban: false } as EventPayload,
+			},
+			{
+				id: "01TEST00000000000000000022",
+				payloadId: "01TEST00000000000000000020",
+				destination: "OKAYAMA",
+				payload: { kind: "culture", avoidUrban: true } as EventPayload,
+			},
+		]);
+
+		await deliverJobs(jobs, { onDelivered, onFailed });
+
+		expect(onFailed).toHaveBeenCalledTimes(1);
+		expect(onFailed.mock.calls[0]?.[0]).toStrictEqual([
+			"01TEST00000000000000000021",
+		]);
+		expect(onDelivered).toHaveBeenCalledTimes(1);
+		expect(onDelivered.mock.calls[0]?.[0]).toStrictEqual([
+			"01TEST00000000000000000022",
+		]);
+	});
 });
 
 describe("deliverPersistedJobs", () => {
-	test("continues delivering other destinations when one destination queue is missing", async () => {
+	test("continues delivering other destinations when one destination binding is missing", async () => {
 		// 1. Deliver persisted jobs with one unresolved destination.
 		// 2. Verify the remaining destination still succeeds.
 		const env = {
@@ -342,5 +536,46 @@ describe("deliverPersistedJobs", () => {
 				},
 			],
 		]);
+	});
+
+	test("continues delivering other destinations when one R2 bucket write fails", async () => {
+		const archive = new R2BucketMock([
+			"01TEST00000000000000000030/01TEST00000000000000000031.json",
+		]);
+		const env = {
+			OKAYAMA: new QueueMock(),
+			ARCHIVE: archive as unknown as R2Bucket,
+		};
+		const onDelivered = vi.fn();
+		const onFailed = vi.fn();
+
+		await deliverPersistedJobs(
+			env,
+			[
+				{
+					id: "01TEST00000000000000000031",
+					payloadId: "01TEST00000000000000000030",
+					destination: "ARCHIVE",
+					payload: { kind: "archive", avoidUrban: false } as EventPayload,
+				},
+				{
+					id: "01TEST00000000000000000032",
+					payloadId: "01TEST00000000000000000030",
+					destination: "OKAYAMA",
+					payload: { kind: "culture", avoidUrban: true } as EventPayload,
+				},
+			],
+			{ onDelivered, onFailed },
+		);
+
+		expect(onFailed).toHaveBeenCalledTimes(1);
+		expect(onFailed.mock.calls[0]?.[0]).toStrictEqual([
+			"01TEST00000000000000000031",
+		]);
+		expect(onDelivered).toHaveBeenCalledTimes(1);
+		expect(onDelivered.mock.calls[0]?.[0]).toStrictEqual([
+			"01TEST00000000000000000032",
+		]);
+		expect(archive.objects.size).toBe(0);
 	});
 });
