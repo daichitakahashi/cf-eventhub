@@ -51,11 +51,21 @@ const routeConfig: Config = {
 			},
 			destination: "OKINAWA",
 		},
+		{
+			condition: {
+				path: "$.kind",
+				exact: "archive",
+			},
+			destination: "ARCHIVE",
+		},
 	],
 };
 
 const getStub = (name: string) =>
 	env.EVENT_HUB.get(env.EVENT_HUB.idFromName(name));
+
+// @ts-expect-error
+const getArchiveBucket = (): R2Bucket => env.ARCHIVE as R2Bucket;
 
 describe("EventHub integration", () => {
 	test("persists payloads and delivery jobs through publish", async () => {
@@ -157,9 +167,9 @@ describe("EventHub integration", () => {
 					.toArray();
 
 				expect(deliveryJobs).toHaveLength(2);
-				expect(deliveryJobs.every((job) => job.final_status === "completed")).toBe(
-					true,
-				);
+				expect(
+					deliveryJobs.every((job) => job.final_status === "completed"),
+				).toBe(true);
 				expect(deliveryJobs.every((job) => job.finalized_at !== null)).toBe(
 					true,
 				);
@@ -265,6 +275,111 @@ describe("EventHub integration", () => {
 			await instance.alarm?.();
 
 			expect(await state.storage.getAlarm()).toBe(futureRetryAt.getTime());
+		});
+	});
+
+	test("writes routed payloads to R2 buckets through publish", async () => {
+		// 1. Publish an R2-routed payload through the Durable Object entrypoint.
+		// 2. Verify the persisted delivery job is completed and the bucket object matches the payload.
+		const stub = getStub("r2-publish");
+		const payload = { kind: "archive", avoidUrban: false, region: "west" };
+		let archiveJob: DeliveryJobRow | undefined;
+
+		await stub.publish(payload);
+
+		await vi.waitFor(async () => {
+			await runInDurableObject(stub, async (_instance, state) => {
+				const deliveryJobs = state.storage.sql
+					.exec<DeliveryJobRow>(
+						`
+							SELECT
+								id,
+								payload_id,
+								destination,
+								created_at,
+								final_status,
+								finalized_at,
+								retry_count,
+								last_failed_at,
+								last_error,
+								next_retry_at
+							FROM delivery_jobs
+							WHERE destination = 'ARCHIVE'
+						`,
+					)
+					.toArray();
+
+				expect(deliveryJobs).toHaveLength(1);
+				[archiveJob] = deliveryJobs;
+				expect(archiveJob?.final_status).toBe("completed");
+			});
+		});
+
+		expect(archiveJob).toBeDefined();
+		if (!archiveJob) {
+			throw new Error("expected an archive job");
+		}
+
+		const object = await getArchiveBucket().get(
+			`${archiveJob.payload_id}/${archiveJob.id}.json`,
+		);
+		expect(object).not.toBeNull();
+		expect(await object?.json()).toStrictEqual(payload);
+	});
+
+	test("delivers queue and R2 destinations in the same publish call", async () => {
+		// 1. Publish one queue-routed payload and one R2-routed payload together.
+		// 2. Verify both delivery paths complete independently.
+		const stub = getStub("mixed-destinations");
+		let archiveJob: DeliveryJobRow | undefined;
+
+		await stub.publish(
+			{ kind: "culture", avoidUrban: true },
+			{ kind: "archive", avoidUrban: false },
+		);
+
+		await vi.waitFor(async () => {
+			await runInDurableObject(stub, async (_instance, state) => {
+				const deliveryJobs = state.storage.sql
+					.exec<DeliveryJobRow>(
+						`
+							SELECT
+								id,
+								payload_id,
+								destination,
+								created_at,
+								final_status,
+								finalized_at,
+								retry_count,
+								last_failed_at,
+								last_error,
+								next_retry_at
+							FROM delivery_jobs
+							ORDER BY destination
+						`,
+					)
+					.toArray();
+
+				expect(deliveryJobs).toHaveLength(2);
+				expect(
+					deliveryJobs.every((job) => job.final_status === "completed"),
+				).toBe(true);
+				archiveJob = deliveryJobs.find((job) => job.destination === "ARCHIVE");
+			});
+		});
+
+		expect(archiveJob).toBeDefined();
+		if (!archiveJob) {
+			throw new Error("expected an archive job");
+		}
+
+		const object = await getArchiveBucket().get(
+			`${archiveJob.payload_id}/${archiveJob.id}.json`,
+		);
+		expect(object).not.toBeNull();
+		expect(await object?.json()).toStrictEqual({
+			kind: "archive",
+			avoidUrban: false,
 		});
 	});
 });

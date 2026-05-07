@@ -1,9 +1,12 @@
 import { DurableObject } from "cloudflare:workers";
 import * as v from "valibot";
 
-import { MonotonicUlidGenerator } from "./core/id";
+import {
+	assertDestinationBindingsExist,
+	deliverPersistedJobs,
+} from "./core/delivery";
 import { parsePositiveInteger } from "./core/env";
-import { assertQueuesExist, deliverPersistedJobs } from "./core/queue";
+import { MonotonicUlidGenerator } from "./core/id";
 import { Config, type ConfigInput } from "./core/routing";
 import {
 	type PersistedDeliveryJob,
@@ -175,7 +178,7 @@ export class EventHub extends DurableObject<EventHubEnv> {
 			payload,
 			...rest,
 		]);
-		assertQueuesExist(this.env, pendingDeliveryJobs);
+		assertDestinationBindingsExist(this.env, pendingDeliveryJobs);
 
 		const persistedJobs = this.ctx.storage.transactionSync(() =>
 			persistDeliveryJobs(

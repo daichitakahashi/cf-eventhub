@@ -30,10 +30,18 @@ export default defineWorkersConfig({
 									},
 									destination: "OKINAWA",
 								},
+								{
+									condition: {
+										path: "$.kind",
+										exact: "archive",
+									},
+									destination: "ARCHIVE",
+								},
 							],
 						},
 					},
 					queueProducers: ["OKAYAMA", "HOKKAIDO", "OKINAWA"],
+					r2Buckets: ["ARCHIVE"],
 				},
 			},
 		},
