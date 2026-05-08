@@ -9,8 +9,10 @@ import { parsePositiveInteger } from "./core/env";
 import { MonotonicUlidGenerator } from "./core/id";
 import { Config, type ConfigInput } from "./core/routing";
 import {
+	type EjectedPayload,
 	type PersistedDeliveryJob,
 	createPendingDeliveryJobs,
+	ejectPayloads,
 	getNextRetryAt,
 	initializeSchema,
 	listDeliverableJobs,
@@ -35,6 +37,10 @@ type DeliveryConfig = {
 	maxDeliveryRetries: number;
 	initialRetryDelayMs: number;
 	maxRetryDelayMs: number;
+};
+
+export type EjectOptions = {
+	max?: number;
 };
 
 const DEFAULT_ALARM_BATCH_SIZE = 50;
@@ -191,6 +197,22 @@ export class EventHub extends DurableObject<EventHubEnv> {
 		);
 		await this.scheduleNextAlarmFromStorage();
 		this.ctx.waitUntil(this.deliverPersistedJobs(persistedJobs));
+	}
+
+	// Extracts finalized payloads older than the cutoff and removes them from storage.
+	eject(before: number, options?: EjectOptions): EjectedPayload[] {
+		if (!Number.isFinite(before)) {
+			throw new Error("eventhub: before must be a finite number");
+		}
+
+		const max = options?.max;
+		if (max !== undefined && (!Number.isInteger(max) || max <= 0)) {
+			throw new Error("eventhub: max must be a positive integer");
+		}
+
+		return this.ctx.storage.transactionSync(() =>
+			ejectPayloads(this.ctx.storage.sql, before, max ?? 50),
+		);
 	}
 
 	// Retries delivery for jobs whose retry time has arrived.

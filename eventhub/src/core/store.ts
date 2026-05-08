@@ -48,6 +48,13 @@ export type DeliveryJobStatus = {
 	createdAt: string;
 } & DeliveryRetryState;
 
+export type EjectedDeliveryJob = DeliveryJobStatus;
+
+export type EjectedPayload = {
+	payload: EventPayload;
+	deliveryJobs: EjectedDeliveryJob[];
+};
+
 // Inserts a payload row once before creating per-destination jobs.
 const insertPayload = (
 	sql: SqlStorage,
@@ -287,7 +294,7 @@ export const markDeliveryJobsFailed = (
 			maxRetryDelayMs,
 		);
 		sql.exec(
-				`
+			`
 					UPDATE delivery_jobs
 					SET retry_count = ?,
 						last_failed_at = ?,
@@ -392,3 +399,102 @@ export const listDeliveryJobStatuses = (sql: SqlStorage): DeliveryJobStatus[] =>
 			lastError: row.last_error,
 			nextRetryAt: row.next_retry_at,
 		}));
+
+export const ejectPayloads = (
+	sql: SqlStorage,
+	before: number,
+	max: number,
+): EjectedPayload[] => {
+	const beforeIso = new Date(before).toISOString();
+	const payloadRows = sql
+		.exec<{ id: string; body: string }>(
+			`
+				SELECT p.id, p.body
+				FROM payloads p
+				LEFT JOIN delivery_jobs dj ON dj.payload_id = p.id
+				GROUP BY p.id, p.body, p.created_at
+				HAVING COUNT(dj.id) = 0
+					AND p.created_at < ?
+					OR COUNT(dj.id) > 0
+					AND SUM(CASE WHEN dj.final_status IS NULL THEN 1 ELSE 0 END) = 0
+					AND MAX(dj.finalized_at) < ?
+				ORDER BY
+					CASE
+						WHEN COUNT(dj.id) = 0 THEN p.created_at
+						ELSE MAX(dj.finalized_at)
+					END ASC,
+					p.id ASC
+				LIMIT ?
+			`,
+			beforeIso,
+			beforeIso,
+			max,
+		)
+		.toArray();
+
+	if (payloadRows.length === 0) {
+		return [];
+	}
+
+	const payloadIds = payloadRows.map(({ id }) => id);
+	const placeholders = payloadIds.map(() => "?").join(", ");
+	const deliveryJobs = sql
+		.exec<{
+			id: string;
+			payload_id: string;
+			destination: string;
+			created_at: string;
+			final_status: DeliveryFinalStatus | null;
+			finalized_at: string | null;
+			retry_count: number;
+			last_failed_at: string | null;
+			last_error: string | null;
+			next_retry_at: string;
+		}>(
+			`
+				SELECT
+					id,
+					payload_id,
+					destination,
+					created_at,
+					final_status,
+					finalized_at,
+					retry_count,
+					last_failed_at,
+					last_error,
+					next_retry_at
+				FROM delivery_jobs
+				WHERE payload_id IN (${placeholders})
+				ORDER BY created_at ASC, id ASC
+			`,
+			...payloadIds,
+		)
+		.toArray()
+		.map(
+			(row): EjectedDeliveryJob => ({
+				id: row.id,
+				payloadId: row.payload_id,
+				destination: row.destination,
+				createdAt: row.created_at,
+				finalStatus: row.final_status,
+				finalizedAt: row.finalized_at,
+				retryCount: row.retry_count,
+				lastFailedAt: row.last_failed_at,
+				lastError: row.last_error,
+				nextRetryAt: row.next_retry_at,
+			}),
+		);
+
+	const jobsByPayloadId = Map.groupBy(deliveryJobs, (j) => j.payloadId);
+
+	sql.exec(
+		`DELETE FROM delivery_jobs WHERE payload_id IN (${placeholders})`,
+		...payloadIds,
+	);
+	sql.exec(`DELETE FROM payloads WHERE id IN (${placeholders})`, ...payloadIds);
+
+	return payloadRows.map(({ id, body }) => ({
+		payload: JSON.parse(body) as EventPayload,
+		deliveryJobs: jobsByPayloadId.get(id) ?? [],
+	}));
+};

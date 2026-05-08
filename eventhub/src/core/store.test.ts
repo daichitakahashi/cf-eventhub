@@ -5,6 +5,7 @@ import { describe, expect, test, vi } from "vitest";
 import type { Config } from "./routing";
 import {
 	createPendingDeliveryJobs,
+	ejectPayloads,
 	getNextRetryAt,
 	listDeliverableJobs,
 	listDeliveryJobStatuses,
@@ -106,7 +107,9 @@ describe("persistDeliveryJobs", () => {
 
 		const jobs = persistDeliveryJobs(
 			sql,
-			createPendingDeliveryJobs(routeConfig, [{ kind: "nature", avoidUrban: false }]),
+			createPendingDeliveryJobs(routeConfig, [
+				{ kind: "nature", avoidUrban: false },
+			]),
 			generateId,
 			new Date("2026-05-04T00:00:00.000Z"),
 			10_000,
@@ -147,10 +150,10 @@ describe("persistDeliveryJobs", () => {
 			state.storage.transactionSync(() => {
 				persistDeliveryJobs(
 					state.storage.sql,
-						createPendingDeliveryJobs(routeConfig, [
-							{ kind: "culture", avoidUrban: true },
-							{ kind: "nature", avoidUrban: false },
-						]),
+					createPendingDeliveryJobs(routeConfig, [
+						{ kind: "culture", avoidUrban: true },
+						{ kind: "nature", avoidUrban: false },
+					]),
 					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
 					new Date("2026-05-04T00:00:00.000Z"),
 					10_000,
@@ -182,7 +185,7 @@ describe("persistDeliveryJobs", () => {
 				)
 				.toArray();
 
-			expect(payloads).toHaveLength(2);
+				expect(payloads).toHaveLength(2);
 			expect(payloads.map((payload) => payload.id).sort()).toStrictEqual(
 				payloads.map((payload) => payload.id),
 			);
@@ -206,7 +209,9 @@ describe("persistDeliveryJobs", () => {
 				),
 			).toBe(true);
 			expect(deliveryJobs.every((job) => job.retry_count === 0)).toBe(true);
-			expect(deliveryJobs.every((job) => job.last_failed_at === null)).toBe(true);
+			expect(deliveryJobs.every((job) => job.last_failed_at === null)).toBe(
+				true,
+			);
 			expect(deliveryJobs.every((job) => job.last_error === null)).toBe(true);
 			expect(deliveryJobs.every((job) => job.final_status === null)).toBe(true);
 			expect(deliveryJobs.every((job) => job.finalized_at === null)).toBe(true);
@@ -243,6 +248,147 @@ describe("persistDeliveryJobs", () => {
 			expect(payloads).toHaveLength(1);
 			expect(JSON.parse(payloads[0].body)).toStrictEqual({ kind: "other" });
 			expect(deliveryJobs).toHaveLength(0);
+		});
+	});
+});
+
+describe("ejectPayloads", () => {
+	test("returns payloads whose last finalization is older than the cutoff and deletes them", async () => {
+		// 1. Seed payloads finalized before and after the cutoff, plus a newer active payload.
+		// 2. Eject by cutoff and verify recently finalized payloads are retained.
+		const stub = getStub("store-eject-payloads");
+
+		await runInDurableObject(stub, async (_instance, state) => {
+			let sequence = 0;
+			const createdJobs = state.storage.transactionSync(() =>
+				persistDeliveryJobs(
+					state.storage.sql,
+					createPendingDeliveryJobs(routeConfig, [
+						{ kind: "culture", avoidUrban: true },
+						{ kind: "nature", avoidUrban: false },
+					]),
+					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
+					new Date("2026-05-04T00:00:00.000Z"),
+					10_000,
+				),
+			);
+			state.storage.transactionSync(() => {
+				markDeliveryJobsCompleted(
+					state.storage.sql,
+					[createdJobs[0].id],
+					new Date("2026-05-04T00:01:00.000Z"),
+				);
+				markDeliveryJobsFailed(
+					state.storage.sql,
+					createdJobs.slice(1).map((job) => job.id),
+					0,
+					10_000,
+					10_000,
+					new Error("permanent failure"),
+					new Date("2026-05-04T00:02:00.000Z"),
+				);
+				const recentlyFinalizedJobs = persistDeliveryJobs(
+					state.storage.sql,
+					createPendingDeliveryJobs(routeConfig, [
+						{ kind: "nature", avoidUrban: true, freshness: "recent" },
+					]),
+					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
+					new Date("2026-05-03T00:00:00.000Z"),
+					10_000,
+				);
+				markDeliveryJobsCompleted(
+					state.storage.sql,
+					recentlyFinalizedJobs.map((job) => job.id),
+					new Date("2026-05-06T00:00:00.000Z"),
+				);
+				persistDeliveryJobs(
+					state.storage.sql,
+					createPendingDeliveryJobs(routeConfig, [
+						{ kind: "culture", avoidUrban: false },
+					]),
+					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
+					new Date("2026-05-06T00:00:00.000Z"),
+					10_000,
+				);
+			});
+
+			const ejected = state.storage.transactionSync(() =>
+				ejectPayloads(
+					state.storage.sql,
+					new Date("2026-05-05T00:00:00.000Z").getTime(),
+					50,
+				),
+			);
+
+			expect(ejected).toHaveLength(2);
+			expect(ejected.map(({ payload }) => payload)).toStrictEqual([
+				{ kind: "culture", avoidUrban: true },
+				{ kind: "nature", avoidUrban: false },
+			]);
+			expect(ejected[0].deliveryJobs).toHaveLength(1);
+			expect(ejected[0].deliveryJobs[0]?.finalStatus).toBe("completed");
+			expect(ejected[1].deliveryJobs).toHaveLength(2);
+			expect(
+				ejected[1].deliveryJobs.every((job) => job.finalStatus === "failed"),
+			).toBe(true);
+
+			const payloads = state.storage.sql
+				.exec<PayloadRow>("SELECT id, body FROM payloads ORDER BY id")
+				.toArray();
+			const deliveryJobs = state.storage.sql
+				.exec<DeliveryJobRow>(
+					"SELECT id, payload_id, destination, created_at, final_status, finalized_at, retry_count, last_failed_at, last_error, next_retry_at FROM delivery_jobs ORDER BY id",
+				)
+				.toArray();
+
+			expect(payloads).toHaveLength(2);
+			expect(payloads.map((payload) => JSON.parse(payload.body))).toStrictEqual([
+				{ kind: "nature", avoidUrban: true, freshness: "recent" },
+				{ kind: "culture", avoidUrban: false },
+			]);
+			expect(deliveryJobs).toHaveLength(3);
+			expect(deliveryJobs.filter((job) => job.final_status === null)).toHaveLength(1);
+		});
+	});
+
+	test("respects max when ejecting eligible payloads", async () => {
+		const stub = getStub("store-eject-payloads-max");
+
+		await runInDurableObject(stub, async (_instance, state) => {
+			let sequence = 0;
+			const jobs = state.storage.transactionSync(() =>
+				persistDeliveryJobs(
+					state.storage.sql,
+					createPendingDeliveryJobs(routeConfig, [
+						{ kind: "culture", avoidUrban: true },
+						{ kind: "culture", avoidUrban: false },
+					]),
+					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
+					new Date("2026-05-04T00:00:00.000Z"),
+					10_000,
+				),
+			);
+			state.storage.transactionSync(() => {
+				markDeliveryJobsCompleted(
+					state.storage.sql,
+					jobs.map((job) => job.id),
+					new Date("2026-05-04T00:01:00.000Z"),
+				);
+			});
+
+			const ejected = state.storage.transactionSync(() =>
+				ejectPayloads(
+					state.storage.sql,
+					new Date("2026-05-05T00:00:00.000Z").getTime(),
+					1,
+				),
+			);
+			expect(ejected).toHaveLength(1);
+
+			const remainingPayloads = state.storage.sql
+				.exec<PayloadRow>("SELECT id FROM payloads")
+				.toArray();
+			expect(remainingPayloads).toHaveLength(1);
 		});
 	});
 });
@@ -612,7 +758,9 @@ describe("delivery job scheduling", () => {
 				);
 			});
 
-			expect(getNextRetryAt(state.storage.sql)).toBe("2026-05-04T00:00:03.000Z");
+			expect(getNextRetryAt(state.storage.sql)).toBe(
+				"2026-05-04T00:00:03.000Z",
+			);
 
 			state.storage.transactionSync(() => {
 				state.storage.sql.exec(

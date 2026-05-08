@@ -382,4 +382,101 @@ describe("EventHub integration", () => {
 			avoidUrban: false,
 		});
 	});
+
+	test("ejects payloads through RPC based on the last job finalization time", async () => {
+		// 1. Seed payloads finalized before and after the cutoff plus one active payload.
+		// 2. Call the public RPC method and verify recently finalized payloads are retained.
+		const stub = getStub("eventhub-eject");
+
+		await runInDurableObject(stub, async (_instance, state) => {
+			let sequence = 0;
+			const jobs = state.storage.transactionSync(() =>
+				persistDeliveryJobs(
+					state.storage.sql,
+					createPendingDeliveryJobs(routeConfig, [
+						{ kind: "culture", avoidUrban: true },
+						{ kind: "nature", avoidUrban: false },
+					]),
+					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
+					new Date("2026-05-04T00:00:00.000Z"),
+					10_000,
+				),
+			);
+			state.storage.transactionSync(() => {
+				const recentlyFinalizedJobs = persistDeliveryJobs(
+					state.storage.sql,
+					createPendingDeliveryJobs(routeConfig, [
+						{ kind: "nature", avoidUrban: true, freshness: "recent" },
+					]),
+					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
+					new Date("2026-05-03T00:00:00.000Z"),
+					10_000,
+				);
+				persistDeliveryJobs(
+					state.storage.sql,
+					createPendingDeliveryJobs(routeConfig, [{ kind: "other" }]),
+					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
+					new Date("2026-05-04T00:00:30.000Z"),
+					10_000,
+				);
+				markAllCompleted(state.storage.sql, jobs.map((job) => job.id));
+				markAllCompleted(
+					state.storage.sql,
+					recentlyFinalizedJobs.map((job) => job.id),
+					"2026-05-06T00:00:00.000Z",
+				);
+				persistDeliveryJobs(
+					state.storage.sql,
+					createPendingDeliveryJobs(routeConfig, [{ kind: "culture", avoidUrban: false }]),
+					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
+					new Date("2026-05-06T00:00:00.000Z"),
+					10_000,
+				);
+			});
+		});
+
+		const ejected = await stub.eject(
+			new Date("2026-05-05T00:00:00.000Z").getTime(),
+		);
+		expect(ejected.map(({ payload }) => payload)).toStrictEqual([
+			{ kind: "other" },
+			{ kind: "culture", avoidUrban: true },
+			{ kind: "nature", avoidUrban: false },
+		]);
+		expect(ejected[0]?.deliveryJobs).toHaveLength(0);
+
+		await runInDurableObject(stub, async (_instance, state) => {
+			const payloads = state.storage.sql
+				.exec<PayloadRow>("SELECT id, body FROM payloads ORDER BY id")
+				.toArray();
+			expect(payloads).toHaveLength(2);
+			expect(payloads.map((payload) => JSON.parse(payload.body))).toStrictEqual([
+				{ kind: "nature", avoidUrban: true, freshness: "recent" },
+				{ kind: "culture", avoidUrban: false },
+			]);
+		});
+	});
 });
+
+const markAllCompleted = (
+	sql: SqlStorage,
+	jobIds: string[],
+	finalizedAt = "2026-05-04T00:01:00.000Z",
+): void => {
+	if (jobIds.length === 0) {
+		return;
+	}
+
+	const placeholders = jobIds.map(() => "?").join(", ");
+	sql.exec(
+		`
+			UPDATE delivery_jobs
+			SET final_status = 'completed',
+				finalized_at = ?,
+				last_error = NULL
+			WHERE id IN (${placeholders})
+		`,
+		finalizedAt,
+		...jobIds,
+	);
+};
