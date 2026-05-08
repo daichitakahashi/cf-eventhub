@@ -103,10 +103,10 @@ describe("EventHub integration", () => {
 				)
 				.toArray();
 
-			expect(payloads).toHaveLength(2);
-			expect(JSON.parse(payloads[0].body)).toStrictEqual(payload1);
-			expect(JSON.parse(payloads[1].body)).toStrictEqual(payload2);
-			expect(deliveryJobs).toHaveLength(3);
+			expect(payloads.map((payload) => JSON.parse(payload.body))).toStrictEqual([
+				payload1,
+				payload2,
+			]);
 			expect(deliveryJobs.map((job) => job.destination)).toStrictEqual([
 				"OKAYAMA",
 				"HOKKAIDO",
@@ -131,9 +131,10 @@ describe("EventHub integration", () => {
 				.exec<DeliveryJobRow>("SELECT id FROM delivery_jobs")
 				.toArray();
 
-			expect(payloads).toHaveLength(1);
-			expect(JSON.parse(payloads[0].body)).toStrictEqual(payload);
-			expect(deliveryJobs).toHaveLength(0);
+			expect(payloads.map((storedPayload) => JSON.parse(storedPayload.body))).toStrictEqual([
+				payload,
+			]);
+			expect(deliveryJobs).toStrictEqual([]);
 		});
 	});
 
@@ -166,13 +167,16 @@ describe("EventHub integration", () => {
 					)
 					.toArray();
 
-				expect(deliveryJobs).toHaveLength(2);
-				expect(
-					deliveryJobs.every((job) => job.final_status === "completed"),
-				).toBe(true);
-				expect(deliveryJobs.every((job) => job.finalized_at !== null)).toBe(
-					true,
-				);
+				expect(deliveryJobs).toMatchObject([
+					{
+						final_status: "completed",
+						finalized_at: expect.any(String),
+					},
+					{
+						final_status: "completed",
+						finalized_at: expect.any(String),
+					},
+				]);
 			});
 		});
 	});
@@ -188,10 +192,10 @@ describe("EventHub integration", () => {
 		await vi.waitFor(async () => {
 			await runInDurableObject(stub, async (_instance, state) => {
 				const statuses = listDeliveryJobStatuses(state.storage.sql);
-				expect(statuses).toHaveLength(2);
-				expect(statuses.every((job) => job.finalStatus === "completed")).toBe(
-					true,
-				);
+				expect(statuses).toMatchObject([
+					{ finalStatus: "completed" },
+					{ finalStatus: "completed" },
+				]);
 			});
 		});
 
@@ -360,13 +364,13 @@ describe("EventHub integration", () => {
 					)
 					.toArray();
 
-				expect(deliveryJobs).toHaveLength(2);
-				expect(
-					deliveryJobs.every((job) => job.final_status === "completed"),
-				).toBe(true);
-				archiveJob = deliveryJobs.find((job) => job.destination === "ARCHIVE");
+					expect(deliveryJobs).toMatchObject([
+						{ final_status: "completed" },
+						{ final_status: "completed" },
+					]);
+					archiveJob = deliveryJobs.find((job) => job.destination === "ARCHIVE");
+				});
 			});
-		});
 
 		expect(archiveJob).toBeDefined();
 		if (!archiveJob) {

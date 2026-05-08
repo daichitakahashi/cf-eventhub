@@ -185,39 +185,58 @@ describe("persistDeliveryJobs", () => {
 				)
 				.toArray();
 
-				expect(payloads).toHaveLength(2);
 			expect(payloads.map((payload) => payload.id).sort()).toStrictEqual(
 				payloads.map((payload) => payload.id),
 			);
-			expect(JSON.parse(payloads[0].body)).toStrictEqual({
-				kind: "culture",
-				avoidUrban: true,
-			});
-			expect(JSON.parse(payloads[1].body)).toStrictEqual({
-				kind: "nature",
-				avoidUrban: false,
-			});
-			expect(deliveryJobs).toHaveLength(3);
+			expect(payloads.map((payload) => JSON.parse(payload.body))).toStrictEqual([
+				{
+					kind: "culture",
+					avoidUrban: true,
+				},
+				{
+					kind: "nature",
+					avoidUrban: false,
+				},
+			]);
 			expect(deliveryJobs.map((job) => job.destination)).toStrictEqual([
 				"OKAYAMA",
 				"HOKKAIDO",
 				"OKINAWA",
 			]);
 			expect(
-				deliveryJobs.every((deliveryJob) =>
-					payloads.some((payload) => payload.id === deliveryJob.payload_id),
-				),
-			).toBe(true);
-			expect(deliveryJobs.every((job) => job.retry_count === 0)).toBe(true);
-			expect(deliveryJobs.every((job) => job.last_failed_at === null)).toBe(
-				true,
-			);
-			expect(deliveryJobs.every((job) => job.last_error === null)).toBe(true);
-			expect(deliveryJobs.every((job) => job.final_status === null)).toBe(true);
-			expect(deliveryJobs.every((job) => job.finalized_at === null)).toBe(true);
-			expect(
-				deliveryJobs.every((job) => job.next_retry_at >= job.created_at),
-			).toBe(true);
+				deliveryJobs.map((job) => ({
+					...job,
+					hasValidRetryAt: job.next_retry_at >= job.created_at,
+				})),
+			).toMatchObject([
+				{
+					payload_id: payloads[0]?.id,
+					retry_count: 0,
+					last_failed_at: null,
+					last_error: null,
+					final_status: null,
+					finalized_at: null,
+					hasValidRetryAt: true,
+				},
+				{
+					payload_id: payloads[1]?.id,
+					retry_count: 0,
+					last_failed_at: null,
+					last_error: null,
+					final_status: null,
+					finalized_at: null,
+					hasValidRetryAt: true,
+				},
+				{
+					payload_id: payloads[1]?.id,
+					retry_count: 0,
+					last_failed_at: null,
+					last_error: null,
+					final_status: null,
+					finalized_at: null,
+					hasValidRetryAt: true,
+				},
+			]);
 		});
 	});
 
@@ -245,9 +264,10 @@ describe("persistDeliveryJobs", () => {
 				.exec<DeliveryJobRow>("SELECT id FROM delivery_jobs")
 				.toArray();
 
-			expect(payloads).toHaveLength(1);
-			expect(JSON.parse(payloads[0].body)).toStrictEqual({ kind: "other" });
-			expect(deliveryJobs).toHaveLength(0);
+			expect(payloads.map((payload) => JSON.parse(payload.body))).toStrictEqual([
+				{ kind: "other" },
+			]);
+			expect(deliveryJobs).toStrictEqual([]);
 		});
 	});
 });
@@ -320,17 +340,19 @@ describe("ejectPayloads", () => {
 				),
 			);
 
-			expect(ejected).toHaveLength(2);
-			expect(ejected.map(({ payload }) => payload)).toStrictEqual([
-				{ kind: "culture", avoidUrban: true },
-				{ kind: "nature", avoidUrban: false },
+			expect(ejected).toMatchObject([
+				{
+					payload: { kind: "culture", avoidUrban: true },
+					deliveryJobs: [{ finalStatus: "completed" }],
+				},
+				{
+					payload: { kind: "nature", avoidUrban: false },
+					deliveryJobs: [
+						{ finalStatus: "failed" },
+						{ finalStatus: "failed" },
+					],
+				},
 			]);
-			expect(ejected[0].deliveryJobs).toHaveLength(1);
-			expect(ejected[0].deliveryJobs[0]?.finalStatus).toBe("completed");
-			expect(ejected[1].deliveryJobs).toHaveLength(2);
-			expect(
-				ejected[1].deliveryJobs.every((job) => job.finalStatus === "failed"),
-			).toBe(true);
 
 			const payloads = state.storage.sql
 				.exec<PayloadRow>("SELECT id, body FROM payloads ORDER BY id")
@@ -341,13 +363,16 @@ describe("ejectPayloads", () => {
 				)
 				.toArray();
 
-			expect(payloads).toHaveLength(2);
-			expect(payloads.map((payload) => JSON.parse(payload.body))).toStrictEqual([
-				{ kind: "nature", avoidUrban: true, freshness: "recent" },
-				{ kind: "culture", avoidUrban: false },
-			]);
+			expect(payloads.map((payload) => JSON.parse(payload.body))).toStrictEqual(
+				[
+					{ kind: "nature", avoidUrban: true, freshness: "recent" },
+					{ kind: "culture", avoidUrban: false },
+				],
+			);
 			expect(deliveryJobs).toHaveLength(3);
-			expect(deliveryJobs.filter((job) => job.final_status === null)).toHaveLength(1);
+			expect(
+				deliveryJobs.filter((job) => job.final_status === null),
+			).toHaveLength(1);
 		});
 	});
 

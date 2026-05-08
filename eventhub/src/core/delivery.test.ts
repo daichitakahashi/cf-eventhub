@@ -323,11 +323,12 @@ describe("deliverJobs", () => {
 			onFailed: noopOnFailed,
 		});
 
-		expect(env.OKAYAMA.sentBatches).toHaveLength(2);
-		expect(env.OKAYAMA.sentBatches[0]).toHaveLength(100);
-		expect(env.OKAYAMA.sentBatches[1]).toHaveLength(1);
-		expect(env.HOKKAIDO.sentBatches).toHaveLength(0);
-		expect(env.OKINAWA.sentBatches).toHaveLength(0);
+		expect(env.OKAYAMA.sentBatches.map((batch) => batch.length)).toStrictEqual([
+			100,
+			1,
+		]);
+		expect(env.HOKKAIDO.sentBatches).toStrictEqual([]);
+		expect(env.OKINAWA.sentBatches).toStrictEqual([]);
 	});
 
 	test("does not send anything when any destination queue is missing", () => {
@@ -408,9 +409,10 @@ describe("deliverJobs", () => {
 			onFailed: noopOnFailed,
 		});
 
-		expect(delivered).toHaveLength(2);
-		expect(delivered[0]).toHaveLength(100);
-		expect(delivered[1]).toStrictEqual(["01TEST00000000000000010101"]);
+		expect(delivered).toMatchObject([
+			Array.from({ length: 100 }, () => expect.any(String)),
+			["01TEST00000000000000010101"],
+		]);
 	});
 
 	test("reports failed job ids and continues with other destinations", async () => {

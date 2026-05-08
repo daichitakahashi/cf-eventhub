@@ -12,11 +12,14 @@ describe("MonotonicUlidGenerator", () => {
 			generator.generate(now),
 		];
 
-		expect(new Set(ids)).toHaveLength(3);
-		expect(ids[0] < ids[1]).toBe(true);
-		expect(ids[1] < ids[2]).toBe(true);
+		expect([...new Set(ids)]).toHaveLength(3);
+		expect([ids[0] < ids[1], ids[1] < ids[2]]).toStrictEqual([true, true]);
 		expect([...ids].sort()).toStrictEqual(ids);
-		expect(ids.every((id) => id.length === ULID_LENGTH)).toBe(true);
+		expect(ids.map((id) => id.length)).toStrictEqual([
+			ULID_LENGTH,
+			ULID_LENGTH,
+			ULID_LENGTH,
+		]);
 	});
 
 	test("keeps ids sortable when timestamps advance", () => {
