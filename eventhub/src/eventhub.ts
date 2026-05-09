@@ -9,10 +9,11 @@ import { parsePositiveInteger } from "./core/env";
 import { MonotonicUlidGenerator } from "./core/id";
 import { Config, type ConfigInput } from "./core/routing";
 import {
-	type EjectedPayload,
+	type EjectResult,
 	type PersistedDeliveryJob,
 	createPendingDeliveryJobs,
 	ejectPayloads,
+	evictEjection,
 	getNextRetryAt,
 	initializeSchema,
 	listDeliverableJobs,
@@ -199,8 +200,8 @@ export class EventHub extends DurableObject<EventHubEnv> {
 		this.ctx.waitUntil(this.deliverPersistedJobs(persistedJobs));
 	}
 
-	// Extracts finalized payloads older than the cutoff and removes them from storage.
-	eject(before: number, options?: EjectOptions): EjectedPayload[] {
+	// Extracts finalized payloads older than the cutoff into a singleton ejection snapshot.
+	eject(before: number, options?: EjectOptions): EjectResult {
 		if (!Number.isFinite(before)) {
 			throw new Error("eventhub: before must be a finite number");
 		}
@@ -211,8 +212,20 @@ export class EventHub extends DurableObject<EventHubEnv> {
 		}
 
 		return this.ctx.storage.transactionSync(() =>
-			ejectPayloads(this.ctx.storage.sql, before, max ?? 50),
+			ejectPayloads(
+				this.ctx.storage.sql,
+				before,
+				max ?? 50,
+				this.idGenerator.generate(Date.now()),
+			),
 		);
+	}
+
+	// Removes a previously ejected snapshot. This operation is idempotent.
+	evict(ejectKey: string): void {
+		this.ctx.storage.transactionSync(() => {
+			evictEjection(this.ctx.storage.sql, ejectKey);
+		});
 	}
 
 	// Retries delivery for jobs whose retry time has arrived.

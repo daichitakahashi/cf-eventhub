@@ -387,7 +387,7 @@ describe("EventHub integration", () => {
 		});
 	});
 
-	test("ejects payloads through RPC based on the last job finalization time", async () => {
+	test("returns a singleton ejection snapshot through RPC until it is evicted", async () => {
 		// 1. Seed payloads finalized before and after the cutoff plus one active payload.
 		// 2. Call the public RPC method and verify recently finalized payloads are retained.
 		const stub = getStub("eventhub-eject");
@@ -439,15 +439,38 @@ describe("EventHub integration", () => {
 			});
 		});
 
-		const ejected = await stub.eject(
+		const firstEjection = await stub.eject(
 			new Date("2026-05-05T00:00:00.000Z").getTime(),
 		);
-		expect(ejected.map(({ payload }) => payload)).toStrictEqual([
-			{ kind: "other" },
+		expect(firstEjection).toMatchObject({
+			ejectKey: expect.any(String),
+			payloads: [
+				{
+					payload: { kind: "culture", avoidUrban: true },
+					deliveryJobs: [{ finalStatus: "completed" }],
+				},
+				{
+					payload: { kind: "nature", avoidUrban: false },
+					deliveryJobs: [
+						{ finalStatus: "completed" },
+						{ finalStatus: "completed" },
+					],
+				},
+				{ payload: { kind: "other" }, deliveryJobs: [] },
+			],
+		});
+		if (firstEjection.ejectKey === null) {
+			throw new Error("expected an ejection key");
+		}
+		expect(firstEjection.payloads.map(({ payload }) => payload)).toStrictEqual([
 			{ kind: "culture", avoidUrban: true },
 			{ kind: "nature", avoidUrban: false },
+			{ kind: "other" },
 		]);
-		expect(ejected[0]?.deliveryJobs).toHaveLength(0);
+		const repeatedEjection = await stub.eject(
+			new Date("2026-05-06T00:00:00.000Z").getTime(),
+		);
+		expect(repeatedEjection).toStrictEqual(firstEjection);
 
 		await runInDurableObject(stub, async (_instance, state) => {
 			const payloads = state.storage.sql
@@ -459,6 +482,14 @@ describe("EventHub integration", () => {
 				{ kind: "culture", avoidUrban: false },
 			]);
 		});
+
+		await stub.evict(firstEjection.ejectKey);
+		await stub.evict(firstEjection.ejectKey);
+
+		const afterEviction = await stub.eject(
+			new Date("2026-05-05T00:00:00.000Z").getTime(),
+		);
+		expect(afterEviction).toStrictEqual({ ejectKey: null });
 	});
 });
 

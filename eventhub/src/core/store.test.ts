@@ -6,6 +6,7 @@ import type { Config } from "./routing";
 import {
 	createPendingDeliveryJobs,
 	ejectPayloads,
+	evictEjection,
 	getNextRetryAt,
 	listDeliverableJobs,
 	listDeliveryJobStatuses,
@@ -31,6 +32,11 @@ type DeliveryJobRow = {
 	last_failed_at: string | null;
 	last_error: string | null;
 	next_retry_at: string;
+};
+
+type EjectionRow = {
+	key: string;
+	before_at: string;
 };
 
 const routeConfig: Config = {
@@ -273,7 +279,7 @@ describe("persistDeliveryJobs", () => {
 });
 
 describe("ejectPayloads", () => {
-	test("returns payloads whose last finalization is older than the cutoff and deletes them", async () => {
+	test("creates a singleton ejection snapshot and removes the source rows", async () => {
 		// 1. Seed payloads finalized before and after the cutoff, plus a newer active payload.
 		// 2. Eject by cutoff and verify recently finalized payloads are retained.
 		const stub = getStub("store-eject-payloads");
@@ -337,22 +343,26 @@ describe("ejectPayloads", () => {
 					state.storage.sql,
 					new Date("2026-05-05T00:00:00.000Z").getTime(),
 					50,
+					"01EJECT00000000000000000000",
 				),
 			);
 
-			expect(ejected).toMatchObject([
-				{
-					payload: { kind: "culture", avoidUrban: true },
-					deliveryJobs: [{ finalStatus: "completed" }],
-				},
-				{
-					payload: { kind: "nature", avoidUrban: false },
-					deliveryJobs: [
-						{ finalStatus: "failed" },
-						{ finalStatus: "failed" },
-					],
-				},
-			]);
+			expect(ejected).toMatchObject({
+				ejectKey: "01EJECT00000000000000000000",
+				payloads: [
+					{
+						payload: { kind: "culture", avoidUrban: true },
+						deliveryJobs: [{ finalStatus: "completed" }],
+					},
+					{
+						payload: { kind: "nature", avoidUrban: false },
+						deliveryJobs: [
+							{ finalStatus: "failed" },
+							{ finalStatus: "failed" },
+						],
+					},
+				],
+			});
 
 			const payloads = state.storage.sql
 				.exec<PayloadRow>("SELECT id, body FROM payloads ORDER BY id")
@@ -373,10 +383,20 @@ describe("ejectPayloads", () => {
 			expect(
 				deliveryJobs.filter((job) => job.final_status === null),
 			).toHaveLength(1);
+
+			const ejections = state.storage.sql
+				.exec<EjectionRow>("SELECT key, before_at FROM ejections")
+				.toArray();
+			expect(ejections).toStrictEqual([
+				{
+					key: "01EJECT00000000000000000000",
+					before_at: "2026-05-05T00:00:00.000Z",
+				},
+			]);
 		});
 	});
 
-	test("respects max when ejecting eligible payloads", async () => {
+	test("returns the existing ejection while it remains un-evicted", async () => {
 		const stub = getStub("store-eject-payloads-max");
 
 		await runInDurableObject(stub, async (_instance, state) => {
@@ -406,14 +426,69 @@ describe("ejectPayloads", () => {
 					state.storage.sql,
 					new Date("2026-05-05T00:00:00.000Z").getTime(),
 					1,
+					"01EJECT00000000000000000001",
 				),
 			);
-			expect(ejected).toHaveLength(1);
+			expect(ejected).toMatchObject({
+				ejectKey: "01EJECT00000000000000000001",
+				payloads: [{ payload: { kind: "culture", avoidUrban: true } }],
+			});
 
-			const remainingPayloads = state.storage.sql
-				.exec<PayloadRow>("SELECT id FROM payloads")
-				.toArray();
-			expect(remainingPayloads).toHaveLength(1);
+			const repeated = state.storage.transactionSync(() =>
+				ejectPayloads(
+					state.storage.sql,
+					new Date("2026-05-06T00:00:00.000Z").getTime(),
+					50,
+					"01EJECT00000000000000000002",
+				),
+			);
+			expect(repeated).toStrictEqual(ejected);
+		});
+	});
+
+	test("evicts an active ejection idempotently", async () => {
+		const stub = getStub("store-evict-ejection");
+
+		await runInDurableObject(stub, async (_instance, state) => {
+			let sequence = 0;
+			const jobs = state.storage.transactionSync(() =>
+				persistDeliveryJobs(
+					state.storage.sql,
+					createPendingDeliveryJobs(routeConfig, [
+						{ kind: "culture", avoidUrban: true },
+					]),
+					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
+					new Date("2026-05-04T00:00:00.000Z"),
+					10_000,
+				),
+			);
+			state.storage.transactionSync(() => {
+				markDeliveryJobsCompleted(
+					state.storage.sql,
+					jobs.map((job) => job.id),
+					new Date("2026-05-04T00:01:00.000Z"),
+				);
+				ejectPayloads(
+					state.storage.sql,
+					new Date("2026-05-05T00:00:00.000Z").getTime(),
+					50,
+					"01EJECT00000000000000000003",
+				);
+				evictEjection(state.storage.sql, "01EJECT00000000000000000003");
+				evictEjection(state.storage.sql, "01EJECT00000000000000000003");
+			});
+
+			expect(
+				state.storage.sql.exec("SELECT key FROM ejections").toArray(),
+			).toStrictEqual([]);
+			expect(
+				state.storage.sql.exec("SELECT payload_id FROM ejected_payloads").toArray(),
+			).toStrictEqual([]);
+			expect(
+				state.storage.sql
+					.exec("SELECT id FROM ejected_delivery_jobs")
+					.toArray(),
+			).toStrictEqual([]);
 		});
 	});
 });
