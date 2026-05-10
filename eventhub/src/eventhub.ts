@@ -43,12 +43,29 @@ type DeliveryConfig = {
 };
 
 export type EjectOptions = {
+	/**
+	 * Maximum number of payloads to move into a newly created ejection snapshot.
+	 * If an active snapshot already exists, that snapshot key is returned as-is.
+	 */
 	max?: number;
 };
 
 export type ListEjectedOptions = {
+	/**
+	 * Opaque cursor returned by the previous `listEjected()` call.
+	 * Omit this field to read the first page.
+	 */
 	cursor?: string;
+	/**
+	 * Maximum number of payloads to include in one page.
+	 */
 	max?: number;
+	/**
+	 * Soft page budget, in bytes, based on serialized payload bodies.
+	 * This limit does not cap the full RPC response size, because delivery job
+	 * metadata is added after page selection. The first payload is still returned
+	 * when present, even if its body alone exceeds this budget.
+	 */
 	maxBytes?: number;
 };
 
@@ -190,7 +207,11 @@ export class EventHub extends DurableObject<EventHubEnv> {
 		await this.scheduleNextAlarmFromStorage();
 	}
 
-	// Persists routed jobs and kicks off their first delivery attempt.
+	/**
+	 * Persists routed jobs and kicks off their first delivery attempt.
+	 * @param payload First payload to publish.
+	 * @param rest Additional payloads published in the same batch.
+	 */
 	async publish(payload: EventPayload, ...rest: EventPayload[]): Promise<void> {
 		const pendingDeliveryJobs = createPendingDeliveryJobs(this.routeConfig, [
 			payload,
@@ -211,7 +232,15 @@ export class EventHub extends DurableObject<EventHubEnv> {
 		this.ctx.waitUntil(this.deliverPersistedJobs(persistedJobs));
 	}
 
-	// Extracts finalized payloads older than the cutoff into a singleton ejection snapshot.
+	/**
+	 * Extracts finalized payloads older than the cutoff into a singleton
+	 * ejection snapshot.
+	 * @param before Unix time in milliseconds. Finalized payloads older than this
+	 * cutoff become ejection candidates.
+	 * @param options Optional limits for creating a new ejection snapshot.
+	 * `options.max` defaults to `50` and must be an integer in the range
+	 * `1..100`.
+	 */
 	eject(before: number, options?: EjectOptions): EjectResult {
 		if (!Number.isFinite(before)) {
 			throw new Error("eventhub: before must be a finite number");
@@ -237,7 +266,15 @@ export class EventHub extends DurableObject<EventHubEnv> {
 		);
 	}
 
-	// Lists payloads from an ejection snapshot with bounded page size and size budget.
+	/**
+	 * Lists payloads from an ejection snapshot with bounded page size and
+	 * payload-body size budget.
+	 * @param ejectKey Snapshot key returned by `eject()`.
+	 * @param options Optional pagination settings such as cursor, item count, and
+	 * payload-body byte budget. `options.max` defaults to `50` and must be an
+	 * integer in the range `1..100`. `options.maxBytes` defaults to `262144`
+	 * and must be an integer in the range `1..262144`.
+	 */
 	listEjected(
 		ejectKey: string,
 		options?: ListEjectedOptions,
@@ -279,7 +316,10 @@ export class EventHub extends DurableObject<EventHubEnv> {
 		);
 	}
 
-	// Removes a previously ejected snapshot. This operation is idempotent.
+	/**
+	 * Removes a previously ejected snapshot. This operation is idempotent.
+	 * @param ejectKey Snapshot key returned by `eject()`.
+	 */
 	evict(ejectKey: string): void {
 		if (ejectKey.length === 0) {
 			throw new Error("eventhub: ejectKey must not be empty");
@@ -290,7 +330,9 @@ export class EventHub extends DurableObject<EventHubEnv> {
 		});
 	}
 
-	// Retries delivery for jobs whose retry time has arrived.
+	/**
+	 * Retries delivery for jobs whose retry time has arrived.
+	 */
 	async alarm(): Promise<void> {
 		await this.deliverPersistedJobs();
 	}
