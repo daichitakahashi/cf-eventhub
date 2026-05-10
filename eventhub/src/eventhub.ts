@@ -10,12 +10,14 @@ import { MonotonicUlidGenerator } from "./core/id";
 import { Config, type ConfigInput } from "./core/routing";
 import {
 	type EjectResult,
+	type ListEjectedResult,
 	type PersistedDeliveryJob,
 	createPendingDeliveryJobs,
 	ejectPayloads,
 	evictEjection,
 	getNextRetryAt,
 	initializeSchema,
+	listEjected,
 	listDeliverableJobs,
 	markDeliveryJobsCompleted,
 	markDeliveryJobsFailed,
@@ -44,6 +46,15 @@ export type EjectOptions = {
 	max?: number;
 };
 
+export type ListEjectedOptions = {
+	cursor?: string;
+	max?: number;
+	maxBytes?: number;
+};
+
+const MAX_EJECT_PAYLOADS = 100;
+const MAX_LIST_EJECTED_PAYLOADS = 100;
+const MAX_LIST_EJECTED_BYTES = 262_144;
 const DEFAULT_ALARM_BATCH_SIZE = 50;
 const DEFAULT_MAX_DELIVERY_RETRIES = 10;
 const DEFAULT_INITIAL_RETRY_DELAY_MS = 10_000;
@@ -207,8 +218,13 @@ export class EventHub extends DurableObject<EventHubEnv> {
 		}
 
 		const max = options?.max;
-		if (max !== undefined && (!Number.isInteger(max) || max <= 0)) {
-			throw new Error("eventhub: max must be a positive integer");
+		if (
+			max !== undefined &&
+			(!Number.isInteger(max) || max <= 0 || max > MAX_EJECT_PAYLOADS)
+		) {
+			throw new Error(
+				`eventhub: max must be a positive integer <= ${MAX_EJECT_PAYLOADS}`,
+			);
 		}
 
 		return this.ctx.storage.transactionSync(() =>
@@ -221,8 +237,54 @@ export class EventHub extends DurableObject<EventHubEnv> {
 		);
 	}
 
+	// Lists payloads from an ejection snapshot with bounded page size and size budget.
+	listEjected(
+		ejectKey: string,
+		options?: ListEjectedOptions,
+	): ListEjectedResult {
+		if (ejectKey.length === 0) {
+			throw new Error("eventhub: ejectKey must not be empty");
+		}
+
+		const max = options?.max;
+		if (
+			max !== undefined &&
+			(!Number.isInteger(max) || max <= 0 || max > MAX_LIST_EJECTED_PAYLOADS)
+		) {
+			throw new Error(
+				`eventhub: max must be a positive integer <= ${MAX_LIST_EJECTED_PAYLOADS}`,
+			);
+		}
+
+		const maxBytes = options?.maxBytes;
+		if (
+			maxBytes !== undefined &&
+			(!Number.isInteger(maxBytes) ||
+				maxBytes <= 0 ||
+				maxBytes > MAX_LIST_EJECTED_BYTES)
+		) {
+			throw new Error(
+				`eventhub: maxBytes must be a positive integer <= ${MAX_LIST_EJECTED_BYTES}`,
+			);
+		}
+
+		return this.ctx.storage.transactionSync(() =>
+			listEjected(
+				this.ctx.storage.sql,
+				ejectKey,
+				options?.cursor,
+				max ?? 50,
+				maxBytes ?? MAX_LIST_EJECTED_BYTES,
+			),
+		);
+	}
+
 	// Removes a previously ejected snapshot. This operation is idempotent.
 	evict(ejectKey: string): void {
+		if (ejectKey.length === 0) {
+			throw new Error("eventhub: ejectKey must not be empty");
+		}
+
 		this.ctx.storage.transactionSync(() => {
 			evictEjection(this.ctx.storage.sql, ejectKey);
 		});

@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { runInDurableObject } from "cloudflare:test";
-import { describe, expect, test, vi } from "vitest";
+import { assert, describe, expect, test, vi } from "vitest";
 
 import {
 	createPendingDeliveryJobs,
@@ -8,6 +8,7 @@ import {
 	persistDeliveryJobs,
 } from "./core/store";
 import type { Config } from "./core/routing";
+import { EventHub } from "./eventhub";
 
 type PayloadRow = {
 	id: string;
@@ -103,10 +104,9 @@ describe("EventHub integration", () => {
 				)
 				.toArray();
 
-			expect(payloads.map((payload) => JSON.parse(payload.body))).toStrictEqual([
-				payload1,
-				payload2,
-			]);
+			expect(payloads.map((payload) => JSON.parse(payload.body))).toStrictEqual(
+				[payload1, payload2],
+			);
 			expect(deliveryJobs.map((job) => job.destination)).toStrictEqual([
 				"OKAYAMA",
 				"HOKKAIDO",
@@ -131,9 +131,9 @@ describe("EventHub integration", () => {
 				.exec<DeliveryJobRow>("SELECT id FROM delivery_jobs")
 				.toArray();
 
-			expect(payloads.map((storedPayload) => JSON.parse(storedPayload.body))).toStrictEqual([
-				payload,
-			]);
+			expect(
+				payloads.map((storedPayload) => JSON.parse(storedPayload.body)),
+			).toStrictEqual([payload]);
 			expect(deliveryJobs).toStrictEqual([]);
 		});
 	});
@@ -364,13 +364,13 @@ describe("EventHub integration", () => {
 					)
 					.toArray();
 
-					expect(deliveryJobs).toMatchObject([
-						{ final_status: "completed" },
-						{ final_status: "completed" },
-					]);
-					archiveJob = deliveryJobs.find((job) => job.destination === "ARCHIVE");
-				});
+				expect(deliveryJobs).toMatchObject([
+					{ final_status: "completed" },
+					{ final_status: "completed" },
+				]);
+				archiveJob = deliveryJobs.find((job) => job.destination === "ARCHIVE");
 			});
+		});
 
 		expect(archiveJob).toBeDefined();
 		if (!archiveJob) {
@@ -387,9 +387,10 @@ describe("EventHub integration", () => {
 		});
 	});
 
-	test("returns a singleton ejection snapshot through RPC until it is evicted", async () => {
-		// 1. Seed payloads finalized before and after the cutoff plus one active payload.
-		// 2. Call the public RPC method and verify recently finalized payloads are retained.
+	test("returns a singleton ejection key through RPC", async () => {
+		// 1. Seed payloads that cover ejection candidates, recently finalized rows, and still-live rows.
+		// 2. Call the public eject RPC with the cutoff.
+		// 3. Verify the RPC exposes only the singleton ejection key.
 		const stub = getStub("eventhub-eject");
 
 		await runInDurableObject(stub, async (_instance, state) => {
@@ -423,7 +424,10 @@ describe("EventHub integration", () => {
 					new Date("2026-05-04T00:00:30.000Z"),
 					10_000,
 				);
-				markAllCompleted(state.storage.sql, jobs.map((job) => job.id));
+				markAllCompleted(
+					state.storage.sql,
+					jobs.map((job) => job.id),
+				);
 				markAllCompleted(
 					state.storage.sql,
 					recentlyFinalizedJobs.map((job) => job.id),
@@ -431,7 +435,9 @@ describe("EventHub integration", () => {
 				);
 				persistDeliveryJobs(
 					state.storage.sql,
-					createPendingDeliveryJobs(routeConfig, [{ kind: "culture", avoidUrban: false }]),
+					createPendingDeliveryJobs(routeConfig, [
+						{ kind: "culture", avoidUrban: false },
+					]),
 					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
 					new Date("2026-05-06T00:00:00.000Z"),
 					10_000,
@@ -442,8 +448,29 @@ describe("EventHub integration", () => {
 		const firstEjection = await stub.eject(
 			new Date("2026-05-05T00:00:00.000Z").getTime(),
 		);
-		expect(firstEjection).toMatchObject({
+		expect(firstEjection).toStrictEqual({
 			ejectKey: expect.any(String),
+		});
+	});
+
+	test("lists the first ejected payload page through RPC", async () => {
+		const stub = getStub("eventhub-eject-list");
+
+		await seedEjectionScenario(stub);
+
+		const firstEjection = await stub.eject(
+			new Date("2026-05-05T00:00:00.000Z").getTime(),
+		);
+		if (firstEjection.ejectKey === null) {
+			throw new Error("expected an ejection key");
+		}
+
+		const firstPage = await stub.listEjected(firstEjection.ejectKey, {
+			max: 2,
+			maxBytes: 262_144,
+		});
+		expect(firstPage).toMatchObject({
+			cursor: expect.any(String),
 			payloads: [
 				{
 					payload: { kind: "culture", avoidUrban: true },
@@ -456,31 +483,88 @@ describe("EventHub integration", () => {
 						{ finalStatus: "completed" },
 					],
 				},
-				{ payload: { kind: "other" }, deliveryJobs: [] },
 			],
 		});
+	});
+
+	test("continues ejected payload pagination through RPC until exhaustion", async () => {
+		const stub = getStub("eventhub-eject-list-cursor");
+
+		await seedEjectionScenario(stub);
+
+		const firstEjection = await stub.eject(
+			new Date("2026-05-05T00:00:00.000Z").getTime(),
+		);
 		if (firstEjection.ejectKey === null) {
 			throw new Error("expected an ejection key");
 		}
-		expect(firstEjection.payloads.map(({ payload }) => payload)).toStrictEqual([
-			{ kind: "culture", avoidUrban: true },
-			{ kind: "nature", avoidUrban: false },
-			{ kind: "other" },
-		]);
+
+		const firstPage = await stub.listEjected(firstEjection.ejectKey, {
+			max: 2,
+			maxBytes: 262_144,
+		});
+
+		const secondPage = await stub.listEjected(firstEjection.ejectKey, {
+			cursor: firstPage.cursor,
+			max: 2,
+			maxBytes: 262_144,
+		});
+		const allPayloads = [...firstPage.payloads, ...secondPage.payloads].map(
+			({ payload }) => payload,
+		);
+		expect({
+			secondPage,
+			allPayloads,
+		}).toMatchObject({
+			secondPage: {
+				payloads: [{ payload: { kind: "other" }, deliveryJobs: [] }],
+			},
+			allPayloads: [
+				{ kind: "culture", avoidUrban: true },
+				{ kind: "nature", avoidUrban: false },
+				{ kind: "other" },
+			],
+		});
+		expect(secondPage.cursor).toBeUndefined();
+	});
+
+	test("returns the same active ejection key until eviction", async () => {
+		const stub = getStub("eventhub-eject-repeat");
+
+		await seedEjectionScenario(stub);
+
+		const firstEjection = await stub.eject(
+			new Date("2026-05-05T00:00:00.000Z").getTime(),
+		);
 		const repeatedEjection = await stub.eject(
 			new Date("2026-05-06T00:00:00.000Z").getTime(),
 		);
 		expect(repeatedEjection).toStrictEqual(firstEjection);
+	});
+
+	test("removes the snapshot from source storage and clears it after eviction", async () => {
+		const stub = getStub("eventhub-eject-evict");
+
+		await seedEjectionScenario(stub);
+
+		const firstEjection = await stub.eject(
+			new Date("2026-05-05T00:00:00.000Z").getTime(),
+		);
+		if (firstEjection.ejectKey === null) {
+			throw new Error("expected an ejection key");
+		}
 
 		await runInDurableObject(stub, async (_instance, state) => {
 			const payloads = state.storage.sql
 				.exec<PayloadRow>("SELECT id, body FROM payloads ORDER BY id")
 				.toArray();
 			expect(payloads).toHaveLength(2);
-			expect(payloads.map((payload) => JSON.parse(payload.body))).toStrictEqual([
-				{ kind: "nature", avoidUrban: true, freshness: "recent" },
-				{ kind: "culture", avoidUrban: false },
-			]);
+			expect(payloads.map((payload) => JSON.parse(payload.body))).toStrictEqual(
+				[
+					{ kind: "nature", avoidUrban: true, freshness: "recent" },
+					{ kind: "culture", avoidUrban: false },
+				],
+			);
 		});
 
 		await stub.evict(firstEjection.ejectKey);
@@ -490,8 +574,94 @@ describe("EventHub integration", () => {
 			new Date("2026-05-05T00:00:00.000Z").getTime(),
 		);
 		expect(afterEviction).toStrictEqual({ ejectKey: null });
+		expect(await stub.listEjected(firstEjection.ejectKey)).toStrictEqual({
+			payloads: [],
+		});
+	});
+
+	test("rejects invalid ejection RPC inputs", async () => {
+		const stub = getStub("eventhub-eject-invalid-inputs");
+
+		await runInDurableObject(stub, async (instance) => {
+			assert(instance instanceof EventHub);
+
+			expect(() => instance.eject(Date.now(), { max: 101 })).toThrow(
+				"eventhub: max must be a positive integer <= 100",
+			);
+			expect(() => instance.listEjected("", {})).toThrow(
+				"eventhub: ejectKey must not be empty",
+			);
+			expect(() =>
+				instance.listEjected("01EJECT00000000000000000010", { max: 101 }),
+			).toThrow("eventhub: max must be a positive integer <= 100");
+			expect(() =>
+				instance.listEjected("01EJECT00000000000000000010", {
+					maxBytes: 262_145,
+				}),
+			).toThrow("eventhub: maxBytes must be a positive integer <= 262144");
+			expect(() => instance.evict("")).toThrow(
+				"eventhub: ejectKey must not be empty",
+			);
+		});
 	});
 });
+
+const seedEjectionScenario = async (stub: ReturnType<typeof getStub>) => {
+	// 1. Seed finalized payloads that should be ejected by the cutoff.
+	// 2. Seed a payload finalized after the cutoff and one still-active payload that must remain live.
+	// 3. Seed a payload without delivery jobs so pagination covers both job-backed and jobless rows.
+	await runInDurableObject(stub, async (_instance, state) => {
+		let sequence = 0;
+		const jobs = state.storage.transactionSync(() =>
+			persistDeliveryJobs(
+				state.storage.sql,
+				createPendingDeliveryJobs(routeConfig, [
+					{ kind: "culture", avoidUrban: true },
+					{ kind: "nature", avoidUrban: false },
+				]),
+				() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
+				new Date("2026-05-04T00:00:00.000Z"),
+				10_000,
+			),
+		);
+		state.storage.transactionSync(() => {
+			const recentlyFinalizedJobs = persistDeliveryJobs(
+				state.storage.sql,
+				createPendingDeliveryJobs(routeConfig, [
+					{ kind: "nature", avoidUrban: true, freshness: "recent" },
+				]),
+				() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
+				new Date("2026-05-03T00:00:00.000Z"),
+				10_000,
+			);
+			persistDeliveryJobs(
+				state.storage.sql,
+				createPendingDeliveryJobs(routeConfig, [{ kind: "other" }]),
+				() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
+				new Date("2026-05-04T00:00:30.000Z"),
+				10_000,
+			);
+			markAllCompleted(
+				state.storage.sql,
+				jobs.map((job) => job.id),
+			);
+			markAllCompleted(
+				state.storage.sql,
+				recentlyFinalizedJobs.map((job) => job.id),
+				"2026-05-06T00:00:00.000Z",
+			);
+			persistDeliveryJobs(
+				state.storage.sql,
+				createPendingDeliveryJobs(routeConfig, [
+					{ kind: "culture", avoidUrban: false },
+				]),
+				() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
+				new Date("2026-05-06T00:00:00.000Z"),
+				10_000,
+			);
+		});
+	});
+};
 
 const markAllCompleted = (
 	sql: SqlStorage,

@@ -8,6 +8,7 @@ import {
 	ejectPayloads,
 	evictEjection,
 	getNextRetryAt,
+	listEjected,
 	listDeliverableJobs,
 	listDeliveryJobStatuses,
 	markDeliveryJobsCompleted,
@@ -194,16 +195,18 @@ describe("persistDeliveryJobs", () => {
 			expect(payloads.map((payload) => payload.id).sort()).toStrictEqual(
 				payloads.map((payload) => payload.id),
 			);
-			expect(payloads.map((payload) => JSON.parse(payload.body))).toStrictEqual([
-				{
-					kind: "culture",
-					avoidUrban: true,
-				},
-				{
-					kind: "nature",
-					avoidUrban: false,
-				},
-			]);
+			expect(payloads.map((payload) => JSON.parse(payload.body))).toStrictEqual(
+				[
+					{
+						kind: "culture",
+						avoidUrban: true,
+					},
+					{
+						kind: "nature",
+						avoidUrban: false,
+					},
+				],
+			);
 			expect(deliveryJobs.map((job) => job.destination)).toStrictEqual([
 				"OKAYAMA",
 				"HOKKAIDO",
@@ -270,18 +273,19 @@ describe("persistDeliveryJobs", () => {
 				.exec<DeliveryJobRow>("SELECT id FROM delivery_jobs")
 				.toArray();
 
-			expect(payloads.map((payload) => JSON.parse(payload.body))).toStrictEqual([
-				{ kind: "other" },
-			]);
+			expect(payloads.map((payload) => JSON.parse(payload.body))).toStrictEqual(
+				[{ kind: "other" }],
+			);
 			expect(deliveryJobs).toStrictEqual([]);
 		});
 	});
 });
 
 describe("ejectPayloads", () => {
-	test("creates a singleton ejection snapshot and removes the source rows", async () => {
-		// 1. Seed payloads finalized before and after the cutoff, plus a newer active payload.
-		// 2. Eject by cutoff and verify recently finalized payloads are retained.
+	test("creates a singleton ejection snapshot for finalized payloads before the cutoff", async () => {
+		// 1. Seed finalized, recently finalized, and still-active payloads.
+		// 2. Eject by cutoff and verify only the older finalized payloads are snapshotted.
+		// 3. Verify the snapshot metadata is persisted as a singleton ejection.
 		const stub = getStub("store-eject-payloads");
 
 		await runInDurableObject(stub, async (_instance, state) => {
@@ -346,22 +350,111 @@ describe("ejectPayloads", () => {
 					"01EJECT00000000000000000000",
 				),
 			);
+			const listed = state.storage.transactionSync(() =>
+				listEjected(state.storage.sql, "01EJECT00000000000000000000"),
+			);
 
-			expect(ejected).toMatchObject({
-				ejectKey: "01EJECT00000000000000000000",
-				payloads: [
+			const ejections = state.storage.sql
+				.exec<EjectionRow>("SELECT key, before_at FROM ejections")
+				.toArray();
+			expect({
+				ejected,
+				listed,
+				ejections,
+			}).toMatchObject({
+				ejected: {
+					ejectKey: "01EJECT00000000000000000000",
+				},
+				listed: {
+					payloads: [
+						{
+							payload: { kind: "culture", avoidUrban: true },
+							deliveryJobs: [{ finalStatus: "completed" }],
+						},
+						{
+							payload: { kind: "nature", avoidUrban: false },
+							deliveryJobs: [
+								{ finalStatus: "failed" },
+								{ finalStatus: "failed" },
+							],
+						},
+					],
+				},
+				ejections: [
 					{
-						payload: { kind: "culture", avoidUrban: true },
-						deliveryJobs: [{ finalStatus: "completed" }],
-					},
-					{
-						payload: { kind: "nature", avoidUrban: false },
-						deliveryJobs: [
-							{ finalStatus: "failed" },
-							{ finalStatus: "failed" },
-						],
+						key: "01EJECT00000000000000000000",
+						before_at: "2026-05-05T00:00:00.000Z",
 					},
 				],
+			});
+			expect(listed.cursor).toBeUndefined();
+		});
+	});
+
+	test("removes ejected payloads and retains non-ejected rows", async () => {
+		// 1. Seed payloads that should be ejected plus rows that must remain in source tables.
+		// 2. Eject by cutoff.
+		// 3. Verify only non-ejected payloads and their jobs remain in the live tables.
+		const stub = getStub("store-eject-removes-source-rows");
+
+		await runInDurableObject(stub, async (_instance, state) => {
+			let sequence = 0;
+			const createdJobs = state.storage.transactionSync(() =>
+				persistDeliveryJobs(
+					state.storage.sql,
+					createPendingDeliveryJobs(routeConfig, [
+						{ kind: "culture", avoidUrban: true },
+						{ kind: "nature", avoidUrban: false },
+					]),
+					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
+					new Date("2026-05-04T00:00:00.000Z"),
+					10_000,
+				),
+			);
+			state.storage.transactionSync(() => {
+				markDeliveryJobsCompleted(
+					state.storage.sql,
+					[createdJobs[0].id],
+					new Date("2026-05-04T00:01:00.000Z"),
+				);
+				markDeliveryJobsFailed(
+					state.storage.sql,
+					createdJobs.slice(1).map((job) => job.id),
+					0,
+					10_000,
+					10_000,
+					new Error("permanent failure"),
+					new Date("2026-05-04T00:02:00.000Z"),
+				);
+				const recentlyFinalizedJobs = persistDeliveryJobs(
+					state.storage.sql,
+					createPendingDeliveryJobs(routeConfig, [
+						{ kind: "nature", avoidUrban: true, freshness: "recent" },
+					]),
+					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
+					new Date("2026-05-03T00:00:00.000Z"),
+					10_000,
+				);
+				markDeliveryJobsCompleted(
+					state.storage.sql,
+					recentlyFinalizedJobs.map((job) => job.id),
+					new Date("2026-05-06T00:00:00.000Z"),
+				);
+				persistDeliveryJobs(
+					state.storage.sql,
+					createPendingDeliveryJobs(routeConfig, [
+						{ kind: "culture", avoidUrban: false },
+					]),
+					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
+					new Date("2026-05-06T00:00:00.000Z"),
+					10_000,
+				);
+				ejectPayloads(
+					state.storage.sql,
+					new Date("2026-05-05T00:00:00.000Z").getTime(),
+					50,
+					"01EJECT00000000000000000005",
+				);
 			});
 
 			const payloads = state.storage.sql
@@ -383,16 +476,6 @@ describe("ejectPayloads", () => {
 			expect(
 				deliveryJobs.filter((job) => job.final_status === null),
 			).toHaveLength(1);
-
-			const ejections = state.storage.sql
-				.exec<EjectionRow>("SELECT key, before_at FROM ejections")
-				.toArray();
-			expect(ejections).toStrictEqual([
-				{
-					key: "01EJECT00000000000000000000",
-					before_at: "2026-05-05T00:00:00.000Z",
-				},
-			]);
 		});
 	});
 
@@ -429,11 +512,6 @@ describe("ejectPayloads", () => {
 					"01EJECT00000000000000000001",
 				),
 			);
-			expect(ejected).toMatchObject({
-				ejectKey: "01EJECT00000000000000000001",
-				payloads: [{ payload: { kind: "culture", avoidUrban: true } }],
-			});
-
 			const repeated = state.storage.transactionSync(() =>
 				ejectPayloads(
 					state.storage.sql,
@@ -442,7 +520,422 @@ describe("ejectPayloads", () => {
 					"01EJECT00000000000000000002",
 				),
 			);
+
+			expect(ejected).toStrictEqual({
+				ejectKey: "01EJECT00000000000000000001",
+			});
 			expect(repeated).toStrictEqual(ejected);
+		});
+	});
+
+	test("limits a page by max when more rows remain", async () => {
+		const stub = getStub("store-list-ejected-max");
+
+		await runInDurableObject(stub, async (_instance, state) => {
+			let sequence = 0;
+			const jobs = state.storage.transactionSync(() =>
+				persistDeliveryJobs(
+					state.storage.sql,
+					createPendingDeliveryJobs(routeConfig, [
+						{ kind: "nature", ordinal: 1 },
+						{ kind: "nature", ordinal: 2 },
+						{ kind: "nature", ordinal: 3 },
+					]),
+					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
+					new Date("2026-05-04T00:00:00.000Z"),
+					10_000,
+				),
+			);
+			state.storage.transactionSync(() => {
+				markDeliveryJobsCompleted(
+					state.storage.sql,
+					jobs.map((job) => job.id),
+					new Date("2026-05-04T00:01:00.000Z"),
+				);
+				ejectPayloads(
+					state.storage.sql,
+					new Date("2026-05-05T00:00:00.000Z").getTime(),
+					3,
+					"01EJECT00000000000000000006",
+				);
+			});
+
+			const firstPage = state.storage.transactionSync(() =>
+				listEjected(
+					state.storage.sql,
+					"01EJECT00000000000000000006",
+					undefined,
+					1,
+					262_144,
+				),
+			);
+			expect(firstPage.payloads.map(({ payload }) => payload)).toStrictEqual([
+				{ kind: "nature", ordinal: 1 },
+			]);
+			expect(firstPage.cursor).toEqual(expect.any(String));
+		});
+	});
+
+	test("limits a page by maxBytes when the next item would overflow", async () => {
+		const stub = getStub("store-list-ejected-max-bytes");
+
+		await runInDurableObject(stub, async (_instance, state) => {
+			let sequence = 0;
+			const jobs = state.storage.transactionSync(() =>
+				persistDeliveryJobs(
+					state.storage.sql,
+					createPendingDeliveryJobs(routeConfig, [
+						{ kind: "nature", blob: "a".repeat(100) },
+						{ kind: "nature", blob: "b".repeat(100) },
+						{ kind: "nature", blob: "c".repeat(100) },
+					]),
+					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
+					new Date("2026-05-04T00:00:00.000Z"),
+					10_000,
+				),
+			);
+			state.storage.transactionSync(() => {
+				markDeliveryJobsCompleted(
+					state.storage.sql,
+					jobs.map((job) => job.id),
+					new Date("2026-05-04T00:01:00.000Z"),
+				);
+				ejectPayloads(
+					state.storage.sql,
+					new Date("2026-05-05T00:00:00.000Z").getTime(),
+					3,
+					"01EJECT00000000000000000007",
+				);
+			});
+
+			const firstPage = state.storage.transactionSync(() =>
+				listEjected(
+					state.storage.sql,
+					"01EJECT00000000000000000007",
+					undefined,
+					3,
+					250,
+				),
+			);
+			expect(firstPage.payloads.map(({ payload }) => payload)).toStrictEqual([
+				{ kind: "nature", blob: "a".repeat(100) },
+			]);
+			expect(firstPage.cursor).toEqual(expect.any(String));
+		});
+	});
+
+	test("continues pagination across multiple pages by cursor", async () => {
+		const stub = getStub("store-list-ejected-cursor-pages");
+
+		await runInDurableObject(stub, async (_instance, state) => {
+			let sequence = 0;
+			const jobs = state.storage.transactionSync(() =>
+				persistDeliveryJobs(
+					state.storage.sql,
+					createPendingDeliveryJobs(routeConfig, [
+						{ kind: "nature", ordinal: 1 },
+						{ kind: "nature", ordinal: 2 },
+						{ kind: "nature", ordinal: 3 },
+					]),
+					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
+					new Date("2026-05-04T00:00:00.000Z"),
+					10_000,
+				),
+			);
+			state.storage.transactionSync(() => {
+				markDeliveryJobsCompleted(
+					state.storage.sql,
+					jobs.map((job) => job.id),
+					new Date("2026-05-04T00:01:00.000Z"),
+				);
+				ejectPayloads(
+					state.storage.sql,
+					new Date("2026-05-05T00:00:00.000Z").getTime(),
+					3,
+					"01EJECT00000000000000000008",
+				);
+			});
+
+			const firstPage = state.storage.transactionSync(() =>
+				listEjected(
+					state.storage.sql,
+					"01EJECT00000000000000000008",
+					undefined,
+					1,
+				),
+			);
+			const secondPage = state.storage.transactionSync(() =>
+				listEjected(
+					state.storage.sql,
+					"01EJECT00000000000000000008",
+					firstPage.cursor,
+					1,
+				),
+			);
+			const thirdPage = state.storage.transactionSync(() =>
+				listEjected(
+					state.storage.sql,
+					"01EJECT00000000000000000008",
+					secondPage.cursor,
+					1,
+				),
+			);
+
+			expect(firstPage.payloads.map(({ payload }) => payload)).toStrictEqual([
+				{ kind: "nature", ordinal: 1 },
+			]);
+			expect(secondPage.payloads.map(({ payload }) => payload)).toStrictEqual([
+				{ kind: "nature", ordinal: 2 },
+			]);
+			expect(thirdPage.payloads.map(({ payload }) => payload)).toStrictEqual([
+				{ kind: "nature", ordinal: 3 },
+			]);
+			expect(firstPage.cursor).toEqual(expect.any(String));
+			expect(secondPage.cursor).toEqual(expect.any(String));
+			expect(thirdPage.cursor).toBeUndefined();
+		});
+	});
+
+	test("returns an oversized first item even when it exceeds maxBytes", async () => {
+		const stub = getStub("store-list-ejected-pages");
+
+		await runInDurableObject(stub, async (_instance, state) => {
+			let sequence = 0;
+			const jobs = state.storage.transactionSync(() =>
+				persistDeliveryJobs(
+					state.storage.sql,
+					createPendingDeliveryJobs(routeConfig, [
+						{ kind: "culture", blob: "x".repeat(140_000) },
+						{ kind: "nature", ordinal: 1 },
+						{ kind: "nature", ordinal: 2 },
+					]),
+					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
+					new Date("2026-05-04T00:00:00.000Z"),
+					10_000,
+				),
+			);
+			state.storage.transactionSync(() => {
+				markDeliveryJobsCompleted(
+					state.storage.sql,
+					jobs.map((job) => job.id),
+					new Date("2026-05-04T00:01:00.000Z"),
+				);
+				ejectPayloads(
+					state.storage.sql,
+					new Date("2026-05-05T00:00:00.000Z").getTime(),
+					3,
+					"01EJECT00000000000000000004",
+				);
+			});
+
+			const firstPage = state.storage.transactionSync(() =>
+				listEjected(
+					state.storage.sql,
+					"01EJECT00000000000000000004",
+					undefined,
+					2,
+					1,
+				),
+			);
+			expect(firstPage.payloads.map(({ payload }) => payload)).toStrictEqual([
+				{ kind: "culture", blob: "x".repeat(140_000) },
+			]);
+			expect(firstPage.cursor).toEqual(expect.any(String));
+		});
+	});
+
+	test("returns all rows when maxBytes matches the page exactly", async () => {
+		const stub = getStub("store-list-ejected-max-bytes-equal");
+
+		await runInDurableObject(stub, async (_instance, state) => {
+			let sequence = 0;
+			const jobs = state.storage.transactionSync(() =>
+				persistDeliveryJobs(
+					state.storage.sql,
+					createPendingDeliveryJobs(routeConfig, [
+						{ kind: "nature", blob: "z" },
+					]),
+					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
+					new Date("2026-05-04T00:00:00.000Z"),
+					10_000,
+				),
+			);
+			state.storage.transactionSync(() => {
+				markDeliveryJobsCompleted(
+					state.storage.sql,
+					jobs.map((job) => job.id),
+					new Date("2026-05-04T00:01:00.000Z"),
+				);
+				ejectPayloads(
+					state.storage.sql,
+					new Date("2026-05-05T00:00:00.000Z").getTime(),
+					1,
+					"01EJECT00000000000000000009",
+				);
+			});
+
+			const rows = state.storage.sql
+				.exec<{ total: number }>(
+					`
+						SELECT
+							octet_length(ep.body) AS total
+						FROM ejected_payloads ep
+						WHERE ep.ejection_key = ?
+					`,
+					"01EJECT00000000000000000009",
+				)
+				.toArray();
+			const page = state.storage.transactionSync(() =>
+				listEjected(
+					state.storage.sql,
+					"01EJECT00000000000000000009",
+					undefined,
+					1,
+					// biome-ignore lint/style/noNonNullAssertion: test
+					rows[0]!.total,
+				),
+			);
+
+			expect(page.payloads.map(({ payload }) => payload)).toStrictEqual([
+				{ kind: "nature", blob: "z" },
+			]);
+			expect(page.cursor).toBeUndefined();
+		});
+	});
+
+	test("reports UTF-8 body sizes with octet_length", async () => {
+		// 1. Seed ejected rows containing both multi-byte and ASCII payload bodies.
+		// 2. Read their stored bodies and byte sizes from SQLite.
+		// 3. Verify octet_length matches the UTF-8 byte count computed in the test.
+		const stub = getStub("store-list-ejected-octet-length");
+
+		await runInDurableObject(stub, async (_instance, state) => {
+			let sequence = 0;
+			const jobs = state.storage.transactionSync(() =>
+				persistDeliveryJobs(
+					state.storage.sql,
+					createPendingDeliveryJobs(routeConfig, [
+						{ kind: "nature", note: "界" },
+						{ kind: "nature", note: "a" },
+					]),
+					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
+					new Date("2026-05-04T00:00:00.000Z"),
+					10_000,
+				),
+			);
+			state.storage.transactionSync(() => {
+				markDeliveryJobsCompleted(
+					state.storage.sql,
+					jobs.map((job) => job.id),
+					new Date("2026-05-04T00:01:00.000Z"),
+				);
+				ejectPayloads(
+					state.storage.sql,
+					new Date("2026-05-05T00:00:00.000Z").getTime(),
+					2,
+					"01EJECT00000000000000000010",
+				);
+			});
+
+			const rows = state.storage.sql
+				.exec<{ body: string; total: number }>(
+					`
+						SELECT
+							ep.body,
+							octet_length(ep.body) AS total
+						FROM ejected_payloads ep
+						WHERE ep.ejection_key = ?
+						ORDER BY ep.created_at ASC, ep.payload_id ASC
+					`,
+					"01EJECT00000000000000000010",
+				)
+				.toArray();
+			expect(rows).toHaveLength(2);
+			expect(rows.map((row) => row.total)).toStrictEqual(
+				rows.map((row) => new TextEncoder().encode(row.body).length),
+			);
+		});
+	});
+
+	test("uses UTF-8 byte size when enforcing maxBytes", async () => {
+		// 1. Seed ejected rows containing both multi-byte and ASCII payload bodies.
+		// 2. Read their byte sizes from SQLite.
+		// 3. Set maxBytes between the first and second rows so only byte-accurate paging keeps one row.
+		const stub = getStub("store-list-ejected-max-bytes-utf8");
+
+		await runInDurableObject(stub, async (_instance, state) => {
+			let sequence = 0;
+			const jobs = state.storage.transactionSync(() =>
+				persistDeliveryJobs(
+					state.storage.sql,
+					createPendingDeliveryJobs(routeConfig, [
+						{ kind: "nature", note: "界" },
+						{ kind: "nature", note: "a" },
+					]),
+					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
+					new Date("2026-05-04T00:00:00.000Z"),
+					10_000,
+				),
+			);
+			state.storage.transactionSync(() => {
+				markDeliveryJobsCompleted(
+					state.storage.sql,
+					jobs.map((job) => job.id),
+					new Date("2026-05-04T00:01:00.000Z"),
+				);
+				ejectPayloads(
+					state.storage.sql,
+					new Date("2026-05-05T00:00:00.000Z").getTime(),
+					2,
+					"01EJECT00000000000000000010",
+				);
+			});
+
+			const rows = state.storage.sql
+				.exec<{ total: number }>(
+					`
+						SELECT
+							octet_length(ep.body) AS total
+						FROM ejected_payloads ep
+						WHERE ep.ejection_key = ?
+						ORDER BY ep.created_at ASC, ep.payload_id ASC
+					`,
+					"01EJECT00000000000000000010",
+				)
+				.toArray();
+
+			const page = state.storage.transactionSync(() =>
+				listEjected(
+					state.storage.sql,
+					"01EJECT00000000000000000010",
+					undefined,
+					2,
+					// The first payload fits, but adding the second should overflow only if byte length is used.
+					// biome-ignore lint/style/noNonNullAssertion: test
+					rows[0]!.total + rows[1]!.total - 1,
+				),
+			);
+
+			expect(page.payloads.map(({ payload }) => payload)).toStrictEqual([
+				{ kind: "nature", note: "界" },
+			]);
+			expect(page.cursor).toEqual(expect.any(String));
+		});
+	});
+
+	test("rejects an invalid cursor", async () => {
+		const stub = getStub("store-list-ejected-invalid-cursor");
+
+		await runInDurableObject(stub, async (_instance, state) => {
+			expect(() =>
+				state.storage.transactionSync(() =>
+					listEjected(
+						state.storage.sql,
+						"01EJECT00000000000000000000",
+						"not-base64",
+					),
+				),
+			).toThrow("eventhub: invalid cursor");
 		});
 	});
 
@@ -482,7 +975,9 @@ describe("ejectPayloads", () => {
 				state.storage.sql.exec("SELECT key FROM ejections").toArray(),
 			).toStrictEqual([]);
 			expect(
-				state.storage.sql.exec("SELECT payload_id FROM ejected_payloads").toArray(),
+				state.storage.sql
+					.exec("SELECT payload_id FROM ejected_payloads")
+					.toArray(),
 			).toStrictEqual([]);
 			expect(
 				state.storage.sql

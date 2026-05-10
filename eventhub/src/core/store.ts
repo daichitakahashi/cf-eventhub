@@ -61,8 +61,12 @@ export type EjectResult =
 	  }
 	| {
 			ejectKey: string;
-			payloads: EjectedPayload[];
 	  };
+
+export type ListEjectedResult = {
+	cursor?: string;
+	payloads: EjectedPayload[];
+};
 
 // Inserts a payload row once before creating per-destination jobs.
 const insertPayload = (
@@ -452,21 +456,133 @@ export const listDeliveryJobStatuses = (sql: SqlStorage): DeliveryJobStatus[] =>
 			nextRetryAt: row.next_retry_at,
 		}));
 
-const listEjectedPayloads = (
+const encodeCursor = (createdAt: string, payloadId: string): string =>
+	btoa(JSON.stringify([createdAt, payloadId]));
+
+const decodeCursor = (
+	cursor: string,
+): { createdAt: string; payloadId: string } => {
+	let decoded: unknown;
+	try {
+		decoded = JSON.parse(atob(cursor)) as unknown;
+	} catch {
+		throw new Error("eventhub: invalid cursor");
+	}
+	if (
+		!Array.isArray(decoded) ||
+		decoded.length !== 2 ||
+		typeof decoded[0] !== "string" ||
+		typeof decoded[1] !== "string"
+	) {
+		throw new Error("eventhub: invalid cursor");
+	}
+	return {
+		createdAt: decoded[0],
+		payloadId: decoded[1],
+	};
+};
+
+type EjectedPayloadRow = {
+	payload_id: string;
+	body: string;
+	created_at: string;
+	body_bytes: number;
+};
+
+const listEjectedPayloadRows = (
 	sql: SqlStorage,
 	ejectionKey: string,
-): EjectedPayload[] => {
-	const payloadRows = sql
-		.exec<{ payload_id: string; body: string; created_at: string }>(
+	cursor: string | undefined,
+	limit: number,
+): EjectedPayloadRow[] => {
+	if (!cursor) {
+		return sql
+			.exec<EjectedPayloadRow>(
+				`
+					SELECT
+						ep.payload_id,
+						ep.body,
+						ep.created_at,
+						octet_length(ep.body) AS body_bytes
+					FROM ejected_payloads ep
+					WHERE ep.ejection_key = ?
+					ORDER BY ep.created_at ASC, ep.payload_id ASC
+					LIMIT ?
+				`,
+				ejectionKey,
+				limit,
+			)
+			.toArray();
+	}
+
+	const { createdAt, payloadId } = decodeCursor(cursor);
+	return sql
+		.exec<EjectedPayloadRow>(
 			`
-				SELECT payload_id, body, created_at
-				FROM ejected_payloads
-				WHERE ejection_key = ?
-				ORDER BY created_at ASC, payload_id ASC
+				SELECT
+					ep.payload_id,
+					ep.body,
+					ep.created_at,
+					octet_length(ep.body) AS body_bytes
+				FROM ejected_payloads ep
+				WHERE ep.ejection_key = ?
+					AND (
+						ep.created_at > ?
+						OR (ep.created_at = ? AND ep.payload_id > ?)
+					)
+				ORDER BY ep.created_at ASC, ep.payload_id ASC
+				LIMIT ?
 			`,
 			ejectionKey,
+			createdAt,
+			createdAt,
+			payloadId,
+			limit,
 		)
 		.toArray();
+};
+
+export const listEjected = (
+	sql: SqlStorage,
+	ejectionKey: string,
+	cursor?: string,
+	max = 50,
+	maxBytes = 262_144, // 256KiB
+): ListEjectedResult => {
+	const payloadRows = listEjectedPayloadRows(
+		sql,
+		ejectionKey,
+		cursor,
+		max + 1,
+	);
+	if (payloadRows.length === 0) {
+		return { payloads: [] };
+	}
+
+	const selectedRows: EjectedPayloadRow[] = [];
+	let usedBytes = 0;
+	for (const row of payloadRows) {
+		if (selectedRows.length >= max) {
+			break;
+		}
+
+		const nextBytes = row.body_bytes;
+		// After the first item, stop before adding a row that would exceed the page budget.
+		if (selectedRows.length > 0 && usedBytes + nextBytes > maxBytes) {
+			break;
+		}
+
+		selectedRows.push(row);
+		usedBytes += nextBytes;
+	}
+
+	// Always return the first row when present, even if it alone exceeds maxBytes.
+	if (selectedRows.length === 0) {
+		selectedRows.push(payloadRows[0]);
+	}
+
+	const payloadIds = selectedRows.map(({ payload_id }) => payload_id);
+	const placeholders = payloadIds.map(() => "?").join(", ");
 	const deliveryJobs = sql
 		.exec<{
 			id: string;
@@ -490,13 +606,15 @@ const listEjectedPayloads = (
 					finalized_at,
 					retry_count,
 					last_failed_at,
-				last_error,
-				next_retry_at
+					last_error,
+					next_retry_at
 				FROM ejected_delivery_jobs
 				WHERE ejection_key = ?
+					AND payload_id IN (${placeholders})
 				ORDER BY created_at ASC, id ASC
 			`,
 			ejectionKey,
+			...payloadIds,
 		)
 		.toArray()
 		.map(
@@ -514,11 +632,18 @@ const listEjectedPayloads = (
 			}),
 		);
 	const jobsByPayloadId = Map.groupBy(deliveryJobs, (job) => job.payloadId);
+	const lastRow = selectedRows[selectedRows.length - 1];
+	const hasMore = payloadRows.length > selectedRows.length;
 
-	return payloadRows.map(({ payload_id, body }) => ({
-		payload: JSON.parse(body) as EventPayload,
-		deliveryJobs: jobsByPayloadId.get(payload_id) ?? [],
-	}));
+	return {
+		cursor: hasMore
+			? encodeCursor(lastRow.created_at, lastRow.payload_id)
+			: undefined,
+		payloads: selectedRows.map(({ payload_id, body }) => ({
+			payload: JSON.parse(body) as EventPayload,
+			deliveryJobs: jobsByPayloadId.get(payload_id) ?? [],
+		})),
+	};
 };
 
 export const ejectPayloads = (
@@ -540,7 +665,6 @@ export const ejectPayloads = (
 	if (activeEjection) {
 		return {
 			ejectKey: activeEjection.key,
-			payloads: listEjectedPayloads(sql, activeEjection.key),
 		};
 	}
 
@@ -643,7 +767,6 @@ export const ejectPayloads = (
 
 	return {
 		ejectKey,
-		payloads: listEjectedPayloads(sql, ejectKey),
 	};
 };
 
