@@ -496,7 +496,7 @@ const listEjectedPayloadRows = (
 	limit: number,
 	maxBytes: number,
 ): EjectedPayloadRow[] => {
-	if (!cursor) {
+	if (cursor === undefined) {
 		return sql
 			.exec<EjectedPayloadRow>(
 				`
