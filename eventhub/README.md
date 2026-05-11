@@ -319,12 +319,3 @@ npx wrangler dev
 npx wrangler types
 npm test
 ```
-
-## References
-
-- Workers configuration: https://developers.cloudflare.com/workers/wrangler/configuration/
-- Workers limits: https://developers.cloudflare.com/workers/platform/limits/
-- Workflows Workers API: https://developers.cloudflare.com/workflows/build/workers-api/
-- Rules of Workflows: https://developers.cloudflare.com/workflows/build/rules-of-workflows/
-- Trigger Workflows: https://developers.cloudflare.com/workflows/build/trigger-workflows/
-- R2 Workers API reference: https://developers.cloudflare.com/r2/api/workers/workers-api-reference/

@@ -494,23 +494,81 @@ const listEjectedPayloadRows = (
 	ejectionKey: string,
 	cursor: string | undefined,
 	limit: number,
+	maxBytes: number,
 ): EjectedPayloadRow[] => {
 	if (!cursor) {
 		return sql
 			.exec<EjectedPayloadRow>(
 				`
+					WITH RECURSIVE
+					first_row AS (
+						SELECT
+							ep.payload_id,
+							ep.body,
+							ep.created_at,
+							octet_length(ep.body) AS body_bytes
+						FROM ejected_payloads ep
+						WHERE ep.ejection_key = ?1
+						ORDER BY ep.created_at ASC, ep.payload_id ASC
+						LIMIT 1
+					),
+					page(
+						payload_id,
+						body,
+						created_at,
+						body_bytes,
+						total_bytes,
+						row_count
+					) AS (
+						SELECT
+							fr.payload_id,
+							fr.body,
+							fr.created_at,
+							fr.body_bytes,
+							fr.body_bytes AS total_bytes,
+							1 AS row_count
+						FROM first_row fr
+
+						UNION ALL
+
+						SELECT
+							ep.payload_id,
+							ep.body,
+							ep.created_at,
+							octet_length(ep.body) AS body_bytes,
+							page.total_bytes + octet_length(ep.body) AS total_bytes,
+							page.row_count + 1 AS row_count
+						FROM page
+						JOIN ejected_payloads ep
+							ON ep.ejection_key = ?1
+							AND ep.payload_id = (
+								SELECT ep2.payload_id
+								FROM ejected_payloads ep2
+								WHERE ep2.ejection_key = ?1
+									AND (
+										ep2.created_at > page.created_at
+										OR (
+											ep2.created_at = page.created_at
+											AND ep2.payload_id > page.payload_id
+										)
+									)
+								ORDER BY ep2.created_at ASC, ep2.payload_id ASC
+								LIMIT 1
+							)
+						WHERE page.row_count < ?2
+							AND page.total_bytes + octet_length(ep.body) <= ?3
+					)
 					SELECT
-						ep.payload_id,
-						ep.body,
-						ep.created_at,
-						octet_length(ep.body) AS body_bytes
-					FROM ejected_payloads ep
-					WHERE ep.ejection_key = ?
-					ORDER BY ep.created_at ASC, ep.payload_id ASC
-					LIMIT ?
+						payload_id,
+						body,
+						created_at,
+						body_bytes
+					FROM page
+					ORDER BY created_at ASC, payload_id ASC
 				`,
 				ejectionKey,
 				limit,
+				maxBytes,
 			)
 			.toArray();
 	}
@@ -519,25 +577,81 @@ const listEjectedPayloadRows = (
 	return sql
 		.exec<EjectedPayloadRow>(
 			`
+				WITH RECURSIVE
+				first_row AS (
+					SELECT
+						ep.payload_id,
+						ep.body,
+						ep.created_at,
+						octet_length(ep.body) AS body_bytes
+					FROM ejected_payloads ep
+					WHERE ep.ejection_key = ?1
+						AND (
+							ep.created_at > ?4
+							OR (ep.created_at = ?4 AND ep.payload_id > ?5)
+						)
+					ORDER BY ep.created_at ASC, ep.payload_id ASC
+					LIMIT 1
+				),
+				page(
+					payload_id,
+					body,
+					created_at,
+					body_bytes,
+					total_bytes,
+					row_count
+				) AS (
+					SELECT
+						fr.payload_id,
+						fr.body,
+						fr.created_at,
+						fr.body_bytes,
+						fr.body_bytes AS total_bytes,
+						1 AS row_count
+					FROM first_row fr
+
+					UNION ALL
+
+					SELECT
+						ep.payload_id,
+						ep.body,
+						ep.created_at,
+						octet_length(ep.body) AS body_bytes,
+						page.total_bytes + octet_length(ep.body) AS total_bytes,
+						page.row_count + 1 AS row_count
+					FROM page
+					JOIN ejected_payloads ep
+						ON ep.ejection_key = ?1
+						AND ep.payload_id = (
+							SELECT ep2.payload_id
+							FROM ejected_payloads ep2
+							WHERE ep2.ejection_key = ?1
+								AND (
+									ep2.created_at > page.created_at
+									OR (
+										ep2.created_at = page.created_at
+										AND ep2.payload_id > page.payload_id
+									)
+								)
+							ORDER BY ep2.created_at ASC, ep2.payload_id ASC
+							LIMIT 1
+						)
+					WHERE page.row_count < ?2
+						AND page.total_bytes + octet_length(ep.body) <= ?3
+				)
 				SELECT
-					ep.payload_id,
-					ep.body,
-					ep.created_at,
-					octet_length(ep.body) AS body_bytes
-				FROM ejected_payloads ep
-				WHERE ep.ejection_key = ?
-					AND (
-						ep.created_at > ?
-						OR (ep.created_at = ? AND ep.payload_id > ?)
-					)
-				ORDER BY ep.created_at ASC, ep.payload_id ASC
-				LIMIT ?
+					payload_id,
+					body,
+					created_at,
+					body_bytes
+				FROM page
+				ORDER BY created_at ASC, payload_id ASC
 			`,
 			ejectionKey,
-			createdAt,
+			limit,
+			maxBytes,
 			createdAt,
 			payloadId,
-			limit,
 		)
 		.toArray();
 };
@@ -553,35 +667,14 @@ export const listEjected = (
 		sql,
 		ejectionKey,
 		cursor,
-		max + 1,
+		max,
+		maxBytes,
 	);
 	if (payloadRows.length === 0) {
 		return { payloads: [] };
 	}
 
-	const selectedRows: EjectedPayloadRow[] = [];
-	let usedBytes = 0;
-	for (const row of payloadRows) {
-		if (selectedRows.length >= max) {
-			break;
-		}
-
-		const nextBytes = row.body_bytes;
-		// After the first item, stop before adding a row that would exceed the page budget.
-		if (selectedRows.length > 0 && usedBytes + nextBytes > maxBytes) {
-			break;
-		}
-
-		selectedRows.push(row);
-		usedBytes += nextBytes;
-	}
-
-	// Always return the first row when present, even if it alone exceeds maxBytes.
-	if (selectedRows.length === 0) {
-		selectedRows.push(payloadRows[0]);
-	}
-
-	const payloadIds = selectedRows.map(({ payload_id }) => payload_id);
+	const payloadIds = payloadRows.map(({ payload_id }) => payload_id);
 	const placeholders = payloadIds.map(() => "?").join(", ");
 	const deliveryJobs = sql
 		.exec<{
@@ -632,14 +725,32 @@ export const listEjected = (
 			}),
 		);
 	const jobsByPayloadId = Map.groupBy(deliveryJobs, (job) => job.payloadId);
-	const lastRow = selectedRows[selectedRows.length - 1];
-	const hasMore = payloadRows.length > selectedRows.length;
+	const lastRow = payloadRows[payloadRows.length - 1];
+	const hasMore =
+		sql
+			.exec<{ payload_id: string }>(
+				`
+					SELECT ep.payload_id
+					FROM ejected_payloads ep
+					WHERE ep.ejection_key = ?1
+						AND (
+							ep.created_at > ?2
+							OR (ep.created_at = ?2 AND ep.payload_id > ?3)
+						)
+					ORDER BY ep.created_at ASC, ep.payload_id ASC
+					LIMIT 1
+				`,
+				ejectionKey,
+				lastRow.created_at,
+				lastRow.payload_id,
+			)
+			.toArray().length > 0;
 
 	return {
 		cursor: hasMore
 			? encodeCursor(lastRow.created_at, lastRow.payload_id)
 			: undefined,
-		payloads: selectedRows.map(({ payload_id, body }) => ({
+		payloads: payloadRows.map(({ payload_id, body }) => ({
 			payload: JSON.parse(body) as EventPayload,
 			deliveryJobs: jobsByPayloadId.get(payload_id) ?? [],
 		})),
