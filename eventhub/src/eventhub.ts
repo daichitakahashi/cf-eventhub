@@ -9,10 +9,15 @@ import { parsePositiveInteger } from "./core/env";
 import { MonotonicUlidGenerator } from "./core/id";
 import { Config, type ConfigInput } from "./core/routing";
 import {
+	type EjectResult,
+	type ListEjectedResult,
 	type PersistedDeliveryJob,
 	createPendingDeliveryJobs,
+	ejectPayloads,
+	evictEjection,
 	getNextRetryAt,
 	initializeSchema,
+	listEjected,
 	listDeliverableJobs,
 	markDeliveryJobsCompleted,
 	markDeliveryJobsFailed,
@@ -37,6 +42,36 @@ type DeliveryConfig = {
 	maxRetryDelayMs: number;
 };
 
+export type EjectOptions = {
+	/**
+	 * Maximum number of payloads to move into a newly created ejection snapshot.
+	 * If an active snapshot already exists, that snapshot key is returned as-is.
+	 */
+	max?: number;
+};
+
+export type ListEjectedOptions = {
+	/**
+	 * Opaque cursor returned by the previous `listEjected()` call.
+	 * Omit this field to read the first page.
+	 */
+	cursor?: string;
+	/**
+	 * Maximum number of payloads to include in one page.
+	 */
+	max?: number;
+	/**
+	 * Soft page budget, in bytes, based on serialized payload bodies.
+	 * This limit does not cap the full RPC response size, because delivery job
+	 * metadata is added after page selection. The first payload is still returned
+	 * when present, even if its body alone exceeds this budget.
+	 */
+	maxBytes?: number;
+};
+
+const MAX_EJECT_PAYLOADS = 100;
+const MAX_LIST_EJECTED_PAYLOADS = 100;
+const MAX_LIST_EJECTED_BYTES = 262_144;
 const DEFAULT_ALARM_BATCH_SIZE = 50;
 const DEFAULT_MAX_DELIVERY_RETRIES = 10;
 const DEFAULT_INITIAL_RETRY_DELAY_MS = 10_000;
@@ -172,7 +207,11 @@ export class EventHub extends DurableObject<EventHubEnv> {
 		await this.scheduleNextAlarmFromStorage();
 	}
 
-	// Persists routed jobs and kicks off their first delivery attempt.
+	/**
+	 * Persists routed jobs and kicks off their first delivery attempt.
+	 * @param payload First payload to publish.
+	 * @param rest Additional payloads published in the same batch.
+	 */
 	async publish(payload: EventPayload, ...rest: EventPayload[]): Promise<void> {
 		const pendingDeliveryJobs = createPendingDeliveryJobs(this.routeConfig, [
 			payload,
@@ -193,7 +232,107 @@ export class EventHub extends DurableObject<EventHubEnv> {
 		this.ctx.waitUntil(this.deliverPersistedJobs(persistedJobs));
 	}
 
-	// Retries delivery for jobs whose retry time has arrived.
+	/**
+	 * Extracts finalized payloads older than the cutoff into a singleton
+	 * ejection snapshot.
+	 * @param before Unix time in milliseconds. Finalized payloads older than this
+	 * cutoff become ejection candidates.
+	 * @param options Optional limits for creating a new ejection snapshot.
+	 * `options.max` defaults to `50` and must be an integer in the range
+	 * `1..100`.
+	 */
+	eject(before: number, options?: EjectOptions): EjectResult {
+		if (!Number.isFinite(before)) {
+			throw new Error("eventhub: before must be a finite number");
+		}
+
+		const max = options?.max;
+		if (
+			max !== undefined &&
+			(!Number.isInteger(max) || max <= 0 || max > MAX_EJECT_PAYLOADS)
+		) {
+			throw new Error(
+				`eventhub: max must be a positive integer <= ${MAX_EJECT_PAYLOADS}`,
+			);
+		}
+
+		return this.ctx.storage.transactionSync(() =>
+			ejectPayloads(
+				this.ctx.storage.sql,
+				before,
+				max ?? 50,
+				this.idGenerator.generate(Date.now()),
+			),
+		);
+	}
+
+	/**
+	 * Lists payloads from an ejection snapshot with bounded page size and
+	 * payload-body size budget.
+	 * @param ejectKey Snapshot key returned by `eject()`.
+	 * @param options Optional pagination settings such as cursor, item count, and
+	 * payload-body byte budget. `options.max` defaults to `50` and must be an
+	 * integer in the range `1..100`. `options.maxBytes` defaults to `262144`
+	 * and must be an integer in the range `1..262144`.
+	 */
+	listEjected(
+		ejectKey: string,
+		options?: ListEjectedOptions,
+	): ListEjectedResult {
+		if (ejectKey.length === 0) {
+			throw new Error("eventhub: ejectKey must not be empty");
+		}
+
+		const max = options?.max;
+		if (
+			max !== undefined &&
+			(!Number.isInteger(max) || max <= 0 || max > MAX_LIST_EJECTED_PAYLOADS)
+		) {
+			throw new Error(
+				`eventhub: max must be a positive integer <= ${MAX_LIST_EJECTED_PAYLOADS}`,
+			);
+		}
+
+		const maxBytes = options?.maxBytes;
+		if (
+			maxBytes !== undefined &&
+			(!Number.isInteger(maxBytes) ||
+				maxBytes <= 0 ||
+				maxBytes > MAX_LIST_EJECTED_BYTES)
+		) {
+			throw new Error(
+				`eventhub: maxBytes must be a positive integer <= ${MAX_LIST_EJECTED_BYTES}`,
+			);
+		}
+
+		return this.ctx.storage.transactionSync(() =>
+			listEjected(
+				this.ctx.storage.sql,
+				ejectKey,
+				options?.cursor,
+				max ?? 50,
+				maxBytes ?? MAX_LIST_EJECTED_BYTES,
+			),
+		);
+	}
+
+	/**
+	 * Removes a previously ejected snapshot. This operation is idempotent.
+	 * @param ejectKey Snapshot key returned by `eject()`.
+	 */
+	evict(ejectKey: string): void {
+		if (ejectKey.length === 0) {
+			throw new Error("eventhub: ejectKey must not be empty");
+		}
+
+		this.ctx.storage.transactionSync(() => {
+			evictEjection(this.ctx.storage.sql, ejectKey);
+		});
+	}
+
+	/**
+	 * Retries delivery for jobs whose retry time has arrived.
+	 */
 	async alarm(): Promise<void> {
 		await this.deliverPersistedJobs();
 	}

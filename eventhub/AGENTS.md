@@ -77,6 +77,46 @@ multi-step state transitions, where setup and verification can otherwise be hard
 to follow. Skip this comment for simple stateless input/output tests unless the
 extra explanation materially improves readability.
 
+### Assertion Style
+
+Avoid Assertion Roulette. A test should fail in a way that makes the broken
+behavior obvious from the failing assertion, without forcing the reader to infer
+which of many unrelated checks was the real contract under test.
+
+When a test needs multiple checks, prefer one of these patterns:
+
+- Split the test by behavior when the assertions validate different contracts or
+  phases, such as byte accounting vs pagination outcome, or first-page behavior
+  vs cursor continuation.
+- Group closely related expectations into one structured Vitest assertion using
+  `toStrictEqual()` or `toMatchObject()` against a named object, instead of
+  scattering many independent `expect()` calls.
+- Keep a small number of follow-up assertions only when they clarify one narrow
+  contract, such as asserting `cursor` is `undefined` after matching the page
+  payloads.
+
+Prefer this style in Vitest:
+
+```ts
+expect({ page, cursor }).toMatchObject({
+	page: {
+		payloads: [{ payload: expectedPayload }],
+	},
+	cursor: expect.any(String),
+});
+```
+
+Instead of this style when the assertions describe the same behavior:
+
+```ts
+expect(page.payloads).toMatchObject([{ payload: expectedPayload }]);
+expect(page.cursor).toEqual(expect.any(String));
+expect(page.payloads).toHaveLength(1);
+```
+
+If the assertions belong to different behavioral claims, split the test instead
+of stacking more expectations into the same case.
+
 ### Refactor Rule
 
 Re-evaluate test placement whenever a refactor changes a function's

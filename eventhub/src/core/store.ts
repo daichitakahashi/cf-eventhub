@@ -48,6 +48,26 @@ export type DeliveryJobStatus = {
 	createdAt: string;
 } & DeliveryRetryState;
 
+export type EjectedDeliveryJob = DeliveryJobStatus;
+
+export type EjectedPayload = {
+	payload: EventPayload;
+	deliveryJobs: EjectedDeliveryJob[];
+};
+
+export type EjectResult =
+	| {
+			ejectKey: null;
+	  }
+	| {
+			ejectKey: string;
+	  };
+
+export type ListEjectedResult = {
+	cursor?: string;
+	payloads: EjectedPayload[];
+};
+
 // Inserts a payload row once before creating per-destination jobs.
 const insertPayload = (
 	sql: SqlStorage,
@@ -134,6 +154,49 @@ export const initializeSchema = (sql: SqlStorage): void => {
 	sql.exec(`
 		CREATE INDEX IF NOT EXISTS idx_delivery_jobs_retry_schedule
 		ON delivery_jobs (final_status, next_retry_at, created_at, id)
+	`);
+	sql.exec(`
+		CREATE TABLE IF NOT EXISTS ejections (
+			key TEXT PRIMARY KEY,
+			singleton INTEGER NOT NULL DEFAULT 1 UNIQUE,
+			created_at TEXT NOT NULL,
+			before_at TEXT NOT NULL
+		)
+	`);
+	sql.exec(`
+		CREATE TABLE IF NOT EXISTS ejected_payloads (
+			ejection_key TEXT NOT NULL,
+			payload_id TEXT NOT NULL,
+			body TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			PRIMARY KEY (ejection_key, payload_id),
+			FOREIGN KEY (ejection_key) REFERENCES ejections(key)
+		)
+	`);
+	sql.exec(`
+		CREATE TABLE IF NOT EXISTS ejected_delivery_jobs (
+			ejection_key TEXT NOT NULL,
+			id TEXT NOT NULL,
+			payload_id TEXT NOT NULL,
+			destination TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			final_status TEXT CHECK (final_status IN ('completed', 'failed')),
+			finalized_at TEXT,
+			retry_count INTEGER NOT NULL,
+			last_failed_at TEXT,
+			last_error TEXT,
+			next_retry_at TEXT NOT NULL,
+			PRIMARY KEY (ejection_key, id),
+			FOREIGN KEY (ejection_key) REFERENCES ejections(key)
+		)
+	`);
+	sql.exec(`
+		CREATE INDEX IF NOT EXISTS idx_ejected_payloads_ejection_key
+		ON ejected_payloads (ejection_key, created_at, payload_id)
+	`);
+	sql.exec(`
+		CREATE INDEX IF NOT EXISTS idx_ejected_delivery_jobs_ejection_key
+		ON ejected_delivery_jobs (ejection_key, created_at, id)
 	`);
 };
 
@@ -287,7 +350,7 @@ export const markDeliveryJobsFailed = (
 			maxRetryDelayMs,
 		);
 		sql.exec(
-				`
+			`
 					UPDATE delivery_jobs
 					SET retry_count = ?,
 						last_failed_at = ?,
@@ -392,3 +455,452 @@ export const listDeliveryJobStatuses = (sql: SqlStorage): DeliveryJobStatus[] =>
 			lastError: row.last_error,
 			nextRetryAt: row.next_retry_at,
 		}));
+
+const encodeCursor = (createdAt: string, payloadId: string): string =>
+	btoa(JSON.stringify([createdAt, payloadId]));
+
+const decodeCursor = (
+	cursor: string,
+): { createdAt: string; payloadId: string } => {
+	let decoded: unknown;
+	try {
+		decoded = JSON.parse(atob(cursor)) as unknown;
+	} catch {
+		throw new Error("eventhub: invalid cursor");
+	}
+	if (
+		!Array.isArray(decoded) ||
+		decoded.length !== 2 ||
+		typeof decoded[0] !== "string" ||
+		typeof decoded[1] !== "string"
+	) {
+		throw new Error("eventhub: invalid cursor");
+	}
+	return {
+		createdAt: decoded[0],
+		payloadId: decoded[1],
+	};
+};
+
+type EjectedPayloadRow = {
+	payload_id: string;
+	body: string;
+	created_at: string;
+	body_bytes: number;
+};
+
+const listEjectedPayloadRows = (
+	sql: SqlStorage,
+	ejectionKey: string,
+	cursor: string | undefined,
+	limit: number,
+	maxBytes: number,
+): EjectedPayloadRow[] => {
+	if (cursor === undefined) {
+		return sql
+			.exec<EjectedPayloadRow>(
+				`
+					WITH RECURSIVE
+					first_row AS (
+						SELECT
+							ep.payload_id,
+							ep.body,
+							ep.created_at,
+							octet_length(ep.body) AS body_bytes
+						FROM ejected_payloads ep
+						WHERE ep.ejection_key = ?1
+						ORDER BY ep.created_at ASC, ep.payload_id ASC
+						LIMIT 1
+					),
+					page(
+						payload_id,
+						body,
+						created_at,
+						body_bytes,
+						total_bytes,
+						row_count
+					) AS (
+						SELECT
+							fr.payload_id,
+							fr.body,
+							fr.created_at,
+							fr.body_bytes,
+							fr.body_bytes AS total_bytes,
+							1 AS row_count
+						FROM first_row fr
+
+						UNION ALL
+
+						SELECT
+							ep.payload_id,
+							ep.body,
+							ep.created_at,
+							octet_length(ep.body) AS body_bytes,
+							page.total_bytes + octet_length(ep.body) AS total_bytes,
+							page.row_count + 1 AS row_count
+						FROM page
+						JOIN ejected_payloads ep
+							ON ep.ejection_key = ?1
+							AND ep.payload_id = (
+								SELECT ep2.payload_id
+								FROM ejected_payloads ep2
+								WHERE ep2.ejection_key = ?1
+									AND (
+										ep2.created_at > page.created_at
+										OR (
+											ep2.created_at = page.created_at
+											AND ep2.payload_id > page.payload_id
+										)
+									)
+								ORDER BY ep2.created_at ASC, ep2.payload_id ASC
+								LIMIT 1
+							)
+						WHERE page.row_count < ?2
+							AND page.total_bytes + octet_length(ep.body) <= ?3
+					)
+					SELECT
+						payload_id,
+						body,
+						created_at,
+						body_bytes
+					FROM page
+					ORDER BY created_at ASC, payload_id ASC
+				`,
+				ejectionKey,
+				limit,
+				maxBytes,
+			)
+			.toArray();
+	}
+
+	const { createdAt, payloadId } = decodeCursor(cursor);
+	return sql
+		.exec<EjectedPayloadRow>(
+			`
+				WITH RECURSIVE
+				first_row AS (
+					SELECT
+						ep.payload_id,
+						ep.body,
+						ep.created_at,
+						octet_length(ep.body) AS body_bytes
+					FROM ejected_payloads ep
+					WHERE ep.ejection_key = ?1
+						AND (
+							ep.created_at > ?4
+							OR (ep.created_at = ?4 AND ep.payload_id > ?5)
+						)
+					ORDER BY ep.created_at ASC, ep.payload_id ASC
+					LIMIT 1
+				),
+				page(
+					payload_id,
+					body,
+					created_at,
+					body_bytes,
+					total_bytes,
+					row_count
+				) AS (
+					SELECT
+						fr.payload_id,
+						fr.body,
+						fr.created_at,
+						fr.body_bytes,
+						fr.body_bytes AS total_bytes,
+						1 AS row_count
+					FROM first_row fr
+
+					UNION ALL
+
+					SELECT
+						ep.payload_id,
+						ep.body,
+						ep.created_at,
+						octet_length(ep.body) AS body_bytes,
+						page.total_bytes + octet_length(ep.body) AS total_bytes,
+						page.row_count + 1 AS row_count
+					FROM page
+					JOIN ejected_payloads ep
+						ON ep.ejection_key = ?1
+						AND ep.payload_id = (
+							SELECT ep2.payload_id
+							FROM ejected_payloads ep2
+							WHERE ep2.ejection_key = ?1
+								AND (
+									ep2.created_at > page.created_at
+									OR (
+										ep2.created_at = page.created_at
+										AND ep2.payload_id > page.payload_id
+									)
+								)
+							ORDER BY ep2.created_at ASC, ep2.payload_id ASC
+							LIMIT 1
+						)
+					WHERE page.row_count < ?2
+						AND page.total_bytes + octet_length(ep.body) <= ?3
+				)
+				SELECT
+					payload_id,
+					body,
+					created_at,
+					body_bytes
+				FROM page
+				ORDER BY created_at ASC, payload_id ASC
+			`,
+			ejectionKey,
+			limit,
+			maxBytes,
+			createdAt,
+			payloadId,
+		)
+		.toArray();
+};
+
+export const listEjected = (
+	sql: SqlStorage,
+	ejectionKey: string,
+	cursor?: string,
+	max = 50,
+	maxBytes = 262_144, // 256KiB
+): ListEjectedResult => {
+	const payloadRows = listEjectedPayloadRows(
+		sql,
+		ejectionKey,
+		cursor,
+		max,
+		maxBytes,
+	);
+	if (payloadRows.length === 0) {
+		return { payloads: [] };
+	}
+
+	const payloadIds = payloadRows.map(({ payload_id }) => payload_id);
+	const placeholders = payloadIds.map(() => "?").join(", ");
+	const deliveryJobs = sql
+		.exec<{
+			id: string;
+			payload_id: string;
+			destination: string;
+			created_at: string;
+			final_status: DeliveryFinalStatus | null;
+			finalized_at: string | null;
+			retry_count: number;
+			last_failed_at: string | null;
+			last_error: string | null;
+			next_retry_at: string;
+		}>(
+			`
+				SELECT
+					id,
+					payload_id,
+					destination,
+					created_at,
+					final_status,
+					finalized_at,
+					retry_count,
+					last_failed_at,
+					last_error,
+					next_retry_at
+				FROM ejected_delivery_jobs
+				WHERE ejection_key = ?
+					AND payload_id IN (${placeholders})
+				ORDER BY created_at ASC, id ASC
+			`,
+			ejectionKey,
+			...payloadIds,
+		)
+		.toArray()
+		.map(
+			(row): EjectedDeliveryJob => ({
+				id: row.id,
+				payloadId: row.payload_id,
+				destination: row.destination,
+				createdAt: row.created_at,
+				finalStatus: row.final_status,
+				finalizedAt: row.finalized_at,
+				retryCount: row.retry_count,
+				lastFailedAt: row.last_failed_at,
+				lastError: row.last_error,
+				nextRetryAt: row.next_retry_at,
+			}),
+		);
+	const jobsByPayloadId = Map.groupBy(deliveryJobs, (job) => job.payloadId);
+	const lastRow = payloadRows[payloadRows.length - 1];
+	const hasMore =
+		sql
+			.exec<{ payload_id: string }>(
+				`
+					SELECT ep.payload_id
+					FROM ejected_payloads ep
+					WHERE ep.ejection_key = ?1
+						AND (
+							ep.created_at > ?2
+							OR (ep.created_at = ?2 AND ep.payload_id > ?3)
+						)
+					ORDER BY ep.created_at ASC, ep.payload_id ASC
+					LIMIT 1
+				`,
+				ejectionKey,
+				lastRow.created_at,
+				lastRow.payload_id,
+			)
+			.toArray().length > 0;
+
+	return {
+		cursor: hasMore
+			? encodeCursor(lastRow.created_at, lastRow.payload_id)
+			: undefined,
+		payloads: payloadRows.map(({ payload_id, body }) => ({
+			payload: JSON.parse(body) as EventPayload,
+			deliveryJobs: jobsByPayloadId.get(payload_id) ?? [],
+		})),
+	};
+};
+
+export const ejectPayloads = (
+	sql: SqlStorage,
+	before: number,
+	max: number,
+	ejectKey: string,
+	now = new Date(),
+): EjectResult => {
+	const activeEjection = sql
+		.exec<{ key: string }>(
+			`
+				SELECT key
+				FROM ejections
+				LIMIT 1
+			`,
+		)
+		.toArray()[0];
+	if (activeEjection) {
+		return {
+			ejectKey: activeEjection.key,
+		};
+	}
+
+	const beforeIso = new Date(before).toISOString();
+	const payloadRows = sql
+		.exec<{ id: string }>(
+			`
+				SELECT p.id
+				FROM payloads p
+				LEFT JOIN delivery_jobs dj ON dj.payload_id = p.id
+				GROUP BY p.id, p.created_at
+				HAVING
+					(
+						COUNT(dj.id) = 0
+						AND p.created_at < ?
+					)
+					OR (
+						COUNT(dj.id) > 0
+						AND SUM(CASE WHEN dj.final_status IS NULL THEN 1 ELSE 0 END) = 0
+						AND MAX(dj.finalized_at) < ?
+					)
+				ORDER BY
+					CASE
+						WHEN COUNT(dj.id) = 0 THEN p.created_at
+						ELSE MAX(dj.finalized_at)
+					END ASC,
+					p.id ASC
+				LIMIT ?
+			`,
+			beforeIso,
+			beforeIso,
+			max,
+		)
+		.toArray();
+
+	if (payloadRows.length === 0) {
+		return { ejectKey: null };
+	}
+
+	const payloadIds = payloadRows.map(({ id }) => id);
+	const placeholders = payloadIds.map(() => "?").join(", ");
+	sql.exec(
+		`
+			INSERT INTO ejections (key, created_at, before_at)
+			VALUES (?, ?, ?)
+		`,
+		ejectKey,
+		now.toISOString(),
+		beforeIso,
+	);
+	sql.exec(
+		`
+			INSERT INTO ejected_payloads (ejection_key, payload_id, body, created_at)
+			SELECT ?, id, body, created_at
+			FROM payloads
+			WHERE id IN (${placeholders})
+		`,
+		ejectKey,
+		...payloadIds,
+	);
+	sql.exec(
+		`
+			INSERT INTO ejected_delivery_jobs (
+				ejection_key,
+				id,
+				payload_id,
+				destination,
+				created_at,
+				final_status,
+				finalized_at,
+				retry_count,
+				last_failed_at,
+				last_error,
+				next_retry_at
+			)
+			SELECT
+				?,
+				id,
+				payload_id,
+				destination,
+				created_at,
+				final_status,
+				finalized_at,
+				retry_count,
+				last_failed_at,
+				last_error,
+				next_retry_at
+			FROM delivery_jobs
+			WHERE payload_id IN (${placeholders})
+		`,
+		ejectKey,
+		...payloadIds,
+	);
+
+	sql.exec(
+		`DELETE FROM delivery_jobs WHERE payload_id IN (${placeholders})`,
+		...payloadIds,
+	);
+	sql.exec(`DELETE FROM payloads WHERE id IN (${placeholders})`, ...payloadIds);
+
+	return {
+		ejectKey,
+	};
+};
+
+export const evictEjection = (sql: SqlStorage, ejectKey: string): void => {
+	sql.exec(
+		`
+			DELETE FROM ejected_delivery_jobs
+			WHERE ejection_key = ?
+		`,
+		ejectKey,
+	);
+	sql.exec(
+		`
+			DELETE FROM ejected_payloads
+			WHERE ejection_key = ?
+		`,
+		ejectKey,
+	);
+	sql.exec(
+		`
+			DELETE FROM ejections
+			WHERE key = ?
+		`,
+		ejectKey,
+	);
+};
