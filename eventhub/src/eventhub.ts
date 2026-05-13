@@ -90,6 +90,11 @@ const DEFAULT_MAX_DELIVERY_RETRIES = 10;
 const DEFAULT_INITIAL_RETRY_DELAY_MS = 10_000;
 const DEFAULT_MAX_RETRY_DELAY_MS = 900_000;
 
+const assertPositiveInteger = (v: number, name: string) => {
+	if (Number.isInteger(v) && v > 0) return;
+	throw new Error(`eventhub: ${name} must be a positive integer`);
+};
+
 // Durable object that persists delivery jobs and retries them via alarms.
 export abstract class EventHub<
 	Env extends Record<string, unknown>,
@@ -123,9 +128,20 @@ export abstract class EventHub<
 			maxRetryDelayMs: DEFAULT_MAX_RETRY_DELAY_MS,
 			...partialDeliveryConfig,
 		};
-		if (deliveryConfig.alarmBatchSize > 100) {
+
+		assertPositiveInteger(deliveryConfig.alarmBatchSize, "alarmBatchSize");
+		assertPositiveInteger(
+			deliveryConfig.maxDeliveryRetries,
+			"maxDeliveryRetries",
+		);
+		assertPositiveInteger(
+			deliveryConfig.initialRetryDelayMs,
+			"initialRetryDelayMs",
+		);
+		assertPositiveInteger(deliveryConfig.maxRetryDelayMs, "maxRetryDelayMs");
+
+		if (deliveryConfig.alarmBatchSize > 100)
 			throw new Error("eventhub: alarmBatchSize must be <= 100");
-		}
 		if (deliveryConfig.initialRetryDelayMs > deliveryConfig.maxRetryDelayMs) {
 			throw new Error(
 				"eventhub: initialRetryDelayMs must be <= maxRetryDelayMs",
@@ -241,13 +257,10 @@ export abstract class EventHub<
 		}
 
 		const max = options?.max;
-		if (
-			max !== undefined &&
-			(!Number.isInteger(max) || max <= 0 || max > MAX_EJECT_PAYLOADS)
-		) {
-			throw new Error(
-				`eventhub: max must be a positive integer <= ${MAX_EJECT_PAYLOADS}`,
-			);
+		if (max !== undefined) {
+			assertPositiveInteger(max, "max");
+			if (max > MAX_EJECT_PAYLOADS)
+				throw new Error(`eventhub: max must be <= ${MAX_EJECT_PAYLOADS}`);
 		}
 
 		return this.ctx.storage.transactionSync(() =>
@@ -278,25 +291,21 @@ export abstract class EventHub<
 		}
 
 		const max = options?.max;
-		if (
-			max !== undefined &&
-			(!Number.isInteger(max) || max <= 0 || max > MAX_LIST_EJECTED_PAYLOADS)
-		) {
-			throw new Error(
-				`eventhub: max must be a positive integer <= ${MAX_LIST_EJECTED_PAYLOADS}`,
-			);
+		if (max !== undefined) {
+			assertPositiveInteger(max, "max");
+			if (max > MAX_LIST_EJECTED_PAYLOADS)
+				throw new Error(
+					`eventhub: max must be <= ${MAX_LIST_EJECTED_PAYLOADS}`,
+				);
 		}
 
 		const maxBytes = options?.maxBytes;
-		if (
-			maxBytes !== undefined &&
-			(!Number.isInteger(maxBytes) ||
-				maxBytes <= 0 ||
-				maxBytes > MAX_LIST_EJECTED_BYTES)
-		) {
-			throw new Error(
-				`eventhub: maxBytes must be a positive integer <= ${MAX_LIST_EJECTED_BYTES}`,
-			);
+		if (maxBytes !== undefined) {
+			assertPositiveInteger(maxBytes, "maxBytes");
+			if (maxBytes > MAX_LIST_EJECTED_BYTES)
+				throw new Error(
+					`eventhub: maxBytes must be <= ${MAX_LIST_EJECTED_BYTES}`,
+				);
 		}
 
 		return this.ctx.storage.transactionSync(() =>

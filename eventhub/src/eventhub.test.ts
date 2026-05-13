@@ -552,19 +552,19 @@ describe("EventHub integration", () => {
 			assert(instance instanceof TestEventHub);
 
 			expect(() => instance.eject(Date.now(), { max: 101 })).toThrow(
-				"eventhub: max must be a positive integer <= 100",
+				"eventhub: max must be <= 100",
 			);
 			expect(() => instance.listEjected("", {})).toThrow(
 				"eventhub: ejectKey must not be empty",
 			);
 			expect(() =>
 				instance.listEjected("01EJECT00000000000000000010", { max: 101 }),
-			).toThrow("eventhub: max must be a positive integer <= 100");
+			).toThrow("eventhub: max must be <= 100");
 			expect(() =>
 				instance.listEjected("01EJECT00000000000000000010", {
 					maxBytes: 262_145,
 				}),
-			).toThrow("eventhub: maxBytes must be a positive integer <= 262144");
+			).toThrow("eventhub: maxBytes must be <= 262144");
 			expect(() => instance.evict("")).toThrow(
 				"eventhub: ejectKey must not be empty",
 			);
