@@ -114,14 +114,6 @@ export abstract class EventHub<
 	 */
 	protected abstract getRouteConfig(): Config;
 
-	/**
-	 * Override this method to customize delivery retry settings.
-	 * All values must be positive integers and adhere to documented limits.
-	 */
-	protected getDeliveryConfig(): Partial<DeliveryConfig> {
-		return {};
-	}
-
 	constructor(ctx: DurableObjectState, env: Env) {
 		super(ctx, env);
 		this.idGenerator = new MonotonicUlidGenerator();

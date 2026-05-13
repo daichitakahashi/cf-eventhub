@@ -2,42 +2,94 @@ import * as jsonpath from "jsonpath";
 
 type JSONPrimitive = string | number | boolean | null;
 
-export type Comparator =
+type Comparator =
 	| {
 			path: string;
 			exact: JSONPrimitive;
+			match?: never;
+			exists?: never;
+			lte?: never;
+			gte?: never;
+			lt?: never;
+			gt?: never;
 	  }
 	| {
 			path: string;
+			exact?: never;
 			match: RegExp;
+			exists?: never;
+			lte?: never;
+			gte?: never;
+			lt?: never;
+			gt?: never;
 	  }
 	| {
 			path: string;
+			exact?: never;
+			match?: never;
 			exists: true;
+			lte?: never;
+			gte?: never;
+			lt?: never;
+			gt?: never;
 	  }
 	| {
 			path: string;
+			exact?: never;
+			match?: never;
+			exists?: never;
 			lte: number;
+			gte?: never;
+			lt?: never;
+			gt?: never;
 	  }
 	| {
 			path: string;
+			exact?: never;
+			match?: never;
+			exists?: never;
+			lte?: never;
 			gte: number;
+			lt?: never;
+			gt?: never;
 	  }
 	| {
 			path: string;
+			exact?: never;
+			match?: never;
+			exists?: never;
+			lte?: never;
+			gte?: never;
 			lt: number;
+			gt?: never;
 	  }
 	| {
 			path: string;
+			exact?: never;
+			match?: never;
+			exists?: never;
+			lte?: never;
+			gte?: never;
+			lt?: never;
 			gt: number;
 	  };
 
 export type LogicalOperator =
 	| {
 			allOf: Condition[];
+			anyOf?: never;
+			not?: never;
 	  }
-	| { anyOf: Condition[] }
-	| { not: Condition };
+	| {
+			allOf?: never;
+			anyOf: Condition[];
+			not?: never;
+	  }
+	| {
+			allOf?: never;
+			anyOf?: never;
+			not: Condition;
+	  };
 
 export type Condition = Comparator | LogicalOperator;
 
@@ -66,20 +118,20 @@ const match = (message: unknown, cond: Comparator) => {
 
 	// Construct matchers
 	let match: (v: unknown) => boolean = () => false;
-	if ("exact" in cond) {
+	if (cond.exact !== undefined) {
 		match = (v: unknown) => v === cond.exact;
-	} else if ("match" in cond) {
+	} else if (cond.match !== undefined) {
 		const pattern = cond.match;
 		match = (v: unknown) => typeof v === "string" && pattern.test(v);
-	} else if ("exists" in cond) {
+	} else if (cond.exists !== undefined) {
 		match = () => true;
-	} else if ("lte" in cond) {
+	} else if (cond.lte !== undefined) {
 		match = (v: unknown) => typeof v === "number" && v <= cond.lte;
-	} else if ("gte" in cond) {
+	} else if (cond.gte !== undefined) {
 		match = (v: unknown) => typeof v === "number" && v >= cond.gte;
-	} else if ("lt" in cond) {
+	} else if (cond.lt !== undefined) {
 		match = (v: unknown) => typeof v === "number" && v < cond.lt;
-	} else if ("gt" in cond) {
+	} else if (cond.gt !== undefined) {
 		match = (v: unknown) => typeof v === "number" && v > cond.gt;
 	}
 
@@ -92,10 +144,10 @@ const matchCond =
 		if ("path" in cond) {
 			return match(message, cond);
 		}
-		if ("not" in cond) {
+		if (cond.not !== undefined) {
 			return !matchCond(message)(cond.not);
 		}
-		if ("allOf" in cond) {
+		if (cond.allOf !== undefined) {
 			return cond.allOf.every(matchCond(message));
 		}
 		return cond.anyOf.some(matchCond(message));

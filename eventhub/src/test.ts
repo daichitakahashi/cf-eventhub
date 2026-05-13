@@ -38,3 +38,5 @@ export class TestEventHub extends EventHub<Record<string, unknown>> {
 		return routeConfig;
 	}
 }
+
+export default {};
