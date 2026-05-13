@@ -62,6 +62,13 @@ const routeConfig: Config = {
 	],
 };
 
+// biome-ignore lint/suspicious/noExportsInTest: required
+export class TestEventHub extends EventHub<Record<string, unknown>> {
+	protected getRouteConfig(): Config {
+		return routeConfig;
+	}
+}
+
 const getStub = (name: string) =>
 	env.EVENT_HUB.get(env.EVENT_HUB.idFromName(name));
 
@@ -583,7 +590,7 @@ describe("EventHub integration", () => {
 		const stub = getStub("eventhub-eject-invalid-inputs");
 
 		await runInDurableObject(stub, async (instance) => {
-			assert(instance instanceof EventHub);
+			assert(instance instanceof TestEventHub);
 
 			expect(() => instance.eject(Date.now(), { max: 101 })).toThrow(
 				"eventhub: max must be a positive integer <= 100",

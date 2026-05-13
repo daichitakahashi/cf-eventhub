@@ -1,13 +1,11 @@
 import { DurableObject } from "cloudflare:workers";
-import * as v from "valibot";
 
 import {
 	assertDestinationBindingsExist,
 	deliverPersistedJobs,
 } from "./core/delivery";
-import { parsePositiveInteger } from "./core/env";
 import { MonotonicUlidGenerator } from "./core/id";
-import { Config, type ConfigInput } from "./core/routing";
+import type { Config } from "./core/routing";
 import {
 	type EjectResult,
 	type ListEjectedResult,
@@ -25,20 +23,35 @@ import {
 } from "./core/store";
 import type { EventPayload } from "./core/type";
 
-// Environment bindings and tunables required by the durable object.
-type EventHubEnv = Record<string, unknown> & {
-	EVENTHUB_ROUTING: string | ConfigInput;
-	EVENTHUB_ALARM_BATCH_SIZE?: string | number;
-	EVENTHUB_MAX_DELIVERY_RETRIES?: string | number;
-	EVENTHUB_INITIAL_RETRY_DELAY_MS?: string | number;
-	EVENTHUB_MAX_RETRY_DELAY_MS?: string | number;
-};
-
-// Parsed delivery settings used by publish and retry flows.
-type DeliveryConfig = {
+/**
+ * Delivery and retry configuration for EventHub.
+ */
+export type DeliveryConfig = {
+	/**
+	 * Maximum number of delivery jobs to process in a single alarm batch.
+	 * Must be <= 100.
+	 * @default 50
+	 */
 	alarmBatchSize: number;
+
+	/**
+	 * Maximum number of delivery retry attempts before marking a job as failed.
+	 * @default 10
+	 */
 	maxDeliveryRetries: number;
+
+	/**
+	 * Initial delay in milliseconds before the first retry attempt.
+	 * @default 10000 (10 seconds)
+	 */
 	initialRetryDelayMs: number;
+
+	/**
+	 * Maximum delay in milliseconds between retry attempts.
+	 * Retry delays use exponential backoff capped at this value.
+	 * Must be >= initialRetryDelayMs.
+	 * @default 900000 (15 minutes)
+	 */
 	maxRetryDelayMs: number;
 };
 
@@ -77,69 +90,53 @@ const DEFAULT_MAX_DELIVERY_RETRIES = 10;
 const DEFAULT_INITIAL_RETRY_DELAY_MS = 10_000;
 const DEFAULT_MAX_RETRY_DELAY_MS = 900_000;
 
-// Parses and validates the routing config binding.
-const getRouteConfig = (env: EventHubEnv) => {
-	const routing = env.EVENTHUB_ROUTING;
-	if (!routing) {
-		throw new Error("eventhub: EVENTHUB_ROUTING not set");
-	}
+// Durable object that persists delivery jobs and retries them via alarms.
+export class EventHub<
+	Env extends Record<string, unknown>,
+> extends DurableObject<Env> {
+	private readonly idGenerator: MonotonicUlidGenerator;
+	private readonly deliveryConfig: DeliveryConfig;
 
-	const maybeConfig =
-		typeof routing === "string" ? JSON.parse(routing) : routing;
-	return v.parse(Config, maybeConfig);
-};
-
-// Parses and validates retry-related configuration knobs.
-const getDeliveryConfig = (env: EventHubEnv): DeliveryConfig => {
-	const alarmBatchSize = parsePositiveInteger(
-		env.EVENTHUB_ALARM_BATCH_SIZE,
-		DEFAULT_ALARM_BATCH_SIZE,
-		"EVENTHUB_ALARM_BATCH_SIZE",
-	);
-	if (alarmBatchSize > 100) {
-		throw new Error("eventhub: EVENTHUB_ALARM_BATCH_SIZE must be <= 100");
-	}
-
-	const maxDeliveryRetries = parsePositiveInteger(
-		env.EVENTHUB_MAX_DELIVERY_RETRIES,
-		DEFAULT_MAX_DELIVERY_RETRIES,
-		"EVENTHUB_MAX_DELIVERY_RETRIES",
-	);
-	const initialRetryDelayMs = parsePositiveInteger(
-		env.EVENTHUB_INITIAL_RETRY_DELAY_MS,
-		DEFAULT_INITIAL_RETRY_DELAY_MS,
-		"EVENTHUB_INITIAL_RETRY_DELAY_MS",
-	);
-	const maxRetryDelayMs = parsePositiveInteger(
-		env.EVENTHUB_MAX_RETRY_DELAY_MS,
-		DEFAULT_MAX_RETRY_DELAY_MS,
-		"EVENTHUB_MAX_RETRY_DELAY_MS",
-	);
-	if (initialRetryDelayMs > maxRetryDelayMs) {
+	/**
+	 * Override this property to provide routing configuration.
+	 * This must return a valid Config object.
+	 */
+	protected getRouteConfig(): Config {
 		throw new Error(
-			"eventhub: EVENTHUB_INITIAL_RETRY_DELAY_MS must be <= EVENTHUB_MAX_RETRY_DELAY_MS",
+			"eventhub: getRouteConfig() must be implemented in a subclass",
 		);
 	}
 
-	return {
-		alarmBatchSize,
-		maxDeliveryRetries,
-		initialRetryDelayMs,
-		maxRetryDelayMs,
-	};
-};
+	/**
+	 * Override this property to customize delivery retry settings.
+	 * All values must be positive integers and adhere to documented limits.
+	 */
+	protected getDeliveryConfig(): Partial<DeliveryConfig> {
+		return {};
+	}
 
-// Durable object that persists delivery jobs and retries them via alarms.
-export class EventHub extends DurableObject<EventHubEnv> {
-	private readonly idGenerator: MonotonicUlidGenerator;
-	private readonly routeConfig: Config;
-	private readonly deliveryConfig: DeliveryConfig;
-
-	constructor(ctx: DurableObjectState, env: EventHubEnv) {
+	constructor(ctx: DurableObjectState, env: Env) {
 		super(ctx, env);
 		this.idGenerator = new MonotonicUlidGenerator();
-		this.routeConfig = getRouteConfig(env);
-		this.deliveryConfig = getDeliveryConfig(env);
+
+		const partialDeliveryConfig = this.getDeliveryConfig();
+		const deliveryConfig = {
+			alarmBatchSize: DEFAULT_ALARM_BATCH_SIZE,
+			maxDeliveryRetries: DEFAULT_MAX_DELIVERY_RETRIES,
+			initialRetryDelayMs: DEFAULT_INITIAL_RETRY_DELAY_MS,
+			maxRetryDelayMs: DEFAULT_MAX_RETRY_DELAY_MS,
+			...partialDeliveryConfig,
+		};
+		if (deliveryConfig.alarmBatchSize > 100) {
+			throw new Error("eventhub: alarmBatchSize must be <= 100");
+		}
+		if (deliveryConfig.initialRetryDelayMs > deliveryConfig.maxRetryDelayMs) {
+			throw new Error(
+				"eventhub: initialRetryDelayMs must be <= maxRetryDelayMs",
+			);
+		}
+		this.deliveryConfig = deliveryConfig;
+
 		initializeSchema(this.ctx.storage.sql);
 	}
 
@@ -213,7 +210,8 @@ export class EventHub extends DurableObject<EventHubEnv> {
 	 * @param rest Additional payloads published in the same batch.
 	 */
 	async publish(payload: EventPayload, ...rest: EventPayload[]): Promise<void> {
-		const pendingDeliveryJobs = createPendingDeliveryJobs(this.routeConfig, [
+		const routeConfig = this.getRouteConfig();
+		const pendingDeliveryJobs = createPendingDeliveryJobs(routeConfig, [
 			payload,
 			...rest,
 		]);
