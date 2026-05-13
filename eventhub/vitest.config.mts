@@ -5,13 +5,10 @@ export default defineWorkersConfig({
 		poolOptions: {
 			workers: {
 				wrangler: { configPath: "./wrangler.jsonc" },
-				main: "./src/index.ts",
+				main: "./src/test.ts",
 				miniflare: {
 					queueProducers: ["OKAYAMA", "HOKKAIDO", "OKINAWA"],
 					r2Buckets: ["ARCHIVE"],
-					durableObjects: {
-						EVENT_HUB: "TestEventHub",
-					},
 				},
 			},
 		},

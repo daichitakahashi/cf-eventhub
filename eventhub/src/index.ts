@@ -12,9 +12,3 @@ export type {
 	EjectedDeliveryJob,
 	ListEjectedResult,
 } from "./core/store";
-export { parsePositiveInteger } from "./core/env";
-
-// Export test-only EventHub subclass when in test environment
-export { TestEventHub } from "./eventhub.test";
-
-export default {};

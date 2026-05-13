@@ -9,6 +9,7 @@ import {
 } from "./core/store";
 import type { Config } from "./core/routing";
 import { EventHub } from "./eventhub";
+import { routeConfig, TestEventHub } from "./test";
 
 type PayloadRow = {
 	id: string;
@@ -28,46 +29,6 @@ type DeliveryJobRow = {
 	last_error: string | null;
 	next_retry_at: string;
 };
-
-const routeConfig: Config = {
-	routes: [
-		{
-			condition: {
-				path: "$.kind",
-				exact: "culture",
-			},
-			destination: "OKAYAMA",
-		},
-		{
-			condition: {
-				path: "$.kind",
-				exact: "nature",
-			},
-			destination: "HOKKAIDO",
-		},
-		{
-			condition: {
-				path: "$.kind",
-				exact: "nature",
-			},
-			destination: "OKINAWA",
-		},
-		{
-			condition: {
-				path: "$.kind",
-				exact: "archive",
-			},
-			destination: "ARCHIVE",
-		},
-	],
-};
-
-// biome-ignore lint/suspicious/noExportsInTest: required
-export class TestEventHub extends EventHub<Record<string, unknown>> {
-	protected getRouteConfig(): Config {
-		return routeConfig;
-	}
-}
 
 const getStub = (name: string) =>
 	env.EVENT_HUB.get(env.EVENT_HUB.idFromName(name));

@@ -98,7 +98,7 @@ export class EventHub<
 	private readonly deliveryConfig: DeliveryConfig;
 
 	/**
-	 * Override this property to provide routing configuration.
+	 * Override this method to provide routing configuration.
 	 * This must return a valid Config object.
 	 */
 	protected getRouteConfig(): Config {
@@ -108,7 +108,7 @@ export class EventHub<
 	}
 
 	/**
-	 * Override this property to customize delivery retry settings.
+	 * Override this method to customize delivery retry settings.
 	 * All values must be positive integers and adhere to documented limits.
 	 */
 	protected getDeliveryConfig(): Partial<DeliveryConfig> {
