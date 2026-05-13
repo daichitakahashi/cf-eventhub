@@ -100,7 +100,12 @@ export abstract class EventHub<
 	Env extends Record<string, unknown>,
 > extends DurableObject<Env> {
 	private readonly idGenerator: MonotonicUlidGenerator;
-	private readonly deliveryConfig: DeliveryConfig;
+	private deliveryConfig: DeliveryConfig = {
+		alarmBatchSize: DEFAULT_ALARM_BATCH_SIZE,
+		maxDeliveryRetries: DEFAULT_MAX_DELIVERY_RETRIES,
+		initialRetryDelayMs: DEFAULT_INITIAL_RETRY_DELAY_MS,
+		maxRetryDelayMs: DEFAULT_MAX_RETRY_DELAY_MS,
+	};
 
 	/**
 	 * Implement this method to provide routing configuration.
@@ -119,14 +124,16 @@ export abstract class EventHub<
 	constructor(ctx: DurableObjectState, env: Env) {
 		super(ctx, env);
 		this.idGenerator = new MonotonicUlidGenerator();
+		initializeSchema(this.ctx.storage.sql);
+	}
 
-		const partialDeliveryConfig = this.getDeliveryConfig();
+	/**
+	 * Configure delivery retry settings.
+	 */
+	protected configureDelivery(config: Partial<DeliveryConfig>) {
 		const deliveryConfig = {
-			alarmBatchSize: DEFAULT_ALARM_BATCH_SIZE,
-			maxDeliveryRetries: DEFAULT_MAX_DELIVERY_RETRIES,
-			initialRetryDelayMs: DEFAULT_INITIAL_RETRY_DELAY_MS,
-			maxRetryDelayMs: DEFAULT_MAX_RETRY_DELAY_MS,
-			...partialDeliveryConfig,
+			...this.deliveryConfig,
+			...config,
 		};
 
 		assertPositiveInteger(deliveryConfig.alarmBatchSize, "alarmBatchSize");
@@ -148,8 +155,6 @@ export abstract class EventHub<
 			);
 		}
 		this.deliveryConfig = deliveryConfig;
-
-		initializeSchema(this.ctx.storage.sql);
 	}
 
 	// Schedules the next alarm based on the earliest pending retry.
