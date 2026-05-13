@@ -97,7 +97,8 @@ const assertPositiveInteger = (v: number, name: string) => {
 
 // Durable object that persists delivery jobs and retries them via alarms.
 export abstract class EventHub<
-	Env extends Record<string, unknown>,
+	// biome-ignore lint/complexity/noBannedTypes: default
+	Env extends Record<string, unknown> = {},
 > extends DurableObject<Env> {
 	private readonly idGenerator: MonotonicUlidGenerator;
 	private deliveryConfig: DeliveryConfig = {
