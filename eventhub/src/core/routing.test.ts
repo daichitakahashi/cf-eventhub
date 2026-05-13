@@ -1,11 +1,10 @@
-import * as v from "valibot";
 import { describe, expect, test } from "vitest";
 
-import { Config, type ConfigInput, findRoutes } from "./routing";
+import { type Config, findRoutes } from "./routing";
 
 describe("findRoutes", () => {
 	test("returns destination for exact comparator", () => {
-		const config = v.parse(Config, {
+		const config: Config = {
 			routes: [
 				{
 					condition: {
@@ -15,7 +14,7 @@ describe("findRoutes", () => {
 					destination: "ORDER_HANDLER",
 				},
 			],
-		} satisfies ConfigInput);
+		};
 
 		expect(findRoutes(config, { eventName: "orderPlaced" })).toStrictEqual([
 			{ destination: "ORDER_HANDLER" },
@@ -23,17 +22,17 @@ describe("findRoutes", () => {
 	});
 
 	test("returns destination for match comparator", () => {
-		const config = v.parse(Config, {
+		const config: Config = {
 			routes: [
 				{
 					condition: {
 						path: "$.eventName",
-						match: "^order.*",
+						match: /^order.*/,
 					},
 					destination: "ORDER_HANDLER",
 				},
 			],
-		} satisfies ConfigInput);
+		};
 
 		expect(findRoutes(config, { eventName: "orderPlaced" })).toStrictEqual([
 			{ destination: "ORDER_HANDLER" },
@@ -41,7 +40,7 @@ describe("findRoutes", () => {
 	});
 
 	test("returns destination for exists comparator", () => {
-		const config = v.parse(Config, {
+		const config: Config = {
 			routes: [
 				{
 					condition: {
@@ -51,7 +50,7 @@ describe("findRoutes", () => {
 					destination: "ORDER_HANDLER",
 				},
 			],
-		} satisfies ConfigInput);
+		};
 
 		expect(findRoutes(config, { orderId: null })).toStrictEqual([
 			{ destination: "ORDER_HANDLER" },
@@ -59,7 +58,7 @@ describe("findRoutes", () => {
 	});
 
 	test("evaluates numeric comparators", () => {
-		const config = v.parse(Config, {
+		const config: Config = {
 			routes: [
 				{
 					condition: {
@@ -90,7 +89,7 @@ describe("findRoutes", () => {
 					destination: "GT",
 				},
 			],
-		} satisfies ConfigInput);
+		};
 
 		expect(findRoutes(config, { value: 99 })).toStrictEqual([
 			{ destination: "LTE" },
@@ -107,7 +106,7 @@ describe("findRoutes", () => {
 	});
 
 	test("evaluates zero-valued numeric comparators", () => {
-		const config = v.parse(Config, {
+		const config: Config = {
 			routes: [
 				{
 					condition: {
@@ -138,7 +137,7 @@ describe("findRoutes", () => {
 					destination: "GT_ZERO",
 				},
 			],
-		} satisfies ConfigInput);
+		};
 
 		expect(findRoutes(config, { value: -1 })).toStrictEqual([
 			{ destination: "LTE_ZERO" },
@@ -155,7 +154,7 @@ describe("findRoutes", () => {
 	});
 
 	test("evaluates logical operators", () => {
-		const config = v.parse(Config, {
+		const config: Config = {
 			routes: [
 				{
 					condition: {
@@ -182,7 +181,7 @@ describe("findRoutes", () => {
 					destination: "ACTIVE_ONLY",
 				},
 			],
-		} satisfies ConfigInput);
+		};
 
 		expect(
 			findRoutes(config, {

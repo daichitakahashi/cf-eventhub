@@ -7,8 +7,7 @@ import {
 	listDeliveryJobStatuses,
 	persistDeliveryJobs,
 } from "./core/store";
-import type { Config } from "./core/routing";
-import { EventHub } from "./eventhub";
+import { routeConfig, TestEventHub } from "./test";
 
 type PayloadRow = {
 	id: string;
@@ -27,39 +26,6 @@ type DeliveryJobRow = {
 	last_failed_at: string | null;
 	last_error: string | null;
 	next_retry_at: string;
-};
-
-const routeConfig: Config = {
-	routes: [
-		{
-			condition: {
-				path: "$.kind",
-				exact: "culture",
-			},
-			destination: "OKAYAMA",
-		},
-		{
-			condition: {
-				path: "$.kind",
-				exact: "nature",
-			},
-			destination: "HOKKAIDO",
-		},
-		{
-			condition: {
-				path: "$.kind",
-				exact: "nature",
-			},
-			destination: "OKINAWA",
-		},
-		{
-			condition: {
-				path: "$.kind",
-				exact: "archive",
-			},
-			destination: "ARCHIVE",
-		},
-	],
 };
 
 const getStub = (name: string) =>
@@ -583,22 +549,22 @@ describe("EventHub integration", () => {
 		const stub = getStub("eventhub-eject-invalid-inputs");
 
 		await runInDurableObject(stub, async (instance) => {
-			assert(instance instanceof EventHub);
+			assert(instance instanceof TestEventHub);
 
 			expect(() => instance.eject(Date.now(), { max: 101 })).toThrow(
-				"eventhub: max must be a positive integer <= 100",
+				"eventhub: max must be <= 100",
 			);
 			expect(() => instance.listEjected("", {})).toThrow(
 				"eventhub: ejectKey must not be empty",
 			);
 			expect(() =>
 				instance.listEjected("01EJECT00000000000000000010", { max: 101 }),
-			).toThrow("eventhub: max must be a positive integer <= 100");
+			).toThrow("eventhub: max must be <= 100");
 			expect(() =>
 				instance.listEjected("01EJECT00000000000000000010", {
 					maxBytes: 262_145,
 				}),
-			).toThrow("eventhub: maxBytes must be a positive integer <= 262144");
+			).toThrow("eventhub: maxBytes must be <= 262144");
 			expect(() => instance.evict("")).toThrow(
 				"eventhub: ejectKey must not be empty",
 			);

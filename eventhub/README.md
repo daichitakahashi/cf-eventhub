@@ -24,26 +24,32 @@ The `EventHub` Durable Object exposes the following RPC methods:
 
 ## Routing
 
-Pass routing rules through `EVENTHUB_ROUTING`. The `destination` value must match the binding name of a Queue or R2 bucket. The implementation resolves `env[destination]` directly, so mismatched names will fail at delivery time.
+Define routing rules by extending `EventHub` and implementing the `getRouteConfig()` method. The `destination` value must match the binding name of a Queue or R2 bucket. The implementation resolves `env[destination]` directly, so mismatched names will fail at delivery time.
 
-```json
-{
-  "routes": [
-    {
-      "condition": {
-        "path": "$.type",
-        "exact": "member.created"
-      },
-      "destination": "MEMBER_EVENTS"
-    },
-    {
-      "condition": {
-        "path": "$.severity",
-        "gte": 50
-      },
-      "destination": "HIGH_SEVERITY_ARCHIVE"
-    }
-  ]
+```ts
+import { EventHub, type Config } from "eventhub";
+
+export class MyEventHub extends EventHub<Env> {
+  protected getRouteConfig(): Config {
+    return {
+      routes: [
+        {
+          condition: {
+            path: "$.type",
+            exact: "member.created",
+          },
+          destination: "MEMBER_EVENTS",
+        },
+        {
+          condition: {
+            path: "$.severity",
+            gte: 50,
+          },
+          destination: "HIGH_SEVERITY_ARCHIVE",
+        },
+      ],
+    };
+  }
 }
 ```
 
@@ -64,14 +70,14 @@ This is a minimal `wrangler.jsonc` example. If you change bindings, run `npx wra
     "bindings": [
       {
         "name": "EVENT_HUB",
-        "class_name": "EventHub"
+        "class_name": "MyEventHub"
       }
     ]
   },
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["EventHub"]
+      "new_sqlite_classes": ["MyEventHub"]
     }
   ],
   "queues": {
@@ -98,27 +104,7 @@ This is a minimal `wrangler.jsonc` example. If you change bindings, run `npx wra
       "binding": "EVENT_ARCHIVE_WORKFLOW",
       "class_name": "EventArchiveWorkflow"
     }
-  ],
-  "vars": {
-    "EVENTHUB_ROUTING": {
-      "routes": [
-        {
-          "condition": {
-            "path": "$.type",
-            "exact": "member.created"
-          },
-          "destination": "MEMBER_EVENTS"
-        },
-        {
-          "condition": {
-            "path": "$.severity",
-            "gte": 50
-          },
-          "destination": "HIGH_SEVERITY_ARCHIVE"
-        }
-      ]
-    }
-  }
+  ]
 }
 ```
 
@@ -127,7 +113,7 @@ This is a minimal `wrangler.jsonc` example. If you change bindings, run `npx wra
 This example accepts HTTP requests and pushes the received event(s) into EventHub. `publish()` supports both a single payload and a batch.
 
 ```ts
-import { EventHub, type EventPayload } from "eventhub";
+import type { EventHub, EventPayload } from "cf-eventhub";
 
 type Env = {
   EVENT_HUB: DurableObjectNamespace<EventHub>;
@@ -180,7 +166,7 @@ import {
   type WorkflowEvent,
   type WorkflowStep,
 } from "cloudflare:workers";
-import { EventHub } from "eventhub";
+import { EventHub } from "cf-eventhub";
 
 type ArchivePayload = {
   hubName?: string;

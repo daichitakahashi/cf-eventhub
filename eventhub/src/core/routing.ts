@@ -1,80 +1,80 @@
 import * as jsonpath from "jsonpath";
-import * as v from "valibot";
 
-const Path = v.pipe(v.string(), v.minLength(1));
-const JSONPrimitive = v.union([v.string(), v.number(), v.boolean(), v.null()]);
+type JSONPrimitive = string | number | boolean | null;
 
-const comparatorShape = {
-	path: Path,
-	exact: v.optional(v.never()),
-	match: v.optional(v.never()),
-	exists: v.optional(v.never()),
-	lte: v.optional(v.never()),
-	gte: v.optional(v.never()),
-	lt: v.optional(v.never()),
-	gt: v.optional(v.never()),
-};
-
-const Comparator = v.union([
-	// exact
-	v.object({
-		...comparatorShape,
-		exact: JSONPrimitive,
-	}),
-	// match
-	v.object({
-		...comparatorShape,
-		match: v.pipe(
-			v.string(),
-			v.transform((s) => new RegExp(s)),
-		),
-	}),
-	// exists
-	v.object({
-		...comparatorShape,
-		exists: v.literal(true),
-	}),
-	// number comparison(lte)
-	v.object({
-		...comparatorShape,
-		lte: v.number(),
-	}),
-	// number comparison(gte)
-	v.object({
-		...comparatorShape,
-		gte: v.number(),
-	}),
-	// number comparison(lt)
-	v.object({
-		...comparatorShape,
-		lt: v.number(),
-	}),
-	// number comparison(gt)
-	v.object({
-		...comparatorShape,
-		gt: v.number(),
-	}),
-]);
-type ComparatorInput = v.InferInput<typeof Comparator>;
-type Comparator = v.InferOutput<typeof Comparator>;
-
-type LogicalOperatorInput =
+type Comparator =
 	| {
-			allOf: ConditionInput[];
-			anyOf?: never;
-			not?: never;
+			path: string;
+			exact: JSONPrimitive;
+			match?: never;
+			exists?: never;
+			lte?: never;
+			gte?: never;
+			lt?: never;
+			gt?: never;
 	  }
 	| {
-			allOf?: never;
-			anyOf: ConditionInput[];
-			not?: never;
+			path: string;
+			exact?: never;
+			match: RegExp;
+			exists?: never;
+			lte?: never;
+			gte?: never;
+			lt?: never;
+			gt?: never;
 	  }
 	| {
-			allOf?: never;
-			anyOf?: never;
-			not: ConditionInput;
+			path: string;
+			exact?: never;
+			match?: never;
+			exists: true;
+			lte?: never;
+			gte?: never;
+			lt?: never;
+			gt?: never;
+	  }
+	| {
+			path: string;
+			exact?: never;
+			match?: never;
+			exists?: never;
+			lte: number;
+			gte?: never;
+			lt?: never;
+			gt?: never;
+	  }
+	| {
+			path: string;
+			exact?: never;
+			match?: never;
+			exists?: never;
+			lte?: never;
+			gte: number;
+			lt?: never;
+			gt?: never;
+	  }
+	| {
+			path: string;
+			exact?: never;
+			match?: never;
+			exists?: never;
+			lte?: never;
+			gte?: never;
+			lt: number;
+			gt?: never;
+	  }
+	| {
+			path: string;
+			exact?: never;
+			match?: never;
+			exists?: never;
+			lte?: never;
+			gte?: never;
+			lt?: never;
+			gt: number;
 	  };
-type LogicalOperator =
+
+export type LogicalOperator =
 	| {
 			allOf: Condition[];
 			anyOf?: never;
@@ -90,37 +90,17 @@ type LogicalOperator =
 			anyOf?: never;
 			not: Condition;
 	  };
-type ConditionInput = ComparatorInput | LogicalOperatorInput;
-type Condition = Comparator | LogicalOperator;
 
-const LogicalOperator: v.GenericSchema<LogicalOperatorInput, LogicalOperator> =
-	v.union([
-		v.object({
-			allOf: v.lazy(() => v.array(Condition)),
-		}),
-		v.object({
-			anyOf: v.lazy(() => v.array(Condition)),
-		}),
-		v.object({
-			not: v.lazy(() => Condition),
-		}),
-	]);
+export type Condition = Comparator | LogicalOperator;
 
-const Condition = v.union([Comparator, LogicalOperator]);
+export type Route = {
+	condition: Condition;
+	destination: string;
+};
 
-const Route = v.object({
-	condition: Condition,
-	destination: v.pipe(v.string(), v.minLength(1)),
-});
-
-/**
- * Route configuration schema.
- */
-export const Config = v.object({
-	routes: v.array(Route),
-});
-export type ConfigInput = v.InferInput<typeof Config>;
-export type Config = v.InferOutput<typeof Config>;
+export type Config = {
+	routes: Route[];
+};
 
 const immediate = <T>(f: () => T) => f();
 
@@ -140,10 +120,10 @@ const match = (message: unknown, cond: Comparator) => {
 	let match: (v: unknown) => boolean = () => false;
 	if (cond.exact !== undefined) {
 		match = (v: unknown) => v === cond.exact;
-	} else if (cond.match) {
+	} else if (cond.match !== undefined) {
 		const pattern = cond.match;
 		match = (v: unknown) => typeof v === "string" && pattern.test(v);
-	} else if (cond.exists) {
+	} else if (cond.exists !== undefined) {
 		match = () => true;
 	} else if (cond.lte !== undefined) {
 		match = (v: unknown) => typeof v === "number" && v <= cond.lte;
@@ -164,10 +144,10 @@ const matchCond =
 		if ("path" in cond) {
 			return match(message, cond);
 		}
-		if (cond.not) {
+		if (cond.not !== undefined) {
 			return !matchCond(message)(cond.not);
 		}
-		if (cond.allOf) {
+		if (cond.allOf !== undefined) {
 			return cond.allOf.every(matchCond(message));
 		}
 		return cond.anyOf.some(matchCond(message));
