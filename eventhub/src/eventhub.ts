@@ -91,21 +91,17 @@ const DEFAULT_INITIAL_RETRY_DELAY_MS = 10_000;
 const DEFAULT_MAX_RETRY_DELAY_MS = 900_000;
 
 // Durable object that persists delivery jobs and retries them via alarms.
-export class EventHub<
+export abstract class EventHub<
 	Env extends Record<string, unknown>,
 > extends DurableObject<Env> {
 	private readonly idGenerator: MonotonicUlidGenerator;
 	private readonly deliveryConfig: DeliveryConfig;
 
 	/**
-	 * Override this method to provide routing configuration.
+	 * Implement this method to provide routing configuration.
 	 * This must return a valid Config object.
 	 */
-	protected getRouteConfig(): Config {
-		throw new Error(
-			"eventhub: getRouteConfig() must be implemented in a subclass",
-		);
-	}
+	protected abstract getRouteConfig(): Config;
 
 	/**
 	 * Override this method to customize delivery retry settings.

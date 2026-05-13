@@ -7,8 +7,6 @@ import {
 	listDeliveryJobStatuses,
 	persistDeliveryJobs,
 } from "./core/store";
-import type { Config } from "./core/routing";
-import { EventHub } from "./eventhub";
 import { routeConfig, TestEventHub } from "./test";
 
 type PayloadRow = {
