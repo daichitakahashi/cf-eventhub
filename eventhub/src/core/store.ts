@@ -209,7 +209,7 @@ export const createPendingDeliveryJobs = <Env extends Record<string, unknown>>(
 		payload,
 		destinations: routing
 			.findRoutes(payload)
-			.map(({ destination }) => destination),
+			.map(({ destination }) => String(destination)),
 	})),
 });
 

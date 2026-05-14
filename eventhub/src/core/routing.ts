@@ -5,10 +5,14 @@ import type { JSONObject } from "./type";
 type Destination = Queue | R2Bucket;
 
 type Destinations<Env extends Record<string, unknown>> = keyof {
-	[K in keyof Env as Env[K] extends Destination ? K : never]: Env[K];
+	[K in keyof Env as K extends string
+		? Env[K] extends Destination
+			? K
+			: never
+		: never]: Env[K];
 };
 
-const safe = Symbol();
+const safe: unique symbol = Symbol();
 
 export interface RoutingStrategy<Env extends Record<string, unknown>> {
 	[safe]: true;
@@ -197,11 +201,4 @@ export const routeFunc = <Env extends Record<string, unknown>>(
 ): RoutingStrategy<Env> => ({
 	[safe]: true,
 	findRoutes: fn,
-});
-
-export const noRouting = <
-	Env extends Record<string, unknown>,
->(): RoutingStrategy<Env> => ({
-	[safe]: true,
-	findRoutes: () => [],
 });

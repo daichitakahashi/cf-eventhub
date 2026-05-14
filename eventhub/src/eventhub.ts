@@ -5,7 +5,7 @@ import {
 	deliverPersistedJobs,
 } from "./core/delivery";
 import { MonotonicUlidGenerator } from "./core/id";
-import { noRouting } from "./core/routing";
+import type { RoutingStrategy } from "./core/routing";
 import {
 	type EjectResult,
 	type ListEjectedResult,
@@ -23,7 +23,7 @@ import {
 } from "./core/store";
 import type { EventPayload } from "./core/type";
 
-const safe = Symbol();
+const safe: unique symbol = Symbol();
 
 /**
  * Delivery and retry configuration for EventHub.
@@ -135,7 +135,7 @@ export abstract class EventHub<
 > extends DurableObject<Env> {
 	private readonly idGenerator: MonotonicUlidGenerator;
 	protected deliveryConfig = configureDelivery({});
-	protected routing = noRouting<Env>();
+	protected abstract routing: RoutingStrategy<Env>;
 
 	constructor(ctx: DurableObjectState, env: Env) {
 		super(ctx, env);

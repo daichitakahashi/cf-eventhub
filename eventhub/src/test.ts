@@ -9,7 +9,7 @@ type Env = {
 	ARCHIVE: R2Bucket;
 };
 
-export const routing = routeByConfig<Env>({
+export const testRouting = routeByConfig<Env>({
 	routes: [
 		{
 			condition: {
@@ -44,7 +44,7 @@ export const routing = routeByConfig<Env>({
 
 export class TestEventHub extends EventHub<Env> {
 	deliveryConfig = configureDelivery({});
-	routing = routing;
+	routing = testRouting;
 }
 
 export default {};

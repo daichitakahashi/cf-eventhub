@@ -24,7 +24,7 @@ The `EventHub` Durable Object exposes the following RPC methods:
 
 ## Routing
 
-Define routing rules by extending `EventHub` and assigning a `RoutingStrategy` to the `routing` field in the constructor. Use `routeByConfig()` to create a strategy from a route configuration. The `destination` value must match the binding name of a Queue or R2 bucket. The implementation resolves `env[destination]` directly, so mismatched names will fail at delivery time.
+Define routing rules by extending `EventHub` and assigning a `RoutingStrategy` to the `routing` field. Use `routeByConfig()` to create a strategy from a route configuration. The `destination` value must match the binding name of a Queue or R2 bucket. The implementation resolves `env[destination]` directly, so mismatched names will fail at delivery time.
 
 ```ts
 import { EventHub, routeByConfig, type Config } from "eventhub";
