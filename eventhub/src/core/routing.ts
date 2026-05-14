@@ -1,5 +1,7 @@
 import * as jsonpath from "jsonpath";
 
+import type { JSONObject } from "./type";
+
 type Destination = Queue | R2Bucket;
 
 type Destinations<Env extends Record<string, unknown>> = keyof {
@@ -10,7 +12,7 @@ const safe = Symbol();
 
 export interface RoutingStrategy<Env extends Record<string, unknown>> {
 	[safe]: true;
-	findRoutes(message: unknown): FoundRoute<Env>[];
+	findRoutes(message: JSONObject): FoundRoute<Env>[];
 }
 
 type FoundRoute<Env extends Record<string, unknown>> = {
@@ -172,7 +174,7 @@ const matchCond =
 
 export const findRoutes = <Env extends Record<string, unknown>>(
 	c: Config<Env>,
-	message: unknown,
+	message: JSONObject,
 ): FoundRoute<Env>[] => {
 	const matcher = matchCond(message);
 
@@ -187,7 +189,14 @@ export const routeByConfig = <Env extends Record<string, unknown>>(
 	config: Config<Env>,
 ): RoutingStrategy<Env> => ({
 	[safe]: true,
-	findRoutes: (message: unknown) => findRoutes(config, message),
+	findRoutes: (message: JSONObject) => findRoutes(config, message),
+});
+
+export const routeFunc = <Env extends Record<string, unknown>>(
+	fn: (message: JSONObject) => FoundRoute<Env>[],
+): RoutingStrategy<Env> => ({
+	[safe]: true,
+	findRoutes: fn,
 });
 
 export const noRouting = <

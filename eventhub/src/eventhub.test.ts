@@ -1,5 +1,5 @@
-import { env } from "cloudflare:workers";
 import { runInDurableObject } from "cloudflare:test";
+import { env } from "cloudflare:workers";
 import { assert, describe, expect, test, vi } from "vitest";
 
 import {
@@ -7,7 +7,7 @@ import {
 	listDeliveryJobStatuses,
 	persistDeliveryJobs,
 } from "./core/store";
-import { routing, TestEventHub } from "./test";
+import { TestEventHub, routing } from "./test";
 
 type PayloadRow = {
 	id: string;
