@@ -1,5 +1,22 @@
 import * as jsonpath from "jsonpath";
 
+type Destination = Queue | R2Bucket;
+
+type Destinations<Env extends Record<string, unknown>> = keyof {
+	[K in keyof Env as Env[K] extends Destination ? K : never]: Env[K];
+};
+
+const safe = Symbol();
+
+export interface RoutingStrategy<Env extends Record<string, unknown>> {
+	[safe]: true;
+	findRoutes(message: unknown): FoundRoute<Env>[];
+}
+
+type FoundRoute<Env extends Record<string, unknown>> = {
+	destination: Destinations<Env>;
+};
+
 type JSONPrimitive = string | number | boolean | null;
 
 type Comparator =
@@ -93,13 +110,13 @@ export type LogicalOperator =
 
 export type Condition = Comparator | LogicalOperator;
 
-export type Route = {
+export type Route<Env extends Record<string, unknown>> = {
 	condition: Condition;
-	destination: string;
+	destination: Destinations<Env>;
 };
 
-export type Config = {
-	routes: Route[];
+export type Config<Env extends Record<string, unknown>> = {
+	routes: Route<Env>[];
 };
 
 const immediate = <T>(f: () => T) => f();
@@ -153,11 +170,10 @@ const matchCond =
 		return cond.anyOf.some(matchCond(message));
 	};
 
-type FoundRoute = {
-	destination: string;
-};
-
-export const findRoutes = (c: Config, message: unknown): FoundRoute[] => {
+export const findRoutes = <Env extends Record<string, unknown>>(
+	c: Config<Env>,
+	message: unknown,
+): FoundRoute<Env>[] => {
 	const matcher = matchCond(message);
 
 	return c.routes
@@ -166,3 +182,17 @@ export const findRoutes = (c: Config, message: unknown): FoundRoute[] => {
 			destination,
 		}));
 };
+
+export const routeByConfig = <Env extends Record<string, unknown>>(
+	config: Config<Env>,
+): RoutingStrategy<Env> => ({
+	[safe]: true,
+	findRoutes: (message: unknown) => findRoutes(config, message),
+});
+
+export const noRouting = <
+	Env extends Record<string, unknown>,
+>(): RoutingStrategy<Env> => ({
+	[safe]: true,
+	findRoutes: () => [],
+});

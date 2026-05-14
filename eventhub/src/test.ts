@@ -1,6 +1,15 @@
-import { type Config, EventHub } from ".";
+import { EventHub } from ".";
+import { routeByConfig } from "./core/routing";
+import { configureDelivery } from "./eventhub";
 
-export const routeConfig: Config = {
+type Env = {
+	OKAYAMA: Queue;
+	HOKKAIDO: Queue;
+	OKINAWA: Queue;
+	ARCHIVE: R2Bucket;
+};
+
+export const routing = routeByConfig<Env>({
 	routes: [
 		{
 			condition: {
@@ -31,12 +40,11 @@ export const routeConfig: Config = {
 			destination: "ARCHIVE",
 		},
 	],
-};
+});
 
-export class TestEventHub extends EventHub<Record<string, unknown>> {
-	protected getRouteConfig(): Config {
-		return routeConfig;
-	}
+export class TestEventHub extends EventHub<Env> {
+	deliveryConfig = configureDelivery({});
+	routing = routing;
 }
 
 export default {};

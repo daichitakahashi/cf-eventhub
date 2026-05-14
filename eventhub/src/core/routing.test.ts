@@ -4,7 +4,7 @@ import { type Config, findRoutes } from "./routing";
 
 describe("findRoutes", () => {
 	test("returns destination for exact comparator", () => {
-		const config: Config = {
+		const config: Config<{ ORDER_HANDLER: Queue }> = {
 			routes: [
 				{
 					condition: {
@@ -22,7 +22,7 @@ describe("findRoutes", () => {
 	});
 
 	test("returns destination for match comparator", () => {
-		const config: Config = {
+		const config: Config<{ ORDER_HANDLER: Queue }> = {
 			routes: [
 				{
 					condition: {
@@ -40,7 +40,7 @@ describe("findRoutes", () => {
 	});
 
 	test("returns destination for exists comparator", () => {
-		const config: Config = {
+		const config: Config<{ ORDER_HANDLER: Queue }> = {
 			routes: [
 				{
 					condition: {
@@ -58,7 +58,12 @@ describe("findRoutes", () => {
 	});
 
 	test("evaluates numeric comparators", () => {
-		const config: Config = {
+		const config: Config<{
+			LTE: Queue;
+			GTE: Queue;
+			LT: Queue;
+			GT: Queue;
+		}> = {
 			routes: [
 				{
 					condition: {
@@ -106,7 +111,12 @@ describe("findRoutes", () => {
 	});
 
 	test("evaluates zero-valued numeric comparators", () => {
-		const config: Config = {
+		const config: Config<{
+			LTE_ZERO: Queue;
+			GTE_ZERO: Queue;
+			LT_ZERO: Queue;
+			GT_ZERO: Queue;
+		}> = {
 			routes: [
 				{
 					condition: {
@@ -154,7 +164,11 @@ describe("findRoutes", () => {
 	});
 
 	test("evaluates logical operators", () => {
-		const config: Config = {
+		const config: Config<{
+			TOKYO: Queue;
+			JAPAN: Queue;
+			ACTIVE_ONLY: Queue;
+		}> = {
 			routes: [
 				{
 					condition: {

@@ -5,7 +5,7 @@ import {
 	deliverPersistedJobs,
 } from "./core/delivery";
 import { MonotonicUlidGenerator } from "./core/id";
-import type { Config } from "./core/routing";
+import { noRouting } from "./core/routing";
 import {
 	type EjectResult,
 	type ListEjectedResult,
@@ -23,10 +23,14 @@ import {
 } from "./core/store";
 import type { EventPayload } from "./core/type";
 
+const safe = Symbol();
+
 /**
  * Delivery and retry configuration for EventHub.
  */
 export type DeliveryConfig = {
+	[safe]: true;
+
 	/**
 	 * Maximum number of delivery jobs to process in a single alarm batch.
 	 * Must be <= 100.
@@ -95,59 +99,48 @@ const assertPositiveInteger = (v: number, name: string) => {
 	throw new Error(`eventhub: ${name} must be a positive integer`);
 };
 
+/**
+ * Configure delivery retry settings.
+ */
+export const configureDelivery = (
+	c: Partial<DeliveryConfig>,
+): DeliveryConfig => {
+	const cfg = {
+		[safe]: true as const,
+		alarmBatchSize: DEFAULT_ALARM_BATCH_SIZE,
+		maxDeliveryRetries: DEFAULT_MAX_DELIVERY_RETRIES,
+		initialRetryDelayMs: DEFAULT_INITIAL_RETRY_DELAY_MS,
+		maxRetryDelayMs: DEFAULT_MAX_RETRY_DELAY_MS,
+		...c,
+	};
+
+	assertPositiveInteger(cfg.alarmBatchSize, "alarmBatchSize");
+	assertPositiveInteger(cfg.maxDeliveryRetries, "maxDeliveryRetries");
+	assertPositiveInteger(cfg.initialRetryDelayMs, "initialRetryDelayMs");
+	assertPositiveInteger(cfg.maxRetryDelayMs, "maxRetryDelayMs");
+
+	if (cfg.alarmBatchSize > 100)
+		throw new Error("eventhub: alarmBatchSize must be <= 100");
+	if (cfg.initialRetryDelayMs > cfg.maxRetryDelayMs) {
+		throw new Error("eventhub: initialRetryDelayMs must be <= maxRetryDelayMs");
+	}
+
+	return cfg;
+};
+
 // Durable object that persists delivery jobs and retries them via alarms.
 export abstract class EventHub<
 	// biome-ignore lint/complexity/noBannedTypes: default
 	Env extends Record<string, unknown> = {},
 > extends DurableObject<Env> {
 	private readonly idGenerator: MonotonicUlidGenerator;
-	private deliveryConfig: DeliveryConfig = {
-		alarmBatchSize: DEFAULT_ALARM_BATCH_SIZE,
-		maxDeliveryRetries: DEFAULT_MAX_DELIVERY_RETRIES,
-		initialRetryDelayMs: DEFAULT_INITIAL_RETRY_DELAY_MS,
-		maxRetryDelayMs: DEFAULT_MAX_RETRY_DELAY_MS,
-	};
-
-	/**
-	 * Implement this method to provide routing configuration.
-	 * This must return a valid Config object.
-	 */
-	protected abstract getRouteConfig(): Config;
+	protected deliveryConfig = configureDelivery({});
+	protected routing = noRouting<Env>();
 
 	constructor(ctx: DurableObjectState, env: Env) {
 		super(ctx, env);
 		this.idGenerator = new MonotonicUlidGenerator();
 		initializeSchema(this.ctx.storage.sql);
-	}
-
-	/**
-	 * Configure delivery retry settings.
-	 */
-	protected configureDelivery(config: Partial<DeliveryConfig>) {
-		const deliveryConfig = {
-			...this.deliveryConfig,
-			...config,
-		};
-
-		assertPositiveInteger(deliveryConfig.alarmBatchSize, "alarmBatchSize");
-		assertPositiveInteger(
-			deliveryConfig.maxDeliveryRetries,
-			"maxDeliveryRetries",
-		);
-		assertPositiveInteger(
-			deliveryConfig.initialRetryDelayMs,
-			"initialRetryDelayMs",
-		);
-		assertPositiveInteger(deliveryConfig.maxRetryDelayMs, "maxRetryDelayMs");
-
-		if (deliveryConfig.alarmBatchSize > 100)
-			throw new Error("eventhub: alarmBatchSize must be <= 100");
-		if (deliveryConfig.initialRetryDelayMs > deliveryConfig.maxRetryDelayMs) {
-			throw new Error(
-				"eventhub: initialRetryDelayMs must be <= maxRetryDelayMs",
-			);
-		}
-		this.deliveryConfig = deliveryConfig;
 	}
 
 	// Schedules the next alarm based on the earliest pending retry.
@@ -220,8 +213,7 @@ export abstract class EventHub<
 	 * @param rest Additional payloads published in the same batch.
 	 */
 	async publish(payload: EventPayload, ...rest: EventPayload[]): Promise<void> {
-		const routeConfig = this.getRouteConfig();
-		const pendingDeliveryJobs = createPendingDeliveryJobs(routeConfig, [
+		const pendingDeliveryJobs = createPendingDeliveryJobs(this.routing, [
 			payload,
 			...rest,
 		]);
