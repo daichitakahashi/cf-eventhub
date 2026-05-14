@@ -2,7 +2,7 @@ import { env } from "cloudflare:workers";
 import { runInDurableObject } from "cloudflare:test";
 import { describe, expect, test, vi } from "vitest";
 
-import type { Config } from "./routing";
+import { routeByConfig } from "./routing";
 import {
 	createPendingDeliveryJobs,
 	ejectPayloads,
@@ -40,7 +40,11 @@ type EjectionRow = {
 	before_at: string;
 };
 
-const routeConfig: Config = {
+const routing = routeByConfig<{
+	OKAYAMA: Queue;
+	HOKKAIDO: Queue;
+	OKINAWA: Queue;
+}>({
 	routes: [
 		{
 			condition: {
@@ -64,7 +68,7 @@ const routeConfig: Config = {
 			destination: "OKINAWA",
 		},
 	],
-};
+});
 
 const getStub = (name: string) =>
 	env.EVENT_HUB.get(env.EVENT_HUB.idFromName(name));
@@ -79,7 +83,7 @@ describe("createPendingDeliveryJobs", () => {
 			{ kind: "other" },
 		] as const;
 
-		expect(createPendingDeliveryJobs(routeConfig, payloads)).toStrictEqual({
+		expect(createPendingDeliveryJobs(routing, payloads)).toStrictEqual({
 			payloads: [
 				{
 					payload: payloads[0],
@@ -114,7 +118,7 @@ describe("persistDeliveryJobs", () => {
 
 		const jobs = persistDeliveryJobs(
 			sql,
-			createPendingDeliveryJobs(routeConfig, [
+			createPendingDeliveryJobs(routing, [
 				{ kind: "nature", avoidUrban: false },
 			]),
 			generateId,
@@ -157,7 +161,7 @@ describe("persistDeliveryJobs", () => {
 			state.storage.transactionSync(() => {
 				persistDeliveryJobs(
 					state.storage.sql,
-					createPendingDeliveryJobs(routeConfig, [
+					createPendingDeliveryJobs(routing, [
 						{ kind: "culture", avoidUrban: true },
 						{ kind: "nature", avoidUrban: false },
 					]),
@@ -259,7 +263,7 @@ describe("persistDeliveryJobs", () => {
 			state.storage.transactionSync(() => {
 				persistDeliveryJobs(
 					state.storage.sql,
-					createPendingDeliveryJobs(routeConfig, [{ kind: "other" }]),
+					createPendingDeliveryJobs(routing, [{ kind: "other" }]),
 					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
 					new Date("2026-05-04T00:00:00.000Z"),
 					10_000,
@@ -293,7 +297,7 @@ describe("ejectPayloads", () => {
 			const createdJobs = state.storage.transactionSync(() =>
 				persistDeliveryJobs(
 					state.storage.sql,
-					createPendingDeliveryJobs(routeConfig, [
+					createPendingDeliveryJobs(routing, [
 						{ kind: "culture", avoidUrban: true },
 						{ kind: "nature", avoidUrban: false },
 					]),
@@ -319,7 +323,7 @@ describe("ejectPayloads", () => {
 				);
 				const recentlyFinalizedJobs = persistDeliveryJobs(
 					state.storage.sql,
-					createPendingDeliveryJobs(routeConfig, [
+					createPendingDeliveryJobs(routing, [
 						{ kind: "nature", avoidUrban: true, freshness: "recent" },
 					]),
 					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
@@ -333,7 +337,7 @@ describe("ejectPayloads", () => {
 				);
 				persistDeliveryJobs(
 					state.storage.sql,
-					createPendingDeliveryJobs(routeConfig, [
+					createPendingDeliveryJobs(routing, [
 						{ kind: "culture", avoidUrban: false },
 					]),
 					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
@@ -402,7 +406,7 @@ describe("ejectPayloads", () => {
 			const createdJobs = state.storage.transactionSync(() =>
 				persistDeliveryJobs(
 					state.storage.sql,
-					createPendingDeliveryJobs(routeConfig, [
+					createPendingDeliveryJobs(routing, [
 						{ kind: "culture", avoidUrban: true },
 						{ kind: "nature", avoidUrban: false },
 					]),
@@ -428,7 +432,7 @@ describe("ejectPayloads", () => {
 				);
 				const recentlyFinalizedJobs = persistDeliveryJobs(
 					state.storage.sql,
-					createPendingDeliveryJobs(routeConfig, [
+					createPendingDeliveryJobs(routing, [
 						{ kind: "nature", avoidUrban: true, freshness: "recent" },
 					]),
 					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
@@ -442,7 +446,7 @@ describe("ejectPayloads", () => {
 				);
 				persistDeliveryJobs(
 					state.storage.sql,
-					createPendingDeliveryJobs(routeConfig, [
+					createPendingDeliveryJobs(routing, [
 						{ kind: "culture", avoidUrban: false },
 					]),
 					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
@@ -487,7 +491,7 @@ describe("ejectPayloads", () => {
 			const jobs = state.storage.transactionSync(() =>
 				persistDeliveryJobs(
 					state.storage.sql,
-					createPendingDeliveryJobs(routeConfig, [
+					createPendingDeliveryJobs(routing, [
 						{ kind: "culture", avoidUrban: true },
 						{ kind: "culture", avoidUrban: false },
 					]),
@@ -536,7 +540,7 @@ describe("ejectPayloads", () => {
 			const jobs = state.storage.transactionSync(() =>
 				persistDeliveryJobs(
 					state.storage.sql,
-					createPendingDeliveryJobs(routeConfig, [
+					createPendingDeliveryJobs(routing, [
 						{ kind: "nature", ordinal: 1 },
 						{ kind: "nature", ordinal: 2 },
 						{ kind: "nature", ordinal: 3 },
@@ -584,7 +588,7 @@ describe("ejectPayloads", () => {
 			const jobs = state.storage.transactionSync(() =>
 				persistDeliveryJobs(
 					state.storage.sql,
-					createPendingDeliveryJobs(routeConfig, [
+					createPendingDeliveryJobs(routing, [
 						{ kind: "nature", blob: "a".repeat(100) },
 						{ kind: "nature", blob: "b".repeat(100) },
 						{ kind: "nature", blob: "c".repeat(100) },
@@ -632,7 +636,7 @@ describe("ejectPayloads", () => {
 			const jobs = state.storage.transactionSync(() =>
 				persistDeliveryJobs(
 					state.storage.sql,
-					createPendingDeliveryJobs(routeConfig, [
+					createPendingDeliveryJobs(routing, [
 						{ kind: "nature", ordinal: 1 },
 						{ kind: "nature", ordinal: 2 },
 						{ kind: "nature", ordinal: 3 },
@@ -704,7 +708,7 @@ describe("ejectPayloads", () => {
 			const jobs = state.storage.transactionSync(() =>
 				persistDeliveryJobs(
 					state.storage.sql,
-					createPendingDeliveryJobs(routeConfig, [
+					createPendingDeliveryJobs(routing, [
 						{ kind: "culture", blob: "x".repeat(140_000) },
 						{ kind: "nature", ordinal: 1 },
 						{ kind: "nature", ordinal: 2 },
@@ -752,9 +756,7 @@ describe("ejectPayloads", () => {
 			const jobs = state.storage.transactionSync(() =>
 				persistDeliveryJobs(
 					state.storage.sql,
-					createPendingDeliveryJobs(routeConfig, [
-						{ kind: "nature", blob: "z" },
-					]),
+					createPendingDeliveryJobs(routing, [{ kind: "nature", blob: "z" }]),
 					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
 					new Date("2026-05-04T00:00:00.000Z"),
 					10_000,
@@ -814,7 +816,7 @@ describe("ejectPayloads", () => {
 			const jobs = state.storage.transactionSync(() =>
 				persistDeliveryJobs(
 					state.storage.sql,
-					createPendingDeliveryJobs(routeConfig, [
+					createPendingDeliveryJobs(routing, [
 						{ kind: "nature", note: "界" },
 						{ kind: "nature", note: "a" },
 					]),
@@ -868,7 +870,7 @@ describe("ejectPayloads", () => {
 			const jobs = state.storage.transactionSync(() =>
 				persistDeliveryJobs(
 					state.storage.sql,
-					createPendingDeliveryJobs(routeConfig, [
+					createPendingDeliveryJobs(routing, [
 						{ kind: "nature", note: "界" },
 						{ kind: "nature", note: "a" },
 					]),
@@ -947,7 +949,7 @@ describe("ejectPayloads", () => {
 			const jobs = state.storage.transactionSync(() =>
 				persistDeliveryJobs(
 					state.storage.sql,
-					createPendingDeliveryJobs(routeConfig, [
+					createPendingDeliveryJobs(routing, [
 						{ kind: "culture", avoidUrban: true },
 					]),
 					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
@@ -999,7 +1001,7 @@ describe("delivery job state transitions", () => {
 			const [job] = state.storage.transactionSync(() =>
 				persistDeliveryJobs(
 					state.storage.sql,
-					createPendingDeliveryJobs(routeConfig, [
+					createPendingDeliveryJobs(routing, [
 						{ kind: "culture", avoidUrban: true },
 					]),
 					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
@@ -1042,7 +1044,7 @@ describe("delivery job state transitions", () => {
 			const [job] = state.storage.transactionSync(() =>
 				persistDeliveryJobs(
 					state.storage.sql,
-					createPendingDeliveryJobs(routeConfig, [
+					createPendingDeliveryJobs(routing, [
 						{ kind: "culture", avoidUrban: true },
 					]),
 					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
@@ -1105,7 +1107,7 @@ describe("delivery job state transitions", () => {
 			const [job] = state.storage.transactionSync(() =>
 				persistDeliveryJobs(
 					state.storage.sql,
-					createPendingDeliveryJobs(routeConfig, [
+					createPendingDeliveryJobs(routing, [
 						{ kind: "culture", avoidUrban: true },
 					]),
 					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
@@ -1149,7 +1151,7 @@ describe("delivery job state transitions", () => {
 			const [job] = state.storage.transactionSync(() =>
 				persistDeliveryJobs(
 					state.storage.sql,
-					createPendingDeliveryJobs(routeConfig, [
+					createPendingDeliveryJobs(routing, [
 						{ kind: "culture", avoidUrban: true },
 					]),
 					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
@@ -1193,7 +1195,7 @@ describe("delivery job state transitions", () => {
 			const [job] = state.storage.transactionSync(() =>
 				persistDeliveryJobs(
 					state.storage.sql,
-					createPendingDeliveryJobs(routeConfig, [
+					createPendingDeliveryJobs(routing, [
 						{ kind: "culture", avoidUrban: true },
 					]),
 					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
@@ -1234,7 +1236,7 @@ describe("delivery job scheduling", () => {
 			const jobs = state.storage.transactionSync(() =>
 				persistDeliveryJobs(
 					state.storage.sql,
-					createPendingDeliveryJobs(routeConfig, [
+					createPendingDeliveryJobs(routing, [
 						{ kind: "culture", avoidUrban: true },
 						{ kind: "nature", avoidUrban: false },
 						{ kind: "culture", avoidUrban: false },
@@ -1299,7 +1301,7 @@ describe("delivery job scheduling", () => {
 			const jobs = state.storage.transactionSync(() =>
 				persistDeliveryJobs(
 					state.storage.sql,
-					createPendingDeliveryJobs(routeConfig, [
+					createPendingDeliveryJobs(routing, [
 						{ kind: "culture", avoidUrban: true },
 						{ kind: "nature", avoidUrban: false },
 						{ kind: "culture", avoidUrban: false },

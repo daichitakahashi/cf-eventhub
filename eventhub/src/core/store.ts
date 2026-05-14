@@ -1,4 +1,4 @@
-import { findRoutes, type Config } from "./routing";
+import type { RoutingStrategy } from "./routing";
 import type { EventPayload } from "./type";
 
 // Raw row shape used when loading persisted jobs with their payload body.
@@ -201,15 +201,15 @@ export const initializeSchema = (sql: SqlStorage): void => {
 };
 
 // Evaluates routing rules and builds a persistence plan for each payload.
-export const createPendingDeliveryJobs = (
-	config: Config,
+export const createPendingDeliveryJobs = <Env extends Record<string, unknown>>(
+	routing: RoutingStrategy<Env>,
 	payloads: readonly [EventPayload, ...EventPayload[]],
 ): PendingDeliveryJobs => ({
 	payloads: payloads.map((payload) => ({
 		payload,
-		destinations: findRoutes(config, payload).map(
-			({ destination }) => destination,
-		),
+		destinations: routing
+			.findRoutes(payload)
+			.map(({ destination }) => String(destination)),
 	})),
 });
 

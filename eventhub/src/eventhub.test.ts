@@ -1,5 +1,5 @@
-import { env } from "cloudflare:workers";
 import { runInDurableObject } from "cloudflare:test";
+import { env } from "cloudflare:workers";
 import { assert, describe, expect, test, vi } from "vitest";
 
 import {
@@ -7,7 +7,7 @@ import {
 	listDeliveryJobStatuses,
 	persistDeliveryJobs,
 } from "./core/store";
-import { routeConfig, TestEventHub } from "./test";
+import { TestEventHub, testRouting } from "./test";
 
 type PayloadRow = {
 	id: string;
@@ -216,7 +216,7 @@ describe("EventHub integration", () => {
 			const [job] = state.storage.transactionSync(() =>
 				persistDeliveryJobs(
 					state.storage.sql,
-					createPendingDeliveryJobs(routeConfig, [
+					createPendingDeliveryJobs(testRouting, [
 						{ kind: "culture", avoidUrban: true },
 					]),
 					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
@@ -364,7 +364,7 @@ describe("EventHub integration", () => {
 			const jobs = state.storage.transactionSync(() =>
 				persistDeliveryJobs(
 					state.storage.sql,
-					createPendingDeliveryJobs(routeConfig, [
+					createPendingDeliveryJobs(testRouting, [
 						{ kind: "culture", avoidUrban: true },
 						{ kind: "nature", avoidUrban: false },
 					]),
@@ -376,7 +376,7 @@ describe("EventHub integration", () => {
 			state.storage.transactionSync(() => {
 				const recentlyFinalizedJobs = persistDeliveryJobs(
 					state.storage.sql,
-					createPendingDeliveryJobs(routeConfig, [
+					createPendingDeliveryJobs(testRouting, [
 						{ kind: "nature", avoidUrban: true, freshness: "recent" },
 					]),
 					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
@@ -385,7 +385,7 @@ describe("EventHub integration", () => {
 				);
 				persistDeliveryJobs(
 					state.storage.sql,
-					createPendingDeliveryJobs(routeConfig, [{ kind: "other" }]),
+					createPendingDeliveryJobs(testRouting, [{ kind: "other" }]),
 					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
 					new Date("2026-05-04T00:00:30.000Z"),
 					10_000,
@@ -401,7 +401,7 @@ describe("EventHub integration", () => {
 				);
 				persistDeliveryJobs(
 					state.storage.sql,
-					createPendingDeliveryJobs(routeConfig, [
+					createPendingDeliveryJobs(testRouting, [
 						{ kind: "culture", avoidUrban: false },
 					]),
 					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
@@ -581,7 +581,7 @@ const seedEjectionScenario = async (stub: ReturnType<typeof getStub>) => {
 		const jobs = state.storage.transactionSync(() =>
 			persistDeliveryJobs(
 				state.storage.sql,
-				createPendingDeliveryJobs(routeConfig, [
+				createPendingDeliveryJobs(testRouting, [
 					{ kind: "culture", avoidUrban: true },
 					{ kind: "nature", avoidUrban: false },
 				]),
@@ -593,7 +593,7 @@ const seedEjectionScenario = async (stub: ReturnType<typeof getStub>) => {
 		state.storage.transactionSync(() => {
 			const recentlyFinalizedJobs = persistDeliveryJobs(
 				state.storage.sql,
-				createPendingDeliveryJobs(routeConfig, [
+				createPendingDeliveryJobs(testRouting, [
 					{ kind: "nature", avoidUrban: true, freshness: "recent" },
 				]),
 				() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
@@ -602,7 +602,7 @@ const seedEjectionScenario = async (stub: ReturnType<typeof getStub>) => {
 			);
 			persistDeliveryJobs(
 				state.storage.sql,
-				createPendingDeliveryJobs(routeConfig, [{ kind: "other" }]),
+				createPendingDeliveryJobs(testRouting, [{ kind: "other" }]),
 				() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
 				new Date("2026-05-04T00:00:30.000Z"),
 				10_000,
@@ -618,7 +618,7 @@ const seedEjectionScenario = async (stub: ReturnType<typeof getStub>) => {
 			);
 			persistDeliveryJobs(
 				state.storage.sql,
-				createPendingDeliveryJobs(routeConfig, [
+				createPendingDeliveryJobs(testRouting, [
 					{ kind: "culture", avoidUrban: false },
 				]),
 				() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,

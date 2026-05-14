@@ -6,7 +6,7 @@ import {
 	deliverPersistedJobs,
 	resolveDeliveryJobs,
 } from "./delivery";
-import type { Config } from "./routing";
+import { routeByConfig } from "./routing";
 import { type PersistedDeliveryJob, createPendingDeliveryJobs } from "./store";
 import type { EventPayload } from "./type";
 
@@ -126,10 +126,12 @@ const createEnv = () => ({
 	ARCHIVE: new R2BucketMock() as unknown as R2Bucket,
 });
 
+type Env = ReturnType<typeof createEnv>;
+
 const noopOnDelivered = async (): Promise<void> => {};
 const noopOnFailed = async (): Promise<void> => {};
 
-const routeConfig: Config = {
+const routing = routeByConfig<Env>({
 	routes: [
 		{
 			condition: {
@@ -153,7 +155,7 @@ const routeConfig: Config = {
 			destination: "OKINAWA",
 		},
 	],
-};
+});
 
 describe("assertDestinationBindingsExist", () => {
 	test("fails before persistence when a destination binding is missing", () => {
@@ -163,7 +165,7 @@ describe("assertDestinationBindingsExist", () => {
 			OKAYAMA: new QueueMock(),
 			HOKKAIDO: new QueueMock(),
 		};
-		const pendingDeliveryJobs = createPendingDeliveryJobs(routeConfig, [
+		const pendingDeliveryJobs = createPendingDeliveryJobs(routing, [
 			{ kind: "nature", avoidUrban: false },
 		]);
 
@@ -176,18 +178,19 @@ describe("assertDestinationBindingsExist", () => {
 		const env = {
 			ARCHIVE: {},
 		};
-		const config: Config = {
+		const routing = routeByConfig<typeof env>({
 			routes: [
 				{
 					condition: {
 						path: "$.kind",
 						exact: "archive",
 					},
+					// @ts-expect-error
 					destination: "ARCHIVE",
 				},
 			],
-		};
-		const pendingDeliveryJobs = createPendingDeliveryJobs(config, [
+		});
+		const pendingDeliveryJobs = createPendingDeliveryJobs(routing, [
 			{ kind: "archive", avoidUrban: false },
 		]);
 
@@ -324,8 +327,7 @@ describe("deliverJobs", () => {
 		});
 
 		expect(env.OKAYAMA.sentBatches.map((batch) => batch.length)).toStrictEqual([
-			100,
-			1,
+			100, 1,
 		]);
 		expect(env.HOKKAIDO.sentBatches).toStrictEqual([]);
 		expect(env.OKINAWA.sentBatches).toStrictEqual([]);

@@ -1,14 +1,14 @@
-export { EventHub } from "./eventhub";
+export { routeByConfig, routeFunc, type Config } from "./core/routing";
 export type {
-	EjectOptions,
-	ListEjectedOptions,
-	DeliveryConfig,
-} from "./eventhub";
-export type { Config } from "./core/routing";
-export type { EventPayload, JSONObject } from "./core/type";
-export type {
-	EjectResult,
-	EjectedPayload,
 	EjectedDeliveryJob,
+	EjectedPayload,
+	EjectResult,
 	ListEjectedResult,
 } from "./core/store";
+export type { EventPayload, JSONObject } from "./core/type";
+export { EventHub } from "./eventhub";
+export type {
+	DeliveryConfig,
+	EjectOptions,
+	ListEjectedOptions,
+} from "./eventhub";
