@@ -24,37 +24,6 @@
  * ```
  */
 
-/**
- * Type representing valid JSONPath-like path expressions.
- *
- * This type validates that path expressions start with `$` at compile time.
- * It provides basic syntax checking but does not validate the full grammar
- * due to TypeScript's type system limitations with recursive patterns.
- *
- * The type ensures:
- * - Path must start with `$`
- * - Common patterns are autocomplete-friendly
- *
- * Accepted patterns:
- * - `$` - Root only
- * - `$.property` - Simple property access
- * - `$.nested.path` - Nested properties (any depth)
- * - `$.array[0]` - Array index access
- * - `$.array[*]` - Array wildcard
- * - `$["complex-key"]` or `$['complex-key']` - Bracket notation
- * - Any combination: `$.items[*].name`, `$.data[0].value`, etc.
- *
- * @example
- * ```typescript
- * const path1: JSONPathLike = "$.name";           // ✓ Valid
- * const path2: JSONPathLike = "$.user.address";   // ✓ Valid
- * const path3: JSONPathLike = "$.items[0]";       // ✓ Valid
- * const path4: JSONPathLike = "$.items[*].name";  // ✓ Valid
- * const path5: JSONPathLike = '$["event-name"]';  // ✓ Valid
- * const path6: JSONPathLike = "name";             // ✗ Type error: missing $
- * ```
- */
-
 type Token =
 	| { type: "root" }
 	| { type: "property"; name: string }

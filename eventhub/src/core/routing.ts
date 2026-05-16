@@ -45,7 +45,7 @@ type Comparator = {
 	 * ```
 	 */
 	// biome-ignore lint/suspicious/noExplicitAny: property name must be a non-empty string
-	path: `$.${string}${any}`;
+	path: `$${string}${any}`;
 } & (
 	| {
 			exact: JSONPrimitive;
