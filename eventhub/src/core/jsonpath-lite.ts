@@ -219,7 +219,7 @@ function queryParsed(obj: unknown, tokens: readonly Token[]): unknown[] {
 				}
 			} else if (token.type === "wildcard") {
 				if (Array.isArray(value)) {
-					nextValues.push(...value);
+					nextValues.push(...value.filter((item) => item !== undefined));
 				}
 			}
 		}

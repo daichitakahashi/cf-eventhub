@@ -119,6 +119,11 @@ describe("jsonpath-lite", () => {
 			expect(query(obj, "$.items[*]")).toStrictEqual([]);
 		});
 
+		test("treats undefined array elements as absent in wildcard expansion", () => {
+			const obj = { items: [undefined] };
+			expect(query(obj, "$.items[*]")).toStrictEqual([]);
+		});
+
 		test("handles multiple wildcards", () => {
 			const obj = {
 				groups: [
