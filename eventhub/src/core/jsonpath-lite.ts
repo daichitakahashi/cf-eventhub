@@ -24,7 +24,7 @@
  * ```
  */
 
-type Token =
+export type Token =
 	| { type: "root" }
 	| { type: "property"; name: string }
 	| { type: "index"; value: number }
@@ -37,7 +37,7 @@ type Token =
  * @returns Array of tokens representing the parsed path
  * @throws {Error} If the path syntax is invalid
  */
-function parsePath(path: string): Token[] {
+export function parsePath(path: string): Token[] {
 	if (!path.startsWith("$")) {
 		throw new Error("Path must start with $");
 	}
@@ -146,21 +146,7 @@ function parsePath(path: string): Token[] {
 	return tokens;
 }
 
-/**
- * Query a value from an object using a JSONPath-like expression.
- *
- * @param obj - The object to query
- * @param path - The JSONPath-like expression
- * @returns Array of matching values (empty array if no matches)
- *
- * Properties or array elements whose value is `undefined` are treated as
- * absent and are not returned. This matches EventHub's JSON serialization
- * model, where `undefined` does not exist in persisted payloads.
- * @throws {Error} If the path syntax is invalid
- */
-export function query(obj: unknown, path: string): unknown[] {
-	const tokens = parsePath(path);
-
+function queryParsed(obj: unknown, tokens: readonly Token[]): unknown[] {
 	// Start with the root object
 	let values: unknown[] = [obj];
 
@@ -199,4 +185,27 @@ export function query(obj: unknown, path: string): unknown[] {
 	}
 
 	return values;
+}
+
+/**
+ * Query a value from an object using a JSONPath-like expression.
+ *
+ * @param obj - The object to query
+ * @param path - The JSONPath-like expression
+ * @returns Array of matching values (empty array if no matches)
+ *
+ * Properties or array elements whose value is `undefined` are treated as
+ * absent and are not returned. This matches EventHub's JSON serialization
+ * model, where `undefined` does not exist in persisted payloads.
+ * @throws {Error} If the path syntax is invalid
+ */
+export function query(obj: unknown, path: string): unknown[] {
+	return queryParsed(obj, parsePath(path));
+}
+
+export function queryWithParsedPath(
+	obj: unknown,
+	tokens: readonly Token[],
+): unknown[] {
+	return queryParsed(obj, tokens);
 }

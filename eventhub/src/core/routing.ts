@@ -1,4 +1,4 @@
-import { query } from "./jsonpath-lite";
+import { parsePath, query, queryWithParsedPath, type Token } from "./jsonpath-lite";
 import type { JSONObject } from "./type";
 
 type Destination = Queue | R2Bucket;
@@ -144,12 +144,31 @@ export type Config<Env extends Record<string, unknown>> = {
 	routes: Route<Env>[];
 };
 
+type PathCache = Map<string, readonly Token[]>;
+
 const immediate = <T>(f: () => T) => f();
 
-const match = (message: unknown, cond: Comparator) => {
+const queryWithOptionalCache = (
+	message: unknown,
+	path: string,
+	pathCache?: PathCache,
+) => {
+	if (!pathCache) {
+		return query(message, path);
+	}
+
+	let parsed = pathCache.get(path);
+	if (!parsed) {
+		parsed = parsePath(path);
+		pathCache.set(path, parsed);
+	}
+	return queryWithParsedPath(message, parsed);
+};
+
+const match = (message: unknown, cond: Comparator, pathCache?: PathCache) => {
 	const values = immediate(() => {
 		try {
-			return query(message, cond.path);
+			return queryWithOptionalCache(message, cond.path, pathCache);
 		} catch {
 			return [];
 		}
@@ -181,25 +200,26 @@ const match = (message: unknown, cond: Comparator) => {
 };
 
 const matchCond =
-	(message: unknown) =>
+	(message: unknown, pathCache?: PathCache) =>
 	(cond: Condition): boolean => {
 		if ("path" in cond) {
-			return match(message, cond);
+			return match(message, cond, pathCache);
 		}
 		if (cond.not !== undefined) {
-			return !matchCond(message)(cond.not);
+			return !matchCond(message, pathCache)(cond.not);
 		}
 		if (cond.allOf !== undefined) {
-			return cond.allOf.every(matchCond(message));
+			return cond.allOf.every(matchCond(message, pathCache));
 		}
-		return cond.anyOf.some(matchCond(message));
+		return cond.anyOf.some(matchCond(message, pathCache));
 	};
 
 export const findRoutes = <Env extends Record<string, unknown>>(
 	c: Config<Env>,
 	message: JSONObject,
+	pathCache?: PathCache,
 ): FoundRoute<Env>[] => {
-	const matcher = matchCond(message);
+	const matcher = matchCond(message, pathCache);
 
 	return c.routes
 		.filter((r) => matcher(r.condition))
@@ -210,10 +230,14 @@ export const findRoutes = <Env extends Record<string, unknown>>(
 
 export const routeByConfig = <Env extends Record<string, unknown>>(
 	config: Config<Env>,
-): RoutingStrategy<Env> => ({
-	[safe]: true,
-	findRoutes: (message: JSONObject) => findRoutes(config, message),
-});
+): RoutingStrategy<Env> => {
+	const pathCache: PathCache = new Map();
+
+	return {
+		[safe]: true,
+		findRoutes: (message: JSONObject) => findRoutes(config, message, pathCache),
+	};
+};
 
 export const routeFunc = <Env extends Record<string, unknown>>(
 	fn: (message: JSONObject) => FoundRoute<Env>[],

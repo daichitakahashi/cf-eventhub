@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { type Config, findRoutes } from "./routing";
+import { type Config, findRoutes, routeByConfig } from "./routing";
 
 describe("findRoutes", () => {
 	test("returns destination for exact comparator", () => {
@@ -223,6 +223,53 @@ describe("findRoutes", () => {
 			{ destination: "TOKYO" },
 			{ destination: "JAPAN" },
 			{ destination: "ACTIVE_ONLY" },
+		]);
+	});
+
+	test("reuses parsed json paths when a cache is provided", () => {
+		const config: Config<{ ORDER_HANDLER: Queue }> = {
+			routes: [
+				{
+					condition: {
+						path: "$.eventName",
+						exact: "orderPlaced",
+					},
+					destination: "ORDER_HANDLER",
+				},
+			],
+		};
+		const pathCache = new Map();
+
+		expect(findRoutes(config, { eventName: "orderPlaced" }, pathCache)).toStrictEqual([
+			{ destination: "ORDER_HANDLER" },
+		]);
+		expect(pathCache.size).toBe(1);
+		expect(findRoutes(config, { eventName: "orderPlaced" }, pathCache)).toStrictEqual([
+			{ destination: "ORDER_HANDLER" },
+		]);
+		expect(pathCache.size).toBe(1);
+	});
+});
+
+describe("routeByConfig", () => {
+	test("stores the parsed json path cache in the strategy instance", () => {
+		const strategy = routeByConfig<{ ORDER_HANDLER: Queue }>({
+			routes: [
+				{
+					condition: {
+						path: "$.eventName",
+						exact: "orderPlaced",
+					},
+					destination: "ORDER_HANDLER",
+				},
+			],
+		});
+
+		expect(strategy.findRoutes({ eventName: "orderPlaced" })).toStrictEqual([
+			{ destination: "ORDER_HANDLER" },
+		]);
+		expect(strategy.findRoutes({ eventName: "orderPlaced" })).toStrictEqual([
+			{ destination: "ORDER_HANDLER" },
 		]);
 	});
 });
