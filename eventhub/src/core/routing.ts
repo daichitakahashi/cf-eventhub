@@ -1,5 +1,4 @@
-import * as jsonpath from "jsonpath";
-
+import { query } from "./jsonpath-lite";
 import type { JSONObject } from "./type";
 
 type Destination = Queue | R2Bucket;
@@ -25,9 +24,30 @@ type FoundRoute<Env extends Record<string, unknown>> = {
 
 type JSONPrimitive = string | number | boolean | null;
 
-type Comparator =
+type Comparator = {
+	/**
+	 * JSONPath-like expression to extract values from the message.
+	 *
+	 * Supported patterns:
+	 * - `$.property` - Root-level property access
+	 * - `$.nested.path` - Nested property access
+	 * - `$.items[0]` - Array index access
+	 * - `$.items[*]` - Array wildcard (expands all elements)
+	 * - `$["complex-key"]` or `$['complex-key']` - Bracket notation for keys with special characters
+	 *
+	 * @example
+	 * ```typescript
+	 * { path: "$.eventType", exact: "user.created" }
+	 * { path: "$.user.age", gte: 18 }
+	 * { path: "$.items[0].name", match: /^test-/ }
+	 * { path: "$.tags[*]", exact: "premium" }
+	 * { path: '$["event-name"]', exists: true }
+	 * ```
+	 */
+	// biome-ignore lint/suspicious/noExplicitAny: property name must be a non-empty string
+	path: `$.${string}${any}`;
+} & (
 	| {
-			path: string;
 			exact: JSONPrimitive;
 			match?: never;
 			exists?: never;
@@ -37,7 +57,6 @@ type Comparator =
 			gt?: never;
 	  }
 	| {
-			path: string;
 			exact?: never;
 			match: RegExp;
 			exists?: never;
@@ -47,7 +66,6 @@ type Comparator =
 			gt?: never;
 	  }
 	| {
-			path: string;
 			exact?: never;
 			match?: never;
 			exists: true;
@@ -57,7 +75,6 @@ type Comparator =
 			gt?: never;
 	  }
 	| {
-			path: string;
 			exact?: never;
 			match?: never;
 			exists?: never;
@@ -67,7 +84,6 @@ type Comparator =
 			gt?: never;
 	  }
 	| {
-			path: string;
 			exact?: never;
 			match?: never;
 			exists?: never;
@@ -77,7 +93,6 @@ type Comparator =
 			gt?: never;
 	  }
 	| {
-			path: string;
 			exact?: never;
 			match?: never;
 			exists?: never;
@@ -87,7 +102,6 @@ type Comparator =
 			gt?: never;
 	  }
 	| {
-			path: string;
 			exact?: never;
 			match?: never;
 			exists?: never;
@@ -95,7 +109,8 @@ type Comparator =
 			gte?: never;
 			lt?: never;
 			gt: number;
-	  };
+	  }
+);
 
 export type LogicalOperator =
 	| {
@@ -130,7 +145,7 @@ const immediate = <T>(f: () => T) => f();
 const match = (message: unknown, cond: Comparator) => {
 	const values = immediate(() => {
 		try {
-			return jsonpath.query(message, cond.path);
+			return query(message, cond.path);
 		} catch {
 			return [];
 		}

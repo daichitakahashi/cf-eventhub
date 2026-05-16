@@ -27,7 +27,7 @@ The `EventHub` Durable Object exposes the following RPC methods:
 Define routing rules by extending `EventHub` and assigning a `RoutingStrategy` to the `routing` field. Use `routeByConfig()` to create a strategy from a route configuration. The `destination` value must match the binding name of a Queue or R2 bucket. The implementation resolves `env[destination]` directly, so mismatched names will fail at delivery time.
 
 ```ts
-import { EventHub, routeByConfig, type Config } from "eventhub";
+import { EventHub, routeByConfig } from "eventhub";
 
 export class MyEventHub extends EventHub<Env> {
   routing = routeByConfig<Env>({
@@ -52,6 +52,13 @@ export class MyEventHub extends EventHub<Env> {
 ```
 
 Supported operators are `exact`, `match`, `exists`, `lt`, `lte`, `gt`, `gte`, `allOf`, `anyOf`, and `not`.
+
+The `path` field uses JSONPath-like syntax to extract values from event payloads:
+- `$.property` - Root-level property
+- `$.nested.path` - Nested property
+- `$.items[0]` - Array index
+- `$.items[*]` - Array wildcard (matches if any element satisfies the condition)
+- `$["complex-key"]` - Bracket notation for keys with special characters
 
 ## Wrangler Configuration Example
 
