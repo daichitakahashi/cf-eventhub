@@ -15,6 +15,12 @@ describe("jsonpath-lite", () => {
 			expect(query(obj, "$.missing")).toStrictEqual([]);
 		});
 
+		test("does not expose inherited properties", () => {
+			expect(query({}, "$.toString")).toStrictEqual([]);
+			expect(query({}, "$.constructor")).toStrictEqual([]);
+			expect(query({}, "$.hasOwnProperty")).toStrictEqual([]);
+		});
+
 		test("handles null and undefined values", () => {
 			const obj = { value: null, other: undefined };
 			expect(query(obj, "$.value")).toStrictEqual([null]);
@@ -37,7 +43,7 @@ describe("jsonpath-lite", () => {
 			const obj = {
 				"event name": "launch",
 				"@type": "custom.event",
-				"ユーザー": {
+				ユーザー: {
 					"😀": "ok",
 				},
 			};

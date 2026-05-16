@@ -73,6 +73,22 @@ describe("findRoutes", () => {
 		expect(findRoutes(config, { orderId: undefined })).toStrictEqual([]);
 	});
 
+	test("does not match inherited properties for exists comparator", () => {
+		const config: Config<{ ORDER_HANDLER: Queue }> = {
+			routes: [
+				{
+					condition: {
+						path: "$.toString",
+						exists: true,
+					},
+					destination: "ORDER_HANDLER",
+				},
+			],
+		};
+
+		expect(findRoutes(config, {})).toStrictEqual([]);
+	});
+
 	test("evaluates numeric comparators", () => {
 		const config: Config<{
 			LTE: Queue;

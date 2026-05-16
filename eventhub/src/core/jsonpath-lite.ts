@@ -205,9 +205,13 @@ function queryParsed(obj: unknown, tokens: readonly Token[]): unknown[] {
 
 			if (token.type === "property") {
 				if (typeof value === "object" && !Array.isArray(value)) {
-					const prop = (value as Record<string, unknown>)[token.name];
-					if (prop !== undefined) {
-						nextValues.push(prop);
+					const record = value as Record<string, unknown>;
+					const hasOwn = Object.prototype.hasOwnProperty.call(record, token.name);
+					if (hasOwn) {
+						const prop = record[token.name];
+						if (prop !== undefined) {
+							nextValues.push(prop);
+						}
 					}
 				}
 			} else if (token.type === "index") {
