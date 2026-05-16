@@ -35,6 +35,10 @@ type Comparator = {
 	 * - `$.items[*]` - Array wildcard (expands all elements)
 	 * - `$["complex-key"]` or `$['complex-key']` - Bracket notation for keys with special characters
 	 *
+	 * Properties resolved to `undefined` are treated as absent. In particular,
+	 * `{ path: "$.field", exists: true }` does not match when `field` is present
+	 * but `undefined`.
+	 *
 	 * @example
 	 * ```typescript
 	 * { path: "$.eventType", exact: "user.created" }

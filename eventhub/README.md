@@ -60,6 +60,9 @@ The `path` field uses JSONPath-like syntax to extract values from event payloads
 - `$.items[*]` - Array wildcard (matches if any element satisfies the condition)
 - `$["complex-key"]` - Bracket notation for keys with special characters
 
+> [!NOTE]
+> Routing treats `undefined` the same as an absent property. This is intentional: EventHub handles payloads as JSON-serialized data, and `undefined` keys are not present in that model. As a result, `{ path: "$.field", exists: true }` matches `null` but does not match `undefined`.
+
 ## Wrangler Configuration Example
 
 This is a minimal `wrangler.jsonc` example. If you change bindings, run `npx wrangler types`.

@@ -152,6 +152,10 @@ function parsePath(path: string): Token[] {
  * @param obj - The object to query
  * @param path - The JSONPath-like expression
  * @returns Array of matching values (empty array if no matches)
+ *
+ * Properties or array elements whose value is `undefined` are treated as
+ * absent and are not returned. This matches EventHub's JSON serialization
+ * model, where `undefined` does not exist in persisted payloads.
  * @throws {Error} If the path syntax is invalid
  */
 export function query(obj: unknown, path: string): unknown[] {

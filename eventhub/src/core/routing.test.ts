@@ -57,6 +57,22 @@ describe("findRoutes", () => {
 		]);
 	});
 
+	test("treats undefined properties as absent for exists comparator", () => {
+		const config: Config<{ ORDER_HANDLER: Queue }> = {
+			routes: [
+				{
+					condition: {
+						path: "$.orderId",
+						exists: true,
+					},
+					destination: "ORDER_HANDLER",
+				},
+			],
+		};
+
+		expect(findRoutes(config, { orderId: undefined })).toStrictEqual([]);
+	});
+
 	test("evaluates numeric comparators", () => {
 		const config: Config<{
 			LTE: Queue;
