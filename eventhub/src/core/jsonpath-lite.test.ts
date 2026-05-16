@@ -32,6 +32,20 @@ describe("jsonpath-lite", () => {
 			expect(query(obj, "$.count")).toStrictEqual([0]);
 			expect(query(obj, "$.value")).toStrictEqual([42]);
 		});
+
+		test("accepts broader characters in dot notation property names", () => {
+			const obj = {
+				"event name": "launch",
+				"@type": "custom.event",
+				"ユーザー": {
+					"😀": "ok",
+				},
+			};
+
+			expect(query(obj, "$.event name")).toStrictEqual(["launch"]);
+			expect(query(obj, "$.@type")).toStrictEqual(["custom.event"]);
+			expect(query(obj, "$.ユーザー.😀")).toStrictEqual(["ok"]);
+		});
 	});
 
 	describe("nested property access", () => {
@@ -148,6 +162,24 @@ describe("jsonpath-lite", () => {
 			expect(query(obj, '$["key\\"with\\"quote"]')).toStrictEqual(["value"]);
 		});
 
+		test("handles standard escape sequences in bracket notation", () => {
+			const obj = {
+				"line\nbreak": "newline",
+				"tab\tkey": "tab",
+				"slash/key": "slash",
+				"back\\slash": "backslash",
+				"single'quote": "single",
+				"unicode\u{1F600}": "emoji",
+			};
+
+			expect(query(obj, '$["line\\nbreak"]')).toStrictEqual(["newline"]);
+			expect(query(obj, '$["tab\\tkey"]')).toStrictEqual(["tab"]);
+			expect(query(obj, '$["slash\\/key"]')).toStrictEqual(["slash"]);
+			expect(query(obj, '$["back\\\\slash"]')).toStrictEqual(["backslash"]);
+			expect(query(obj, "$['single\\'quote']")).toStrictEqual(["single"]);
+			expect(query(obj, '$["unicode\\uD83D\\uDE00"]')).toStrictEqual(["emoji"]);
+		});
+
 		test("can combine bracket notation with other accessors", () => {
 			const obj = { "event-name": { nested: { value: 42 } } };
 			expect(query(obj, '$["event-name"].nested.value')).toStrictEqual([42]);
@@ -206,8 +238,8 @@ describe("jsonpath-lite", () => {
 			expect(() => query({}, "$[1.5]")).toThrow("invalid array index");
 		});
 
-		test("throws error for unexpected characters", () => {
-			expect(() => query({}, "$.name@")).toThrow("unexpected character");
+		test("throws error for control characters in dot notation", () => {
+			expect(() => query({}, "$.name\n")).toThrow("unexpected character");
 		});
 
 		test("throws error for malformed bracket notation", () => {

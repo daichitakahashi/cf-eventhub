@@ -30,6 +30,52 @@ export type Token =
 	| { type: "index"; value: number }
 	| { type: "wildcard" };
 
+const isControlCharacter = (char: string) => {
+	const code = char.codePointAt(0);
+	return code !== undefined && code <= 0x1f;
+};
+
+const parseEscapeSequence = (path: string, i: number) => {
+	const escape = path[i];
+	if (escape === undefined) {
+		throw new Error("Unclosed bracket notation");
+	}
+
+	switch (escape) {
+		case '"':
+		case "'":
+		case "\\":
+		case "/":
+			return { value: escape, nextIndex: i + 1 };
+		case "b":
+			return { value: "\b", nextIndex: i + 1 };
+		case "f":
+			return { value: "\f", nextIndex: i + 1 };
+		case "n":
+			return { value: "\n", nextIndex: i + 1 };
+		case "r":
+			return { value: "\r", nextIndex: i + 1 };
+		case "t":
+			return { value: "\t", nextIndex: i + 1 };
+		case "u": {
+			const hex = path.slice(i + 1, i + 5);
+			if (!/^[0-9a-fA-F]{4}$/.test(hex)) {
+				throw new Error(
+					`Invalid path syntax at position ${i - 1}: invalid unicode escape`,
+				);
+			}
+			return {
+				value: String.fromCharCode(Number.parseInt(hex, 16)),
+				nextIndex: i + 5,
+			};
+		}
+		default:
+			throw new Error(
+				`Invalid path syntax at position ${i - 1}: invalid escape sequence`,
+			);
+	}
+};
+
 /**
  * Parse a JSONPath-like expression into tokens.
  *
@@ -54,21 +100,13 @@ export function parsePath(path: string): Token[] {
 			let name = "";
 			while (i < path.length && path[i] !== "." && path[i] !== "[") {
 				const c = path[i];
-				// Only allow alphanumeric, underscore, hyphen for property names
-				if (
-					(c >= "a" && c <= "z") ||
-					(c >= "A" && c <= "Z") ||
-					(c >= "0" && c <= "9") ||
-					c === "_" ||
-					c === "-"
-				) {
-					name += c;
-					i++;
-				} else {
+				if (isControlCharacter(c)) {
 					throw new Error(
 						`Invalid path syntax at position ${i}: unexpected character "${c}"`,
 					);
 				}
+				name += c;
+				i++;
 			}
 			if (name === "") {
 				throw new Error(
@@ -98,11 +136,16 @@ export function parsePath(path: string): Token[] {
 				let name = "";
 				while (i < path.length && path[i] !== quote) {
 					if (path[i] === "\\") {
-						// Handle escaped quotes
 						i++;
-						if (i >= path.length) {
-							throw new Error("Unclosed bracket notation");
-						}
+						const { value, nextIndex } = parseEscapeSequence(path, i);
+						name += value;
+						i = nextIndex;
+						continue;
+					}
+					if (isControlCharacter(path[i])) {
+						throw new Error(
+							`Invalid path syntax at position ${i}: unexpected character "${path[i]}"`,
+						);
 					}
 					name += path[i];
 					i++;
