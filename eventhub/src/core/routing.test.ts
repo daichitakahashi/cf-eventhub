@@ -256,14 +256,15 @@ describe("findRoutes", () => {
 		};
 		const pathCache = new Map();
 
-		expect(findRoutes(config, { eventName: "orderPlaced" }, pathCache)).toStrictEqual([
-			{ destination: "ORDER_HANDLER" },
-		]);
+		expect(
+			findRoutes(config, { eventName: "orderPlaced" }, pathCache),
+		).toStrictEqual([{ destination: "ORDER_HANDLER" }]);
 		expect(pathCache.size).toBe(1);
-		expect(findRoutes(config, { eventName: "orderPlaced" }, pathCache)).toStrictEqual([
-			{ destination: "ORDER_HANDLER" },
-		]);
-		expect(pathCache.size).toBe(1);
+		const cached = new Map(pathCache);
+		expect(
+			findRoutes(config, { eventName: "orderPlaced" }, pathCache),
+		).toStrictEqual([{ destination: "ORDER_HANDLER" }]);
+		expect(pathCache).toStrictEqual(cached);
 	});
 });
 

@@ -1,4 +1,9 @@
-import { parsePath, query, queryWithParsedPath, type Token } from "./jsonpath-lite";
+import {
+	parsePath,
+	query,
+	queryWithParsedPath,
+	type Token,
+} from "./jsonpath-lite";
 import type { JSONObject } from "./type";
 
 type Destination = Queue | R2Bucket;
@@ -48,7 +53,7 @@ type Comparator = {
 	 * { path: '$["event-name"]', exists: true }
 	 * ```
 	 */
-	// biome-ignore lint/suspicious/noExplicitAny: property name must be a non-empty string
+	// biome-ignore lint/suspicious/noExplicitAny: path must be start with `$` and select any property.
 	path: `$${string}${any}`;
 } & (
 	| {
