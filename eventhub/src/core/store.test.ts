@@ -14,6 +14,7 @@ import {
 	markDeliveryJobsCompleted,
 	markDeliveryJobsFailed,
 	persistDeliveryJobs,
+	recordDeliveryJobFailure,
 } from "./store";
 
 type PayloadRow = {
@@ -1374,6 +1375,149 @@ describe("delivery job scheduling", () => {
 			});
 
 			expect(getNextRetryAt(state.storage.sql)).toBeNull();
+		});
+	});
+});
+
+describe("recordDeliveryJobFailure", () => {
+	test("records a failure for the first time", async () => {
+		// 1. Persist a delivery job.
+		// 2. Record a failure for that job.
+		// 3. Verify the failure was recorded.
+		const stub = getStub("record-failure-first-time");
+
+		await runInDurableObject(stub, (_instance, state) => {
+			const pendingDeliveryJobs = createPendingDeliveryJobs(routing, [
+				{ kind: "culture" },
+			]);
+			const jobs = persistDeliveryJobs(
+				state.storage.sql,
+				pendingDeliveryJobs,
+				vi.fn().mockReturnValue("job_001"),
+				new Date("2026-05-04T00:00:00.000Z"),
+			);
+
+			recordDeliveryJobFailure(
+				state.storage.sql,
+				jobs[0]?.id ?? "",
+				new Date("2026-05-04T00:00:10.000Z"),
+			);
+
+			const failures = state.storage.sql
+				.exec<{ delivery_job_id: string; reported_at: string }>(
+					"SELECT delivery_job_id, reported_at FROM delivery_job_failures",
+				)
+				.toArray();
+
+			expect(failures).toStrictEqual([
+				{
+					delivery_job_id: jobs[0]?.id,
+					reported_at: "2026-05-04T00:00:10.000Z",
+				},
+			]);
+		});
+	});
+
+	test("is idempotent when a failure is already recorded", async () => {
+		// 1. Persist a delivery job and record a failure.
+		// 2. Attempt to record another failure for the same job.
+		// 3. Verify the timestamp remains unchanged.
+		const stub = getStub("record-failure-idempotent");
+
+		await runInDurableObject(stub, (_instance, state) => {
+			const pendingDeliveryJobs = createPendingDeliveryJobs(routing, [
+				{ kind: "culture" },
+			]);
+			const jobs = persistDeliveryJobs(
+				state.storage.sql,
+				pendingDeliveryJobs,
+				vi.fn().mockReturnValue("job_002"),
+				new Date("2026-05-04T00:00:00.000Z"),
+			);
+
+			recordDeliveryJobFailure(
+				state.storage.sql,
+				jobs[0]?.id ?? "",
+				new Date("2026-05-04T00:00:10.000Z"),
+			);
+			recordDeliveryJobFailure(
+				state.storage.sql,
+				jobs[0]?.id ?? "",
+				new Date("2026-05-04T00:00:20.000Z"),
+			);
+
+			const failures = state.storage.sql
+				.exec<{ delivery_job_id: string; reported_at: string }>(
+					"SELECT delivery_job_id, reported_at FROM delivery_job_failures",
+				)
+				.toArray();
+
+			expect(failures).toStrictEqual([
+				{
+					delivery_job_id: jobs[0]?.id,
+					reported_at: "2026-05-04T00:00:10.000Z",
+				},
+			]);
+		});
+	});
+
+	test("records failures for multiple distinct jobs", async () => {
+		// 1. Persist multiple delivery jobs.
+		// 2. Record failures for each job.
+		// 3. Verify all failures are recorded independently.
+		const stub = getStub("record-multiple-failures");
+
+		await runInDurableObject(stub, (_instance, state) => {
+			const pendingDeliveryJobs = createPendingDeliveryJobs(routing, [
+				{ kind: "culture" },
+				{ kind: "nature" },
+			]);
+			const jobs = persistDeliveryJobs(
+				state.storage.sql,
+				pendingDeliveryJobs,
+				(() => {
+					let counter = 0;
+					return () => `job_${String(counter++).padStart(3, "0")}`;
+				})(),
+				new Date("2026-05-04T00:00:00.000Z"),
+			);
+
+			recordDeliveryJobFailure(
+				state.storage.sql,
+				jobs[0]?.id ?? "",
+				new Date("2026-05-04T00:00:10.000Z"),
+			);
+			recordDeliveryJobFailure(
+				state.storage.sql,
+				jobs[1]?.id ?? "",
+				new Date("2026-05-04T00:00:15.000Z"),
+			);
+			recordDeliveryJobFailure(
+				state.storage.sql,
+				jobs[2]?.id ?? "",
+				new Date("2026-05-04T00:00:20.000Z"),
+			);
+
+			const failures = state.storage.sql
+				.exec<{ delivery_job_id: string; reported_at: string }>(
+					"SELECT delivery_job_id, reported_at FROM delivery_job_failures ORDER BY reported_at",
+				)
+				.toArray();
+
+			expect(failures).toStrictEqual([
+				{
+					delivery_job_id: jobs[0]?.id,
+					reported_at: "2026-05-04T00:00:10.000Z",
+				},
+				{
+					delivery_job_id: jobs[1]?.id,
+					reported_at: "2026-05-04T00:00:15.000Z",
+				},
+				{
+					delivery_job_id: jobs[2]?.id,
+					reported_at: "2026-05-04T00:00:20.000Z",
+				},
+			]);
 		});
 	});
 });

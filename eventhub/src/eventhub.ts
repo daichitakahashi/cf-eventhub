@@ -20,6 +20,7 @@ import {
 	markDeliveryJobsCompleted,
 	markDeliveryJobsFailed,
 	persistDeliveryJobs,
+	recordDeliveryJobFailure,
 } from "./core/store";
 import type { EventPayload } from "./core/type";
 
@@ -328,5 +329,21 @@ export abstract class EventHub<
 	 */
 	async alarm(): Promise<void> {
 		await this.deliverPersistedJobs();
+	}
+
+	/**
+	 * Records a consumer-reported failure for a delivery job. This operation is
+	 * idempotent: the first call for a given job ID records the failure, and
+	 * subsequent calls have no effect.
+	 * @param deliveryJobId The ID of the delivery job that failed.
+	 */
+	reportFailure(deliveryJobId: string): void {
+		if (deliveryJobId.length === 0) {
+			throw new Error("eventhub: deliveryJobId must not be empty");
+		}
+
+		this.ctx.storage.transactionSync(() =>
+			recordDeliveryJobFailure(this.ctx.storage.sql, deliveryJobId),
+		);
 	}
 }

@@ -36,17 +36,17 @@ const isControlCharacter = (char: string) => {
 };
 
 const parseEscapeSequence = (path: string, i: number) => {
-	const escape = path[i];
-	if (escape === undefined) {
+	const char = path[i];
+	if (char === undefined) {
 		throw new Error("Unclosed bracket notation");
 	}
 
-	switch (escape) {
+	switch (char) {
 		case '"':
 		case "'":
 		case "\\":
 		case "/":
-			return { value: escape, nextIndex: i + 1 };
+			return { value: char, nextIndex: i + 1 };
 		case "b":
 			return { value: "\b", nextIndex: i + 1 };
 		case "f":
@@ -206,7 +206,10 @@ function queryParsed(obj: unknown, tokens: readonly Token[]): unknown[] {
 			if (token.type === "property") {
 				if (typeof value === "object" && !Array.isArray(value)) {
 					const record = value as Record<string, unknown>;
-					const hasOwn = Object.prototype.hasOwnProperty.call(record, token.name);
+					const hasOwn = Object.prototype.hasOwnProperty.call(
+						record,
+						token.name,
+					);
 					if (hasOwn) {
 						const prop = record[token.name];
 						if (prop !== undefined) {

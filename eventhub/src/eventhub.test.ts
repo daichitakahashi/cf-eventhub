@@ -651,3 +651,113 @@ const markAllCompleted = (
 		...jobIds,
 	);
 };
+
+describe("reportFailure", () => {
+	test("records a consumer-reported failure for a delivery job", async () => {
+		// 1. Publish a payload to create a delivery job.
+		// 2. Call reportFailure with the job ID.
+		// 3. Verify the failure was recorded in the database.
+		const stub = getStub("report-failure-basic");
+
+		await stub.publish({ kind: "culture" });
+
+		await runInDurableObject(stub, async (instance, state) => {
+			const jobs = state.storage.sql
+				.exec<DeliveryJobRow>("SELECT id FROM delivery_jobs")
+				.toArray();
+
+			assert(jobs.length > 0, "expected at least one delivery job");
+
+			(instance as TestEventHub).reportFailure(jobs[0]?.id ?? "");
+
+			const failures = state.storage.sql
+				.exec<{ delivery_job_id: string; reported_at: string }>(
+					"SELECT delivery_job_id, reported_at FROM delivery_job_failures",
+				)
+				.toArray();
+
+			expect(failures).toMatchObject([
+				{
+					delivery_job_id: jobs[0]?.id,
+					reported_at: expect.any(String),
+				},
+			]);
+		});
+	});
+
+	test("is idempotent and preserves the first timestamp", async () => {
+		// 1. Publish a payload and record a failure.
+		// 2. Call reportFailure again with the same job ID.
+		// 3. Verify the recorded timestamp is unchanged.
+		const stub = getStub("report-failure-idempotent");
+
+		await stub.publish({ kind: "culture" });
+
+		await runInDurableObject(stub, async (instance, state) => {
+			const jobs = state.storage.sql
+				.exec<DeliveryJobRow>("SELECT id FROM delivery_jobs")
+				.toArray();
+
+			assert(jobs.length > 0, "expected at least one delivery job");
+
+			(instance as TestEventHub).reportFailure(jobs[0]?.id ?? "");
+			const firstFailures = state.storage.sql
+				.exec<{ delivery_job_id: string; reported_at: string }>(
+					"SELECT delivery_job_id, reported_at FROM delivery_job_failures",
+				)
+				.toArray();
+
+			(instance as TestEventHub).reportFailure(jobs[0]?.id ?? "");
+			const secondFailures = state.storage.sql
+				.exec<{ delivery_job_id: string; reported_at: string }>(
+					"SELECT delivery_job_id, reported_at FROM delivery_job_failures",
+				)
+				.toArray();
+
+			expect(firstFailures).toStrictEqual(secondFailures);
+		});
+	});
+
+	test("throws when deliveryJobId is empty", async () => {
+		// 1. Attempt to call reportFailure with an empty job ID.
+		// 2. Verify it throws an error.
+		const stub = getStub("report-failure-empty-id");
+
+		await runInDurableObject(stub, async (instance, _state) => {
+			expect(() => (instance as TestEventHub).reportFailure("")).toThrow(
+				"eventhub: deliveryJobId must not be empty",
+			);
+		});
+	});
+
+	test("records failures for multiple distinct jobs", async () => {
+		// 1. Publish multiple payloads to create multiple delivery jobs.
+		// 2. Record failures for each job.
+		// 3. Verify all failures are recorded.
+		const stub = getStub("report-failure-multiple");
+
+		await stub.publish({ kind: "culture" }, { kind: "nature" });
+
+		await runInDurableObject(stub, async (instance, state) => {
+			const jobs = state.storage.sql
+				.exec<DeliveryJobRow>("SELECT id FROM delivery_jobs ORDER BY id")
+				.toArray();
+
+			assert(jobs.length >= 2, "expected at least two delivery jobs");
+
+			(instance as TestEventHub).reportFailure(jobs[0]?.id ?? "");
+			(instance as TestEventHub).reportFailure(jobs[1]?.id ?? "");
+
+			const failures = state.storage.sql
+				.exec<{ delivery_job_id: string }>(
+					"SELECT delivery_job_id FROM delivery_job_failures ORDER BY delivery_job_id",
+				)
+				.toArray();
+
+			expect(failures).toMatchObject([
+				{ delivery_job_id: jobs[0]?.id },
+				{ delivery_job_id: jobs[1]?.id },
+			]);
+		});
+	});
+});

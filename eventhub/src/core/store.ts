@@ -198,6 +198,12 @@ export const initializeSchema = (sql: SqlStorage): void => {
 		CREATE INDEX IF NOT EXISTS idx_ejected_delivery_jobs_ejection_key
 		ON ejected_delivery_jobs (ejection_key, created_at, id)
 	`);
+	sql.exec(`
+		CREATE TABLE IF NOT EXISTS delivery_job_failures (
+			delivery_job_id TEXT PRIMARY KEY,
+			reported_at TEXT NOT NULL
+		)
+	`);
 };
 
 // Evaluates routing rules and builds a persistence plan for each payload.
@@ -902,5 +908,23 @@ export const evictEjection = (sql: SqlStorage, ejectKey: string): void => {
 			WHERE key = ?
 		`,
 		ejectKey,
+	);
+};
+
+// Records a failure report for a delivery job. Idempotent: first write wins.
+export const recordDeliveryJobFailure = (
+	sql: SqlStorage,
+	deliveryJobId: string,
+	now = new Date(),
+): void => {
+	const reportedAt = now.toISOString();
+	sql.exec(
+		`
+			INSERT INTO delivery_job_failures (delivery_job_id, reported_at)
+			VALUES (?, ?)
+			ON CONFLICT DO NOTHING
+		`,
+		deliveryJobId,
+		reportedAt,
 	);
 };
