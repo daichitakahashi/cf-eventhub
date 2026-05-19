@@ -201,7 +201,8 @@ export const initializeSchema = (sql: SqlStorage): void => {
 	sql.exec(`
 		CREATE TABLE IF NOT EXISTS delivery_job_failures (
 			delivery_job_id TEXT PRIMARY KEY,
-			reported_at TEXT NOT NULL
+			reported_at TEXT NOT NULL,
+			FOREIGN KEY (delivery_job_id) REFERENCES delivery_jobs(id)
 		)
 	`);
 };

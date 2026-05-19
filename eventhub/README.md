@@ -47,16 +47,16 @@ import { EventHub, configureDelivery } from "eventhub";
 export class MyEventHub extends EventHub<Env> {
   deliveryConfig = configureDelivery({
     includeDeliveryJobId: true, // Include job ID in delivered payloads (default: false)
-    initialRetryDelayMs: 5000,  // Initial retry delay (default: 5000)
-    maxRetryDelayMs: 300000,    // Maximum retry delay (default: 300000)
-    alarmBatchSize: 100,        // Jobs per alarm batch (default: 100)
+    initialRetryDelayMs: 5000,  // Initial retry delay (default: 10000)
+    maxRetryDelayMs: 300000,    // Maximum retry delay (default: 900000)
+    alarmBatchSize: 100,        // Jobs per alarm batch (default: 50)
   });
-  
+
   routing = /* ... */;
 }
 ```
 
-When `includeDeliveryJobId` is `true`, EventHub injects the delivery job ID into each payload at `__eventhub__.deliveryJobId` before sending it to Queue or R2 destinations. This ID can be used with `reportFailure()` to mark failed deliveries.
+When `includeDeliveryJobId` is `true`, EventHub injects the delivery job ID into each payload at `__eventhub__.deliveryJobId` before sending it to Queue or R2 destinations. This ID can be used with `reportFailure()` to record downstream processing failures for that delivery job.
 
 ## Routing
 
@@ -200,13 +200,13 @@ Notes:
 
 ## Failure Reporting with Dead-Letter Queues
 
-EventHub supports consumer-reported failures through the `reportFailure()` method. The recommended pattern is to configure a shared dead-letter queue (DLQ) for all EventHub destination queues and mark failures from the DLQ consumer.
+EventHub supports consumer-reported failures through the `reportFailure()` method. The recommended pattern is to configure a shared dead-letter queue (DLQ) for all EventHub destination queues and have the DLQ consumer call `reportFailure()` to record a separate consumer-reported failure for the failed payload. This does not change `finalStatus` for the original delivery job.
 
 ### Setup Overview
 
 1. Enable `includeDeliveryJobId` in your EventHub configuration
 2. Configure a DLQ for each destination queue
-3. Implement a DLQ consumer that calls `reportFailure()` with the failed payload
+3. Implement a DLQ consumer that calls `reportFailure()` with the failed payload to record the consumer-reported failure
 
 ### Wrangler Configuration with DLQ
 
