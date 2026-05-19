@@ -7,6 +7,7 @@ import {
 	listDeliveryJobStatuses,
 	persistDeliveryJobs,
 } from "./core/store";
+import { configureDelivery } from "./eventhub";
 import { TestEventHub, testRouting } from "./test";
 
 type PayloadRow = {
@@ -654,9 +655,9 @@ const markAllCompleted = (
 
 describe("reportFailure", () => {
 	test("records a consumer-reported failure for a delivery job", async () => {
-		// 1. Publish a payload to create a delivery job.
-		// 2. Call reportFailure with the job ID.
-		// 3. Verify the failure was recorded in the database.
+		// 1. Publish a payload and extract the delivery job ID from the database.
+		// 2. Call reportFailure with a payload containing the job ID.
+		// 3. Verify the failure is recorded in delivery_job_failures.
 		const stub = getStub("report-failure-basic");
 
 		await stub.publish({ kind: "culture" });
@@ -668,12 +669,17 @@ describe("reportFailure", () => {
 
 			assert(jobs.length > 0, "expected at least one delivery job");
 
-			(instance as TestEventHub).reportFailure(jobs[0]?.id ?? "");
+			const payload = {
+				kind: "culture",
+				__eventhub__: { deliveryJobId: jobs[0]?.id ?? "" },
+			};
+			(instance as TestEventHub).reportFailure(payload);
 
 			const failures = state.storage.sql
-				.exec<{ delivery_job_id: string; reported_at: string }>(
-					"SELECT delivery_job_id, reported_at FROM delivery_job_failures",
-				)
+				.exec<{
+					delivery_job_id: string;
+					reported_at: string;
+				}>("SELECT delivery_job_id, reported_at FROM delivery_job_failures")
 				.toArray();
 
 			expect(failures).toMatchObject([
@@ -687,7 +693,7 @@ describe("reportFailure", () => {
 
 	test("is idempotent and preserves the first timestamp", async () => {
 		// 1. Publish a payload and record a failure.
-		// 2. Call reportFailure again with the same job ID.
+		// 2. Call reportFailure again with the same payload.
 		// 3. Verify the recorded timestamp is unchanged.
 		const stub = getStub("report-failure-idempotent");
 
@@ -700,39 +706,129 @@ describe("reportFailure", () => {
 
 			assert(jobs.length > 0, "expected at least one delivery job");
 
-			(instance as TestEventHub).reportFailure(jobs[0]?.id ?? "");
+			const payload = {
+				kind: "culture",
+				__eventhub__: { deliveryJobId: jobs[0]?.id ?? "" },
+			};
+
+			(instance as TestEventHub).reportFailure(payload);
 			const firstFailures = state.storage.sql
-				.exec<{ delivery_job_id: string; reported_at: string }>(
-					"SELECT delivery_job_id, reported_at FROM delivery_job_failures",
-				)
+				.exec<{
+					delivery_job_id: string;
+					reported_at: string;
+				}>("SELECT delivery_job_id, reported_at FROM delivery_job_failures")
 				.toArray();
 
-			(instance as TestEventHub).reportFailure(jobs[0]?.id ?? "");
+			(instance as TestEventHub).reportFailure(payload);
 			const secondFailures = state.storage.sql
-				.exec<{ delivery_job_id: string; reported_at: string }>(
-					"SELECT delivery_job_id, reported_at FROM delivery_job_failures",
-				)
+				.exec<{
+					delivery_job_id: string;
+					reported_at: string;
+				}>("SELECT delivery_job_id, reported_at FROM delivery_job_failures")
 				.toArray();
 
 			expect(firstFailures).toStrictEqual(secondFailures);
 		});
 	});
 
-	test("throws when deliveryJobId is empty", async () => {
-		// 1. Attempt to call reportFailure with an empty job ID.
+	test("throws when payload is not an object", async () => {
+		// 1. Attempt to call reportFailure with a non-object value.
+		// 2. Verify it throws an error.
+		const stub = getStub("report-failure-not-object");
+
+		await runInDurableObject(stub, async (instance, _state) => {
+			expect(() => (instance as TestEventHub).reportFailure("string")).toThrow(
+				"eventhub: payload must be an object",
+			);
+			expect(() => (instance as TestEventHub).reportFailure(123)).toThrow(
+				"eventhub: payload must be an object",
+			);
+			expect(() => (instance as TestEventHub).reportFailure(null)).toThrow(
+				"eventhub: payload must be an object",
+			);
+			expect(() =>
+				(instance as TestEventHub).reportFailure(undefined),
+			).toThrow("eventhub: payload must be an object");
+		});
+	});
+
+	test("throws when __eventhub__ is not present in payload", async () => {
+		// 1. Attempt to call reportFailure with a payload that lacks __eventhub__.
+		// 2. Verify it throws an error.
+		const stub = getStub("report-failure-missing-eventhub");
+
+		await runInDurableObject(stub, async (instance, _state) => {
+			const payload = { kind: "culture" };
+			expect(() => (instance as TestEventHub).reportFailure(payload)).toThrow(
+				"eventhub: __eventhub__ metadata not found or invalid in payload",
+			);
+		});
+	});
+
+	test("throws when __eventhub__ is an array", async () => {
+		// 1. Attempt to call reportFailure with __eventhub__ as an array.
+		// 2. Verify it throws an error.
+		const stub = getStub("report-failure-eventhub-array");
+
+		await runInDurableObject(stub, async (instance, _state) => {
+			const payload = { kind: "culture", __eventhub__: [] };
+			expect(() => (instance as TestEventHub).reportFailure(payload)).toThrow(
+				"eventhub: __eventhub__ metadata not found or invalid in payload",
+			);
+		});
+	});
+
+	test("throws when deliveryJobId is not present in __eventhub__", async () => {
+		// 1. Attempt to call reportFailure with __eventhub__ that lacks deliveryJobId.
+		// 2. Verify it throws an error.
+		const stub = getStub("report-failure-missing-id");
+
+		await runInDurableObject(stub, async (instance, _state) => {
+			const payload = {
+				kind: "culture",
+				__eventhub__: { otherField: "value" },
+			};
+			expect(() => (instance as TestEventHub).reportFailure(payload)).toThrow(
+				"eventhub: deliveryJobId must be a non-empty string",
+			);
+		});
+	});
+
+	test("throws when deliveryJobId is empty string", async () => {
+		// 1. Attempt to call reportFailure with a payload containing an empty job ID.
 		// 2. Verify it throws an error.
 		const stub = getStub("report-failure-empty-id");
 
 		await runInDurableObject(stub, async (instance, _state) => {
-			expect(() => (instance as TestEventHub).reportFailure("")).toThrow(
-				"eventhub: deliveryJobId must not be empty",
+			const payload = {
+				kind: "culture",
+				__eventhub__: { deliveryJobId: "" },
+			};
+			expect(() => (instance as TestEventHub).reportFailure(payload)).toThrow(
+				"eventhub: deliveryJobId must be a non-empty string",
+			);
+		});
+	});
+
+	test("throws when deliveryJobId is not a string", async () => {
+		// 1. Attempt to call reportFailure with a payload containing a non-string job ID.
+		// 2. Verify it throws an error.
+		const stub = getStub("report-failure-non-string-id");
+
+		await runInDurableObject(stub, async (instance, _state) => {
+			const payload = {
+				kind: "culture",
+				__eventhub__: { deliveryJobId: 12345 },
+			};
+			expect(() => (instance as TestEventHub).reportFailure(payload)).toThrow(
+				"eventhub: deliveryJobId must be a non-empty string",
 			);
 		});
 	});
 
 	test("records failures for multiple distinct jobs", async () => {
 		// 1. Publish multiple payloads to create multiple delivery jobs.
-		// 2. Record failures for each job.
+		// 2. Record failures for each job using payloads.
 		// 3. Verify all failures are recorded.
 		const stub = getStub("report-failure-multiple");
 
@@ -745,19 +841,97 @@ describe("reportFailure", () => {
 
 			assert(jobs.length >= 2, "expected at least two delivery jobs");
 
-			(instance as TestEventHub).reportFailure(jobs[0]?.id ?? "");
-			(instance as TestEventHub).reportFailure(jobs[1]?.id ?? "");
+			const payload1 = {
+				kind: "culture",
+				__eventhub__: { deliveryJobId: jobs[0]?.id ?? "" },
+			};
+			const payload2 = {
+				kind: "nature",
+				__eventhub__: { deliveryJobId: jobs[1]?.id ?? "" },
+			};
+
+			(instance as TestEventHub).reportFailure(payload1);
+			(instance as TestEventHub).reportFailure(payload2);
 
 			const failures = state.storage.sql
-				.exec<{ delivery_job_id: string }>(
-					"SELECT delivery_job_id FROM delivery_job_failures ORDER BY delivery_job_id",
-				)
+				.exec<{
+					delivery_job_id: string;
+				}>("SELECT delivery_job_id FROM delivery_job_failures ORDER BY delivery_job_id")
 				.toArray();
 
 			expect(failures).toMatchObject([
 				{ delivery_job_id: jobs[0]?.id },
 				{ delivery_job_id: jobs[1]?.id },
 			]);
+		});
+	});
+});
+
+describe("includeDeliveryJobId configuration", () => {
+	test("delivers successfully when includeDeliveryJobId is false (default)", async () => {
+		// 1. Publish payloads with default configuration (includeDeliveryJobId: false).
+		// 2. Verify delivery completes successfully.
+		const stub = getStub("no-job-id-default");
+		const payload = { kind: "culture" };
+
+		await stub.publish(payload);
+
+		await vi.waitFor(async () => {
+			await runInDurableObject(stub, async (_instance, state) => {
+				const jobs = state.storage.sql
+					.exec<DeliveryJobRow>("SELECT finalized_at FROM delivery_jobs")
+					.toArray();
+				expect(jobs).toMatchObject([{ finalized_at: expect.any(String) }]);
+			});
+		});
+	});
+
+	test("delivers successfully when includeDeliveryJobId is true", async () => {
+		// 1. Configure EventHub with includeDeliveryJobId: true.
+		// 2. Publish a payload and verify delivery completes.
+		class TestEventHubWithJobId extends TestEventHub {
+			deliveryConfig = configureDelivery({ includeDeliveryJobId: true });
+		}
+
+		const id = env.EVENT_HUB.idFromName("with-job-id");
+		const stub = env.EVENT_HUB.get(id) as DurableObjectStub<TestEventHubWithJobId>;
+		const payload = { kind: "culture" };
+
+		await stub.publish(payload);
+
+		await vi.waitFor(async () => {
+			await runInDurableObject(stub, async (_instance, state) => {
+				const jobs = state.storage.sql
+					.exec<DeliveryJobRow>("SELECT finalized_at FROM delivery_jobs")
+					.toArray();
+				expect(jobs).toMatchObject([{ finalized_at: expect.any(String) }]);
+			});
+		});
+	});
+
+	test("DB-stored payloads do not contain injected job ID", async () => {
+		// 1. Configure EventHub with includeDeliveryJobId: true.
+		// 2. Publish a payload.
+		// 3. Verify the payload stored in the database does not contain the job ID.
+		class TestEventHubWithJobId extends TestEventHub {
+			deliveryConfig = configureDelivery({ includeDeliveryJobId: true });
+		}
+
+		const id = env.EVENT_HUB.idFromName("db-without-job-id");
+		const stub = env.EVENT_HUB.get(id) as DurableObjectStub<TestEventHubWithJobId>;
+		const payload = { kind: "culture" };
+
+		await stub.publish(payload);
+
+		await runInDurableObject(stub, async (_instance, state) => {
+			const payloads = state.storage.sql
+				.exec<PayloadRow>("SELECT body FROM payloads")
+				.toArray();
+
+			expect(payloads).toHaveLength(1);
+			const storedPayload = JSON.parse(payloads[0]?.body ?? "{}");
+			expect(storedPayload).toStrictEqual(payload);
+			expect(storedPayload).not.toHaveProperty("__eventhub__");
 		});
 	});
 });

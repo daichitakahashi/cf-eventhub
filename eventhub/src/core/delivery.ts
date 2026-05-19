@@ -111,10 +111,30 @@ export const assertDestinationBindingsExist = (
 const getR2ObjectKey = (job: PersistedDeliveryJob): string =>
 	`${job.payloadId}/${job.id}.json`;
 
+// Merges the delivery job ID into the payload at $.__eventhub__.deliveryJobId
+const injectDeliveryJobId = (
+	payload: EventPayload,
+	jobId: string,
+): EventPayload => {
+	const existing = payload.__eventhub__;
+	const eventhubMetadata =
+		typeof existing === "object" &&
+		existing !== null &&
+		!Array.isArray(existing)
+			? { ...existing, deliveryJobId: jobId }
+			: { deliveryJobId: jobId };
+
+	return {
+		...payload,
+		__eventhub__: eventhubMetadata,
+	};
+};
+
 const deliverQueueJobs = async (
 	jobs: readonly DeliveryJob[],
 	queue: Queue<EventPayload>,
 	handlers: DeliverJobsHandlers,
+	includeDeliveryJobId: boolean,
 ): Promise<void> => {
 	for (let i = 0; i < jobs.length; i += MAX_SEND_BATCH_COUNT) {
 		const chunk = jobs.slice(i, i + MAX_SEND_BATCH_COUNT);
@@ -122,7 +142,9 @@ const deliverQueueJobs = async (
 		try {
 			await queue.sendBatch(
 				chunk.map((job) => ({
-					body: job.payload,
+					body: includeDeliveryJobId
+						? injectDeliveryJobId(job.payload, job.id)
+						: job.payload,
 					contentType: "json",
 				})),
 			);
@@ -137,10 +159,15 @@ const deliverR2Jobs = async (
 	jobs: readonly DeliveryJob[],
 	bucket: R2Bucket,
 	handlers: DeliverJobsHandlers,
+	includeDeliveryJobId: boolean,
 ): Promise<void> => {
 	for (const job of jobs) {
 		try {
-			await bucket.put(getR2ObjectKey(job), JSON.stringify(job.payload), {
+			const payloadToStore = includeDeliveryJobId
+				? injectDeliveryJobId(job.payload, job.id)
+				: job.payload;
+
+			await bucket.put(getR2ObjectKey(job), JSON.stringify(payloadToStore), {
 				httpMetadata: {
 					contentType: "application/json",
 				},
@@ -156,14 +183,25 @@ const deliverR2Jobs = async (
 export const deliverJobs = async (
 	jobs: readonly DeliveryJob[],
 	handlers: DeliverJobsHandlers,
+	includeDeliveryJobId: boolean,
 ): Promise<void> => {
 	for (const destinationJobs of groupJobsByDestination(jobs).values()) {
 		const [{ target }] = destinationJobs;
 		if (target.kind === "queue") {
-			await deliverQueueJobs(destinationJobs, target.queue, handlers);
+			await deliverQueueJobs(
+				destinationJobs,
+				target.queue,
+				handlers,
+				includeDeliveryJobId,
+			);
 			continue;
 		}
-		await deliverR2Jobs(destinationJobs, target.bucket, handlers);
+		await deliverR2Jobs(
+			destinationJobs,
+			target.bucket,
+			handlers,
+			includeDeliveryJobId,
+		);
 	}
 };
 
@@ -172,10 +210,15 @@ export const deliverPersistedJobs = async (
 	env: Record<string, unknown>,
 	jobs: readonly PersistedDeliveryJob[],
 	handlers: DeliverJobsHandlers,
+	includeDeliveryJobId: boolean,
 ): Promise<void> => {
 	for (const destinationJobs of groupJobsByDestination(jobs).values()) {
 		try {
-			await deliverJobs(resolveDeliveryJobs(env, destinationJobs), handlers);
+			await deliverJobs(
+				resolveDeliveryJobs(env, destinationJobs),
+				handlers,
+				includeDeliveryJobId,
+			);
 		} catch (error) {
 			await handlers.onFailed(
 				destinationJobs.map((job) => job.id),
