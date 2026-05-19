@@ -4,6 +4,20 @@ EventHub is an event aggregation component built on Cloudflare Durable Objects. 
 
 Delivery is attempted immediately, and failed jobs are retried via Durable Object Alarms. Once delivery has completed or permanently failed, finalized events can be snapshotted with `eject()`, paged through with `listEjected()`, archived elsewhere, and then removed with `evict()`.
 
+## Table of Contents
+
+- [What It Does](#what-it-does)
+- [Public API](#public-api)
+- [Delivery Configuration](#delivery-configuration)
+- [Routing](#routing)
+- [Wrangler Configuration Example](#wrangler-configuration-example)
+- [Publishing from a Worker](#publishing-from-a-worker)
+- [Failure Reporting with Dead-Letter Queues](#failure-reporting-with-dead-letter-queues)
+- [Workflow Example: eject -> R2.put -> evict](#workflow-example-eject---r2put---evict)
+- [Starting the Workflow](#starting-the-workflow)
+- [eject() and listEjected() Behavior](#eject-and-listejected-behavior)
+- [Local Development](#local-development)
+
 ## What It Does
 
 - Persist events published from a Worker with `publish()`
@@ -16,11 +30,33 @@ Delivery is attempted immediately, and failed jobs are retried via Durable Objec
 The `EventHub` Durable Object exposes the following RPC methods:
 
 - `publish(payload, ...rest)`
+- `reportFailure(payload)`
 - `eject(before, options?)`
 - `listEjected(ejectKey, options?)`
 - `evict(ejectKey)`
 
 `payload` must be a JSON object.
+
+## Delivery Configuration
+
+Configure delivery behavior by overriding the `deliveryConfig` field. Use `configureDelivery()` to create a configuration object:
+
+```ts
+import { EventHub, configureDelivery } from "eventhub";
+
+export class MyEventHub extends EventHub<Env> {
+  deliveryConfig = configureDelivery({
+    includeDeliveryJobId: true, // Include job ID in delivered payloads (default: false)
+    initialRetryDelayMs: 5000,  // Initial retry delay (default: 5000)
+    maxRetryDelayMs: 300000,    // Maximum retry delay (default: 300000)
+    alarmBatchSize: 100,        // Jobs per alarm batch (default: 100)
+  });
+  
+  routing = /* ... */;
+}
+```
+
+When `includeDeliveryJobId` is `true`, EventHub injects the delivery job ID into each payload at `__eventhub__.deliveryJobId` before sending it to Queue or R2 destinations. This ID can be used with `reportFailure()` to mark failed deliveries.
 
 ## Routing
 
@@ -161,6 +197,124 @@ Notes:
 - Queue destinations are delivered with `sendBatch()`
 - R2 destinations are delivered with `put()`
 - Events with no matching route are still persisted as payloads
+
+## Failure Reporting with Dead-Letter Queues
+
+EventHub supports consumer-reported failures through the `reportFailure()` method. The recommended pattern is to configure a shared dead-letter queue (DLQ) for all EventHub destination queues and mark failures from the DLQ consumer.
+
+### Setup Overview
+
+1. Enable `includeDeliveryJobId` in your EventHub configuration
+2. Configure a DLQ for each destination queue
+3. Implement a DLQ consumer that calls `reportFailure()` with the failed payload
+
+### Wrangler Configuration with DLQ
+
+```jsonc
+{
+  "queues": {
+    "producers": [
+      { "binding": "MEMBER_EVENTS", "queue": "member-events" },
+      { "binding": "PAYMENT_EVENTS", "queue": "payment-events" }
+    ],
+    "consumers": [
+      {
+        "queue": "member-events",
+        "max_batch_size": 100,
+        "max_retries": 3,
+        "dead_letter_queue": "eventhub-dlq"
+      },
+      {
+        "queue": "payment-events",
+        "max_batch_size": 100,
+        "max_retries": 3,
+        "dead_letter_queue": "eventhub-dlq"
+      },
+      {
+        "queue": "eventhub-dlq",
+        "max_batch_size": 10,
+        "max_retries": 0
+      }
+    ]
+  }
+}
+```
+
+### EventHub Configuration
+
+```ts
+import { EventHub, configureDelivery, routeByConfig } from "eventhub";
+
+export class MyEventHub extends EventHub<Env> {
+  // Enable delivery job ID injection
+  deliveryConfig = configureDelivery({
+    includeDeliveryJobId: true,
+  });
+
+  routing = routeByConfig<Env>({
+    routes: [
+      {
+        condition: { path: "$.type", exact: "member.created" },
+        destination: "MEMBER_EVENTS",
+      },
+      {
+        condition: { path: "$.type", exact: "payment.completed" },
+        destination: "PAYMENT_EVENTS",
+      },
+    ],
+  });
+}
+```
+
+### DLQ Consumer Implementation
+
+```ts
+import type { EventHub } from "eventhub";
+
+type Env = {
+  EVENT_HUB: DurableObjectNamespace<EventHub>;
+};
+
+const getHub = (env: Env, name = "default") =>
+  env.EVENT_HUB.get(env.EVENT_HUB.idFromName(name));
+
+export default {
+  async queue(batch: MessageBatch, env: Env): Promise<void> {
+    const hub = getHub(env);
+
+    // Report all DLQ messages as failures
+    for (const message of batch.messages) {
+      try {
+        // The payload already contains __eventhub__.deliveryJobId
+        await hub.reportFailure(message.body);
+        message.ack();
+      } catch (error) {
+        console.error("Failed to report failure:", error);
+        message.retry();
+      }
+    }
+  },
+};
+```
+
+### How It Works
+
+1. EventHub publishes events to `MEMBER_EVENTS` and `PAYMENT_EVENTS` queues
+2. Each payload includes `__eventhub__.deliveryJobId` (e.g., `{ type: "member.created", __eventhub__: { deliveryJobId: "01JG..." } }`)
+3. If a consumer fails to process a message after `max_retries`, the message moves to `eventhub-dlq`
+4. The DLQ consumer calls `reportFailure()` with the failed payload
+5. EventHub marks the delivery job as failed using the extracted job ID
+
+### Benefits
+
+- **Centralized failure tracking**: All queue failures go through one DLQ
+- **Simple consumer logic**: Just call `reportFailure(message.body)`
+- **Idempotent**: Multiple calls with the same payload are safe
+- **Type-safe**: `reportFailure()` validates the payload structure
+
+### Advanced Usage
+
+While the DLQ pattern is recommended for most use cases, you can also call `reportFailure()` directly from primary queue consumers for custom failure handling, or from R2-triggered workflows if you store payloads in R2 and need to report processing failures.
 
 ## Workflow Example: `eject -> R2.put -> evict`
 

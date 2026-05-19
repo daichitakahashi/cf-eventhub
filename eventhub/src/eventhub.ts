@@ -109,7 +109,22 @@ const assertPositiveInteger = (v: number, name: string) => {
 };
 
 /**
- * Configure delivery retry settings.
+ * Configure delivery retry settings and behavior.
+ *
+ * @example
+ * ```ts
+ * import { EventHub, configureDelivery } from "eventhub";
+ *
+ * export class MyEventHub extends EventHub<Env> {
+ *   deliveryConfig = configureDelivery({
+ *     includeDeliveryJobId: true,  // Enable job ID injection for reportFailure()
+ *     initialRetryDelayMs: 5000,   // Start retry after 5 seconds
+ *     maxRetryDelayMs: 300000,     // Cap retry delay at 5 minutes
+ *     maxDeliveryRetries: 10,      // Retry up to 10 times
+ *     alarmBatchSize: 100,         // Process 100 jobs per alarm
+ *   });
+ * }
+ * ```
  */
 export const configureDelivery = (
 	c: Partial<DeliveryConfig>,
@@ -349,6 +364,35 @@ export abstract class EventHub<
 	 * Records a consumer-reported failure for a delivery job. This operation is
 	 * idempotent: the first call for a given job ID records the failure, and
 	 * subsequent calls have no effect.
+	 *
+	 * **Typical Usage: Dead-Letter Queue Consumer**
+	 *
+	 * The recommended pattern is to configure a shared DLQ for all EventHub
+	 * destination queues and call `reportFailure()` from the DLQ consumer:
+	 *
+	 * ```ts
+	 * // DLQ consumer
+	 * export default {
+	 *   async queue(batch: MessageBatch, env: Env): Promise<void> {
+	 *     const hub = env.EVENT_HUB.get(env.EVENT_HUB.idFromName("default"));
+	 *
+	 *     for (const message of batch.messages) {
+	 *       try {
+	 *         await hub.reportFailure(message.body);
+	 *         message.ack();
+	 *       } catch (error) {
+	 *         console.error("Failed to report failure:", error);
+	 *         message.retry();
+	 *       }
+	 *     }
+	 *   },
+	 * };
+	 * ```
+	 *
+	 * **Prerequisites:**
+	 * - Set `includeDeliveryJobId: true` in your `deliveryConfig`
+	 * - Configure DLQs for your destination queues in `wrangler.jsonc`
+	 *
 	 * @param payload The payload that was delivered. Must be an object containing
 	 * a delivery job ID at `__eventhub__.deliveryJobId`.
 	 * @throws {Error} If the payload is not an object or if the delivery job ID
