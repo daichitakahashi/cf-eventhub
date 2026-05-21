@@ -49,7 +49,7 @@ export type DeliveryJobStatus = {
 } & DeliveryRetryState;
 
 export type EjectedDeliveryJob = DeliveryJobStatus & {
-	reportedFailureAt: string | null;
+	failureReportedAt: string | null;
 };
 
 export type EjectedPayload = {
@@ -694,7 +694,7 @@ export const listEjected = (
 
 	const payloadIds = payloadRows.map(({ payload_id }) => payload_id);
 	const placeholders = payloadIds.map(() => "?").join(", ");
-	const deliveryJobs = sql
+		const deliveryJobs = sql
 		.exec<{
 			id: string;
 			payload_id: string;
@@ -706,7 +706,7 @@ export const listEjected = (
 			last_failed_at: string | null;
 			last_error: string | null;
 			next_retry_at: string;
-			reported_failure_at: string | null;
+			failure_reported_at: string | null;
 		}>(
 			`
 				SELECT
@@ -720,7 +720,7 @@ export const listEjected = (
 					edj.last_failed_at,
 					edj.last_error,
 					edj.next_retry_at,
-					edjf.reported_at AS reported_failure_at
+					edjf.reported_at AS failure_reported_at
 				FROM ejected_delivery_jobs edj
 				LEFT JOIN ejected_delivery_job_failures edjf
 					ON edjf.ejection_key = edj.ejection_key
@@ -745,7 +745,7 @@ export const listEjected = (
 				lastFailedAt: row.last_failed_at,
 				lastError: row.last_error,
 				nextRetryAt: row.next_retry_at,
-				reportedFailureAt: row.reported_failure_at,
+				failureReportedAt: row.failure_reported_at,
 			}),
 		);
 	const jobsByPayloadId = Map.groupBy(deliveryJobs, (job) => job.payloadId);

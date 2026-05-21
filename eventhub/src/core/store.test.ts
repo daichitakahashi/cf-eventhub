@@ -1664,7 +1664,7 @@ describe("eject and evict with delivery job failures", () => {
 			expect(result.payloads[0]?.deliveryJobs).toHaveLength(1);
 			expect(result.payloads[0]?.deliveryJobs[0]).toMatchObject({
 				id: jobs[0]?.id,
-				reportedFailureAt: "2026-05-04T00:05:00.000Z",
+				failureReportedAt: "2026-05-04T00:05:00.000Z",
 			});
 		});
 	});
@@ -1672,7 +1672,7 @@ describe("eject and evict with delivery job failures", () => {
 	test("includes null failure information when no failure was reported", async () => {
 		// 1. Create a delivery job without reporting failure.
 		// 2. Eject the payload.
-		// 3. Verify that reportedFailureAt is null in listEjected.
+		// 3. Verify that failureReportedAt is null in listEjected.
 		const stub = getStub("list-ejected-without-failures");
 
 		await runInDurableObject(stub, async (_instance, state) => {
@@ -1719,7 +1719,7 @@ describe("eject and evict with delivery job failures", () => {
 			expect(result.payloads[0]?.deliveryJobs).toHaveLength(1);
 			expect(result.payloads[0]?.deliveryJobs[0]).toMatchObject({
 				id: jobs[0]?.id,
-				reportedFailureAt: null,
+				failureReportedAt: null,
 			});
 		});
 	});
