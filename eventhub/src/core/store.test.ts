@@ -1521,3 +1521,262 @@ describe("recordDeliveryJobFailure", () => {
 		});
 	});
 });
+
+describe("eject and evict with delivery job failures", () => {
+	test("copies delivery job failures when ejecting payloads", async () => {
+		// 1. Create delivery jobs and report failures for some of them.
+		// 2. Eject the payloads.
+		// 3. Verify that failure records are copied to ejected_delivery_job_failures.
+		const stub = getStub("eject-with-failures");
+
+		await runInDurableObject(stub, async (_instance, state) => {
+			let sequence = 0;
+			const jobs = state.storage.transactionSync(() =>
+				persistDeliveryJobs(
+					state.storage.sql,
+					createPendingDeliveryJobs(routing, [
+						{ kind: "culture", avoidUrban: true },
+						{ kind: "nature", avoidUrban: false },
+					]),
+					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
+					new Date("2026-05-04T00:00:00.000Z"),
+					10_000,
+				),
+			);
+
+			state.storage.transactionSync(() => {
+				// Report failures for some jobs
+				recordDeliveryJobFailure(
+					state.storage.sql,
+					jobs[0]?.id ?? "",
+					new Date("2026-05-04T00:05:00.000Z"),
+				);
+				recordDeliveryJobFailure(
+					state.storage.sql,
+					jobs[2]?.id ?? "",
+					new Date("2026-05-04T00:10:00.000Z"),
+				);
+
+				// Mark all jobs as completed
+				markDeliveryJobsCompleted(
+					state.storage.sql,
+					jobs.map((job) => job.id),
+					new Date("2026-05-04T00:20:00.000Z"),
+				);
+
+				// Eject the payloads
+				ejectPayloads(
+					state.storage.sql,
+					new Date("2026-05-05T00:00:00.000Z").getTime(),
+					50,
+					"01EJECT00000000000000000010",
+				);
+			});
+
+			const ejectedFailures = state.storage.sql
+				.exec<{
+					ejection_key: string;
+					delivery_job_id: string;
+					reported_at: string;
+				}>(
+					"SELECT ejection_key, delivery_job_id, reported_at FROM ejected_delivery_job_failures ORDER BY reported_at",
+				)
+				.toArray();
+
+			expect(ejectedFailures).toStrictEqual([
+				{
+					ejection_key: "01EJECT00000000000000000010",
+					delivery_job_id: jobs[0]?.id,
+					reported_at: "2026-05-04T00:05:00.000Z",
+				},
+				{
+					ejection_key: "01EJECT00000000000000000010",
+					delivery_job_id: jobs[2]?.id,
+					reported_at: "2026-05-04T00:10:00.000Z",
+				},
+			]);
+
+			// Verify original failure records are deleted
+			const remainingFailures = state.storage.sql
+				.exec<{ delivery_job_id: string }>(
+					"SELECT delivery_job_id FROM delivery_job_failures",
+				)
+				.toArray();
+
+			expect(remainingFailures).toStrictEqual([]);
+		});
+	});
+
+	test("includes failure information in listEjected results", async () => {
+		// 1. Create delivery jobs and report failures for some of them.
+		// 2. Eject the payloads.
+		// 3. Use listEjected and verify the failure information is included.
+		const stub = getStub("list-ejected-with-failures");
+
+		await runInDurableObject(stub, async (_instance, state) => {
+			let sequence = 0;
+			const jobs = state.storage.transactionSync(() =>
+				persistDeliveryJobs(
+					state.storage.sql,
+					createPendingDeliveryJobs(routing, [
+						{ kind: "culture", avoidUrban: true },
+					]),
+					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
+					new Date("2026-05-04T00:00:00.000Z"),
+					10_000,
+				),
+			);
+
+			state.storage.transactionSync(() => {
+				// Report failure for the job
+				recordDeliveryJobFailure(
+					state.storage.sql,
+					jobs[0]?.id ?? "",
+					new Date("2026-05-04T00:05:00.000Z"),
+				);
+
+				// Mark job as completed
+				markDeliveryJobsCompleted(
+					state.storage.sql,
+					jobs.map((job) => job.id),
+					new Date("2026-05-04T00:20:00.000Z"),
+				);
+
+				// Eject the payloads
+				ejectPayloads(
+					state.storage.sql,
+					new Date("2026-05-05T00:00:00.000Z").getTime(),
+					50,
+					"01EJECT00000000000000000011",
+				);
+			});
+
+			const result = state.storage.transactionSync(() =>
+				listEjected(
+					state.storage.sql,
+					"01EJECT00000000000000000011",
+					undefined,
+					50,
+				),
+			);
+
+			expect(result.payloads).toHaveLength(1);
+			expect(result.payloads[0]?.deliveryJobs).toHaveLength(1);
+			expect(result.payloads[0]?.deliveryJobs[0]).toMatchObject({
+				id: jobs[0]?.id,
+				reportedFailureAt: "2026-05-04T00:05:00.000Z",
+			});
+		});
+	});
+
+	test("includes null failure information when no failure was reported", async () => {
+		// 1. Create a delivery job without reporting failure.
+		// 2. Eject the payload.
+		// 3. Verify that reportedFailureAt is null in listEjected.
+		const stub = getStub("list-ejected-without-failures");
+
+		await runInDurableObject(stub, async (_instance, state) => {
+			let sequence = 0;
+			const jobs = state.storage.transactionSync(() =>
+				persistDeliveryJobs(
+					state.storage.sql,
+					createPendingDeliveryJobs(routing, [
+						{ kind: "culture", avoidUrban: true },
+					]),
+					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
+					new Date("2026-05-04T00:00:00.000Z"),
+					10_000,
+				),
+			);
+
+			state.storage.transactionSync(() => {
+				// Mark job as completed without reporting failure
+				markDeliveryJobsCompleted(
+					state.storage.sql,
+					jobs.map((job) => job.id),
+					new Date("2026-05-04T00:20:00.000Z"),
+				);
+
+				// Eject the payloads
+				ejectPayloads(
+					state.storage.sql,
+					new Date("2026-05-05T00:00:00.000Z").getTime(),
+					50,
+					"01EJECT00000000000000000012",
+				);
+			});
+
+			const result = state.storage.transactionSync(() =>
+				listEjected(
+					state.storage.sql,
+					"01EJECT00000000000000000012",
+					undefined,
+					50,
+				),
+			);
+
+			expect(result.payloads).toHaveLength(1);
+			expect(result.payloads[0]?.deliveryJobs).toHaveLength(1);
+			expect(result.payloads[0]?.deliveryJobs[0]).toMatchObject({
+				id: jobs[0]?.id,
+				reportedFailureAt: null,
+			});
+		});
+	});
+
+	test("deletes ejected failure records when evicting", async () => {
+		// 1. Create delivery jobs, report failures, and eject.
+		// 2. Evict the ejection.
+		// 3. Verify that ejected_delivery_job_failures records are deleted.
+		const stub = getStub("evict-with-failures");
+
+		await runInDurableObject(stub, async (_instance, state) => {
+			let sequence = 0;
+			const jobs = state.storage.transactionSync(() =>
+				persistDeliveryJobs(
+					state.storage.sql,
+					createPendingDeliveryJobs(routing, [
+						{ kind: "culture", avoidUrban: true },
+					]),
+					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
+					new Date("2026-05-04T00:00:00.000Z"),
+					10_000,
+				),
+			);
+
+			state.storage.transactionSync(() => {
+				// Report failure
+				recordDeliveryJobFailure(
+					state.storage.sql,
+					jobs[0]?.id ?? "",
+					new Date("2026-05-04T00:05:00.000Z"),
+				);
+
+				// Mark job as completed
+				markDeliveryJobsCompleted(
+					state.storage.sql,
+					jobs.map((job) => job.id),
+					new Date("2026-05-04T00:20:00.000Z"),
+				);
+
+				// Eject and then evict
+				ejectPayloads(
+					state.storage.sql,
+					new Date("2026-05-05T00:00:00.000Z").getTime(),
+					50,
+					"01EJECT00000000000000000013",
+				);
+
+				evictEjection(state.storage.sql, "01EJECT00000000000000000013");
+			});
+
+			const ejectedFailures = state.storage.sql
+				.exec<{ delivery_job_id: string }>(
+					"SELECT delivery_job_id FROM ejected_delivery_job_failures",
+				)
+				.toArray();
+
+			expect(ejectedFailures).toStrictEqual([]);
+		});
+	});
+});

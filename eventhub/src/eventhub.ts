@@ -417,9 +417,7 @@ export abstract class EventHub<
 		const deliveryJobId = (eventhubMetadata as Record<string, unknown>)
 			.deliveryJobId;
 		if (typeof deliveryJobId !== "string" || deliveryJobId.length === 0) {
-			throw new Error(
-				"eventhub: deliveryJobId must be a non-empty string",
-			);
+			throw new Error("eventhub: deliveryJobId must be a non-empty string");
 		}
 
 		this.ctx.storage.transactionSync(() =>

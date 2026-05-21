@@ -48,7 +48,9 @@ export type DeliveryJobStatus = {
 	createdAt: string;
 } & DeliveryRetryState;
 
-export type EjectedDeliveryJob = DeliveryJobStatus;
+export type EjectedDeliveryJob = DeliveryJobStatus & {
+	reportedFailureAt: string | null;
+};
 
 export type EjectedPayload = {
 	payload: EventPayload;
@@ -203,6 +205,15 @@ export const initializeSchema = (sql: SqlStorage): void => {
 			delivery_job_id TEXT PRIMARY KEY,
 			reported_at TEXT NOT NULL,
 			FOREIGN KEY (delivery_job_id) REFERENCES delivery_jobs(id)
+		)
+	`);
+	sql.exec(`
+		CREATE TABLE IF NOT EXISTS ejected_delivery_job_failures (
+			ejection_key TEXT NOT NULL,
+			delivery_job_id TEXT NOT NULL,
+			reported_at TEXT NOT NULL,
+			PRIMARY KEY (ejection_key, delivery_job_id),
+			FOREIGN KEY (ejection_key) REFERENCES ejections(key)
 		)
 	`);
 };
@@ -695,23 +706,28 @@ export const listEjected = (
 			last_failed_at: string | null;
 			last_error: string | null;
 			next_retry_at: string;
+			reported_failure_at: string | null;
 		}>(
 			`
 				SELECT
-					id,
-					payload_id,
-					destination,
-					created_at,
-					final_status,
-					finalized_at,
-					retry_count,
-					last_failed_at,
-					last_error,
-					next_retry_at
-				FROM ejected_delivery_jobs
-				WHERE ejection_key = ?
-					AND payload_id IN (${placeholders})
-				ORDER BY created_at ASC, id ASC
+					edj.id,
+					edj.payload_id,
+					edj.destination,
+					edj.created_at,
+					edj.final_status,
+					edj.finalized_at,
+					edj.retry_count,
+					edj.last_failed_at,
+					edj.last_error,
+					edj.next_retry_at,
+					edjf.reported_at AS reported_failure_at
+				FROM ejected_delivery_jobs edj
+				LEFT JOIN ejected_delivery_job_failures edjf
+					ON edjf.ejection_key = edj.ejection_key
+					AND edjf.delivery_job_id = edj.id
+				WHERE edj.ejection_key = ?
+					AND edj.payload_id IN (${placeholders})
+				ORDER BY edj.created_at ASC, edj.id ASC
 			`,
 			ejectionKey,
 			...payloadIds,
@@ -729,6 +745,7 @@ export const listEjected = (
 				lastFailedAt: row.last_failed_at,
 				lastError: row.last_error,
 				nextRetryAt: row.next_retry_at,
+				reportedFailureAt: row.reported_failure_at,
 			}),
 		);
 	const jobsByPayloadId = Map.groupBy(deliveryJobs, (job) => job.payloadId);
@@ -876,7 +893,34 @@ export const ejectPayloads = (
 		ejectKey,
 		...payloadIds,
 	);
+	sql.exec(
+		`
+			INSERT INTO ejected_delivery_job_failures (
+				ejection_key,
+				delivery_job_id,
+				reported_at
+			)
+			SELECT
+				?,
+				djf.delivery_job_id,
+				djf.reported_at
+			FROM delivery_job_failures djf
+			INNER JOIN delivery_jobs dj ON dj.id = djf.delivery_job_id
+			WHERE dj.payload_id IN (${placeholders})
+		`,
+		ejectKey,
+		...payloadIds,
+	);
 
+	sql.exec(
+		`
+			DELETE FROM delivery_job_failures
+			WHERE delivery_job_id IN (
+				SELECT id FROM delivery_jobs WHERE payload_id IN (${placeholders})
+			)
+		`,
+		...payloadIds,
+	);
 	sql.exec(
 		`DELETE FROM delivery_jobs WHERE payload_id IN (${placeholders})`,
 		...payloadIds,
@@ -889,6 +933,13 @@ export const ejectPayloads = (
 };
 
 export const evictEjection = (sql: SqlStorage, ejectKey: string): void => {
+	sql.exec(
+		`
+			DELETE FROM ejected_delivery_job_failures
+			WHERE ejection_key = ?
+		`,
+		ejectKey,
+	);
 	sql.exec(
 		`
 			DELETE FROM ejected_delivery_jobs
