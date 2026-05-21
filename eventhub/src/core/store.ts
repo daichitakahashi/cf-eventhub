@@ -694,7 +694,7 @@ export const listEjected = (
 
 	const payloadIds = payloadRows.map(({ payload_id }) => payload_id);
 	const placeholders = payloadIds.map(() => "?").join(", ");
-		const deliveryJobs = sql
+	const deliveryJobs = sql
 		.exec<{
 			id: string;
 			payload_id: string;

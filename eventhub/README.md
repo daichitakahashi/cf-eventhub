@@ -303,7 +303,7 @@ export default {
 2. Each payload includes `__eventhub__.deliveryJobId` (e.g., `{ type: "member.created", __eventhub__: { deliveryJobId: "01JG..." } }`)
 3. If a consumer fails to process a message after `max_retries`, the message moves to `eventhub-dlq`
 4. The DLQ consumer calls `reportFailure()` with the failed payload
-5. EventHub marks the delivery job as failed using the extracted job ID
+5. EventHub records a consumer-reported failure for the extracted job ID, but the job's `finalStatus` remains unchanged.
 
 ### Benefits
 
