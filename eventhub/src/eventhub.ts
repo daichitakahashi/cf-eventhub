@@ -399,7 +399,11 @@ export abstract class EventHub<
 	 * cannot be extracted.
 	 */
 	async reportFailure(payload: unknown): Promise<void> {
-		if (typeof payload !== "object" || payload === null) {
+		if (
+			typeof payload !== "object" ||
+			payload === null ||
+			Array.isArray(payload)
+		) {
 			throw new Error("eventhub: payload must be an object");
 		}
 
