@@ -964,6 +964,7 @@ export const evictEjection = (sql: SqlStorage, ejectKey: string): void => {
 };
 
 // Records a failure report for a delivery job. Idempotent: first write wins.
+// No-op if the delivery job does not exist (e.g., already ejected or evicted).
 export const recordDeliveryJobFailure = (
 	sql: SqlStorage,
 	deliveryJobId: string,
@@ -973,10 +974,12 @@ export const recordDeliveryJobFailure = (
 	sql.exec(
 		`
 			INSERT INTO delivery_job_failures (delivery_job_id, reported_at)
-			VALUES (?, ?)
+			SELECT ?, ?
+			WHERE EXISTS (SELECT 1 FROM delivery_jobs WHERE id = ?)
 			ON CONFLICT DO NOTHING
 		`,
 		deliveryJobId,
 		reportedAt,
+		deliveryJobId,
 	);
 };

@@ -1520,6 +1520,80 @@ describe("recordDeliveryJobFailure", () => {
 			]);
 		});
 	});
+
+	test("is a no-op when delivery job does not exist", async () => {
+		// 1. Attempt to record a failure for a non-existent delivery job.
+		// 2. Verify no failure record is created and no error is thrown.
+		const stub = getStub("record-failure-missing-job");
+
+		await runInDurableObject(stub, (_instance, state) => {
+			recordDeliveryJobFailure(
+				state.storage.sql,
+				"nonexistent_job_id",
+				new Date("2026-05-04T00:00:10.000Z"),
+			);
+
+			const failures = state.storage.sql
+				.exec<{ delivery_job_id: string; reported_at: string }>(
+					"SELECT delivery_job_id, reported_at FROM delivery_job_failures",
+				)
+				.toArray();
+
+			expect(failures).toStrictEqual([]);
+		});
+	});
+
+	test("is a no-op when delivery job has been ejected", async () => {
+		// 1. Persist a delivery job, complete it, and eject it.
+		// 2. Attempt to record a failure after ejection.
+		// 3. Verify no failure record is created.
+		const stub = getStub("record-failure-after-eject");
+
+		await runInDurableObject(stub, async (_instance, state) => {
+			const pendingDeliveryJobs = createPendingDeliveryJobs(routing, [
+				{ kind: "culture" },
+			]);
+			const jobs = persistDeliveryJobs(
+				state.storage.sql,
+				pendingDeliveryJobs,
+				vi.fn().mockReturnValue("01TEST00000000000000001"),
+				new Date("2026-05-04T00:00:00.000Z"),
+				10_000,
+			);
+
+			const jobId = jobs[0]?.id ?? "";
+
+			// Complete the job so it can be ejected
+			markDeliveryJobsCompleted(
+				state.storage.sql,
+				[jobId],
+				new Date("2026-05-04T00:00:01.000Z"),
+			);
+
+			// Eject the job
+			ejectPayloads(
+				state.storage.sql,
+				new Date("2026-05-04T00:00:02.000Z").getTime(),
+				50,
+				"ejection_001",
+			);
+
+			// Attempt to record failure after ejection
+			recordDeliveryJobFailure(
+				state.storage.sql,
+				jobId,
+				new Date("2026-05-04T00:00:10.000Z"),
+			);
+
+			const failures = state.storage.sql
+				.exec<{ delivery_job_id: string; reported_at: string }>(
+					"SELECT delivery_job_id, reported_at FROM delivery_job_failures",
+				)
+				.toArray();
+
+			expect(failures).toStrictEqual([]);
+		});
+	});
 });
 
 describe("eject and evict with delivery job failures", () => {
