@@ -552,21 +552,21 @@ describe("EventHub integration", () => {
 		await runInDurableObject(stub, async (instance) => {
 			assert(instance instanceof TestEventHub);
 
-			await expect(() =>
-				instance.eject(Date.now(), { max: 101 }),
-			).rejects.toThrow("eventhub: max must be <= 100");
-			await expect(() => instance.listEjected("", {})).rejects.toThrow(
+			await expect(instance.eject(Date.now(), { max: 101 })).rejects.toThrow(
+				"eventhub: max must be <= 100",
+			);
+			await expect(instance.listEjected("", {})).rejects.toThrow(
 				"eventhub: ejectKey must not be empty",
 			);
-			await expect(() =>
+			await expect(
 				instance.listEjected("01EJECT00000000000000000010", { max: 101 }),
 			).rejects.toThrow("eventhub: max must be <= 100");
-			await expect(() =>
+			await expect(
 				instance.listEjected("01EJECT00000000000000000010", {
 					maxBytes: 262_145,
 				}),
 			).rejects.toThrow("eventhub: maxBytes must be <= 262144");
-			await expect(() => instance.evict("")).rejects.toThrow(
+			await expect(instance.evict("")).rejects.toThrow(
 				"eventhub: ejectKey must not be empty",
 			);
 		});
@@ -737,16 +737,16 @@ describe("reportFailure", () => {
 		const stub = getStub("report-failure-not-object");
 
 		await runInDurableObject(stub, async (instance, _state) => {
-			await expect(() =>
+			await expect(
 				(instance as TestEventHub).reportFailure("string"),
 			).rejects.toThrow("eventhub: payload must be an object");
-			await expect(() =>
+			await expect(
 				(instance as TestEventHub).reportFailure(123),
 			).rejects.toThrow("eventhub: payload must be an object");
-			await expect(() =>
+			await expect(
 				(instance as TestEventHub).reportFailure(null),
 			).rejects.toThrow("eventhub: payload must be an object");
-			await expect(() =>
+			await expect(
 				(instance as TestEventHub).reportFailure(undefined),
 			).rejects.toThrow("eventhub: payload must be an object");
 		});
@@ -759,7 +759,7 @@ describe("reportFailure", () => {
 
 		await runInDurableObject(stub, async (instance, _state) => {
 			const payload = { kind: "culture" };
-			await expect(() =>
+			await expect(
 				(instance as TestEventHub).reportFailure(payload),
 			).rejects.toThrow(
 				"eventhub: __eventhub__ metadata not found or invalid in payload",
@@ -774,7 +774,7 @@ describe("reportFailure", () => {
 
 		await runInDurableObject(stub, async (instance, _state) => {
 			const payload = { kind: "culture", __eventhub__: [] };
-			await expect(() =>
+			await expect(
 				(instance as TestEventHub).reportFailure(payload),
 			).rejects.toThrow(
 				"eventhub: __eventhub__ metadata not found or invalid in payload",
@@ -792,7 +792,7 @@ describe("reportFailure", () => {
 				kind: "culture",
 				__eventhub__: { otherField: "value" },
 			};
-			await expect(() =>
+			await expect(
 				(instance as TestEventHub).reportFailure(payload),
 			).rejects.toThrow("eventhub: deliveryJobId must be a non-empty string");
 		});
@@ -808,7 +808,7 @@ describe("reportFailure", () => {
 				kind: "culture",
 				__eventhub__: { deliveryJobId: "" },
 			};
-			await expect(() =>
+			await expect(
 				(instance as TestEventHub).reportFailure(payload),
 			).rejects.toThrow("eventhub: deliveryJobId must be a non-empty string");
 		});
@@ -824,7 +824,7 @@ describe("reportFailure", () => {
 				kind: "culture",
 				__eventhub__: { deliveryJobId: 12345 },
 			};
-			await expect(() =>
+			await expect(
 				(instance as TestEventHub).reportFailure(payload),
 			).rejects.toThrow("eventhub: deliveryJobId must be a non-empty string");
 		});
