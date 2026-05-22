@@ -271,7 +271,7 @@ export abstract class EventHub<
 	 * `options.max` defaults to `50` and must be an integer in the range
 	 * `1..100`.
 	 */
-	eject(before: number, options?: EjectOptions): EjectResult {
+	async eject(before: number, options?: EjectOptions): Promise<EjectResult> {
 		if (!Number.isFinite(before)) {
 			throw new Error("eventhub: before must be a finite number");
 		}
@@ -302,10 +302,10 @@ export abstract class EventHub<
 	 * integer in the range `1..100`. `options.maxBytes` defaults to `262144`
 	 * and must be an integer in the range `1..262144`.
 	 */
-	listEjected(
+	async listEjected(
 		ejectKey: string,
 		options?: ListEjectedOptions,
-	): ListEjectedResult {
+	): Promise<ListEjectedResult> {
 		if (ejectKey.length === 0) {
 			throw new Error("eventhub: ejectKey must not be empty");
 		}
@@ -343,7 +343,7 @@ export abstract class EventHub<
 	 * Removes a previously ejected snapshot. This operation is idempotent.
 	 * @param ejectKey Snapshot key returned by `eject()`.
 	 */
-	evict(ejectKey: string): void {
+	async evict(ejectKey: string): Promise<void> {
 		if (ejectKey.length === 0) {
 			throw new Error("eventhub: ejectKey must not be empty");
 		}
@@ -398,7 +398,7 @@ export abstract class EventHub<
 	 * @throws {Error} If the payload is not an object or if the delivery job ID
 	 * cannot be extracted.
 	 */
-	reportFailure(payload: unknown): void {
+	async reportFailure(payload: unknown): Promise<void> {
 		if (typeof payload !== "object" || payload === null) {
 			throw new Error("eventhub: payload must be an object");
 		}
