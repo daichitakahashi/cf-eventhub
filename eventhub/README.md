@@ -60,13 +60,14 @@ When `includeDeliveryJobId` is `true`, EventHub injects the delivery job ID into
 
 ## Routing
 
-Define routing rules by extending `EventHub` and assigning a `RoutingStrategy` to the `routing` field. Use `routeByConfig()` to create a strategy from a route configuration. The `destination` value must match the binding name of a Queue or R2 bucket. The implementation resolves `env[destination]` directly, so mismatched names will fail at delivery time.
+Define routing rules by extending `EventHub` and assigning a `RoutingStrategy` to the `routing` field. Use `routeByConfig(env, config)` to create a strategy from a route configuration. The `destination` value must match the binding name of a Queue or R2 bucket. The routing strategy resolves destination bindings from the Worker environment, so mismatched names fail when the strategy validates or resolves that destination.
 
 ```ts
+import { env } from "cloudflare:workers";
 import { EventHub, routeByConfig } from "eventhub";
 
 export class MyEventHub extends EventHub<Env> {
-  routing = routeByConfig<Env>({
+  routing = routeByConfig(env, {
     routes: [
       {
         condition: {
@@ -243,6 +244,7 @@ EventHub supports consumer-reported failures through the `reportFailure()` metho
 ### EventHub Configuration
 
 ```ts
+import { env } from "cloudflare:workers";
 import { EventHub, configureDelivery, routeByConfig } from "eventhub";
 
 export class MyEventHub extends EventHub<Env> {
@@ -251,7 +253,7 @@ export class MyEventHub extends EventHub<Env> {
     includeDeliveryJobId: true,
   });
 
-  routing = routeByConfig<Env>({
+  routing = routeByConfig(env, {
     routes: [
       {
         condition: { path: "$.type", exact: "member.created" },

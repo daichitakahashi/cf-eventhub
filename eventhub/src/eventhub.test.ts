@@ -898,9 +898,9 @@ describe("reportFailure", () => {
 			});
 
 			const failures = state.storage.sql
-				.exec<{ delivery_job_id: string }>(
-					"SELECT delivery_job_id FROM delivery_job_failures",
-				)
+				.exec<{
+					delivery_job_id: string;
+				}>("SELECT delivery_job_id FROM delivery_job_failures")
 				.toArray();
 
 			expect({ recorded, failures }).toStrictEqual({
@@ -932,20 +932,35 @@ describe("includeDeliveryJobId configuration", () => {
 
 	test("delivers successfully when includeDeliveryJobId is true", async () => {
 		// 1. Configure EventHub with includeDeliveryJobId: true.
-		// 2. Publish a payload and verify delivery completes.
+		// 2. Publish a payload and verify delivery completes with the injected job ID.
 		const stub = getStubWithJobId(
 			"with-job-id",
 		) as DurableObjectStub<TestEventHubWithJobId>;
-		const payload = { kind: "culture" };
+		const payload = { type: "queue" };
 
 		await stub.publish(payload);
 
 		await vi.waitFor(async () => {
-			await runInDurableObject(stub, async (_instance, state) => {
+			await runInDurableObject(stub, async (instance, state) => {
 				const jobs = state.storage.sql
-					.exec<DeliveryJobRow>("SELECT finalized_at FROM delivery_jobs")
+					.exec<
+						Pick<DeliveryJobRow, "id" | "finalized_at">
+					>("SELECT id, finalized_at FROM delivery_jobs")
 					.toArray();
 				expect(jobs).toMatchObject([{ finalized_at: expect.any(String) }]);
+				expect(
+					(instance as TestEventHubWithJobId).queue.sentBatches,
+				).toStrictEqual([
+					[
+						{
+							body: {
+								...payload,
+								__eventhub__: { deliveryJobId: jobs[0]?.id },
+							},
+							contentType: "json",
+						},
+					],
+				]);
 			});
 		});
 	});
@@ -957,7 +972,7 @@ describe("includeDeliveryJobId configuration", () => {
 		const stub = getStubWithJobId(
 			"db-without-job-id",
 		) as DurableObjectStub<TestEventHubWithJobId>;
-		const payload = { kind: "culture" };
+		const payload = { type: "queue" };
 
 		await stub.publish(payload);
 

@@ -211,7 +211,7 @@ export abstract class EventHub<
 		}
 
 		await deliverPersistedJobs(
-			this.env,
+			this.routing,
 			targetJobs,
 			{
 				onDelivered: async (jobIds) => {
@@ -247,7 +247,7 @@ export abstract class EventHub<
 			payload,
 			...rest,
 		]);
-		assertDestinationBindingsExist(this.env, pendingDeliveryJobs);
+		assertDestinationBindingsExist(this.routing, pendingDeliveryJobs);
 
 		const persistedJobs = this.ctx.storage.transactionSync(() =>
 			persistDeliveryJobs(

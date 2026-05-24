@@ -219,15 +219,15 @@ export const initializeSchema = (sql: SqlStorage): void => {
 };
 
 // Evaluates routing rules and builds a persistence plan for each payload.
-export const createPendingDeliveryJobs = <Env extends Record<string, unknown>>(
+export const createPendingDeliveryJobs = <Env extends object>(
 	routing: RoutingStrategy<Env>,
 	payloads: readonly [EventPayload, ...EventPayload[]],
 ): PendingDeliveryJobs => ({
 	payloads: payloads.map((payload) => ({
 		payload,
-		destinations: routing
-			.findRoutes(payload)
-			.map(({ destination }) => String(destination)),
+		destinations: routing.findRoutes(payload).map(({ destination }) =>
+			String(destination),
+		),
 	})),
 });
 
