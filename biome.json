@@ -48,6 +48,7 @@
       "R2PutOptions",
       "R2MultipartUpload",
       "DurableObjectState",
+      "DurableObjectStub",
       "SqlStorage",
       "SqlStorageValue",
       "SqlStorageStatement",

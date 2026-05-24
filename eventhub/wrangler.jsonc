@@ -9,7 +9,7 @@
 	"compatibility_date": "2026-05-02",
 	"migrations": [
 		{
-			"new_sqlite_classes": ["TestEventHub"],
+			"new_sqlite_classes": ["TestEventHub", "TestEventHubWithJobId"],
 			"tag": "v1",
 		},
 	],
@@ -18,6 +18,10 @@
 			{
 				"class_name": "TestEventHub",
 				"name": "EVENT_HUB",
+			},
+			{
+				"class_name": "TestEventHubWithJobId",
+				"name": "EVENT_HUB_WITH_JOB_ID",
 			},
 		],
 	},

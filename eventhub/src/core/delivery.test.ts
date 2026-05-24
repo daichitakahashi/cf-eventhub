@@ -289,10 +289,14 @@ describe("deliverJobs", () => {
 			},
 		]);
 
-		await deliverJobs(jobs, {
-			onDelivered: noopOnDelivered,
-			onFailed: noopOnFailed,
-		});
+		await deliverJobs(
+			jobs,
+			{
+				onDelivered: noopOnDelivered,
+				onFailed: noopOnFailed,
+			},
+			false,
+		);
 
 		expect(env.OKAYAMA.sentBatches).toStrictEqual([
 			[{ body: payload1, contentType: "json" }],
@@ -321,10 +325,14 @@ describe("deliverJobs", () => {
 			})),
 		);
 
-		await deliverJobs(jobs, {
-			onDelivered: noopOnDelivered,
-			onFailed: noopOnFailed,
-		});
+		await deliverJobs(
+			jobs,
+			{
+				onDelivered: noopOnDelivered,
+				onFailed: noopOnFailed,
+			},
+			false,
+		);
 
 		expect(env.OKAYAMA.sentBatches.map((batch) => batch.length)).toStrictEqual([
 			100, 1,
@@ -368,10 +376,14 @@ describe("deliverJobs", () => {
 			},
 		]);
 
-		await deliverJobs(jobs, {
-			onDelivered: noopOnDelivered,
-			onFailed: noopOnFailed,
-		});
+		await deliverJobs(
+			jobs,
+			{
+				onDelivered: noopOnDelivered,
+				onFailed: noopOnFailed,
+			},
+			false,
+		);
 
 		expect((env.ARCHIVE as unknown as R2BucketMock).objects).toStrictEqual(
 			new Map([
@@ -404,12 +416,16 @@ describe("deliverJobs", () => {
 		);
 		const delivered: string[][] = [];
 
-		await deliverJobs(jobs, {
-			onDelivered: async (jobIds) => {
-				delivered.push([...jobIds]);
+		await deliverJobs(
+			jobs,
+			{
+				onDelivered: async (jobIds) => {
+					delivered.push([...jobIds]);
+				},
+				onFailed: noopOnFailed,
 			},
-			onFailed: noopOnFailed,
-		});
+			false,
+		);
 
 		expect(delivered).toMatchObject([
 			Array.from({ length: 100 }, () => expect.any(String)),
@@ -442,7 +458,7 @@ describe("deliverJobs", () => {
 			},
 		]);
 
-		await deliverJobs(jobs, { onDelivered, onFailed });
+		await deliverJobs(jobs, { onDelivered, onFailed }, false);
 
 		expect(onFailed).toHaveBeenCalledTimes(1);
 		expect(onFailed.mock.calls[0]?.[0]).toStrictEqual([
@@ -481,7 +497,7 @@ describe("deliverJobs", () => {
 			},
 		]);
 
-		await deliverJobs(jobs, { onDelivered, onFailed });
+		await deliverJobs(jobs, { onDelivered, onFailed }, false);
 
 		expect(onFailed).toHaveBeenCalledTimes(1);
 		expect(onFailed.mock.calls[0]?.[0]).toStrictEqual([
@@ -522,6 +538,7 @@ describe("deliverPersistedJobs", () => {
 				},
 			],
 			{ onDelivered, onFailed },
+			false,
 		);
 
 		expect(onFailed).toHaveBeenCalledTimes(1);
@@ -570,6 +587,7 @@ describe("deliverPersistedJobs", () => {
 				},
 			],
 			{ onDelivered, onFailed },
+			false,
 		);
 
 		expect(onFailed).toHaveBeenCalledTimes(1);
@@ -581,5 +599,184 @@ describe("deliverPersistedJobs", () => {
 			"01TEST00000000000000000032",
 		]);
 		expect(archive.objects.size).toBe(0);
+	});
+
+	test("injects delivery job ID when includeDeliveryJobId is true for Queue", async () => {
+		// 1. Deliver jobs to a Queue with includeDeliveryJobId enabled.
+		// 2. Verify the sent payloads include __eventhub__.deliveryJobId.
+		const env = createEnv();
+		const payload = { kind: "culture", avoidUrban: true };
+		const jobs = resolveDeliveryJobs(env, [
+			{
+				id: "01TEST00000000000000000001",
+				payloadId: "01TEST00000000000000000000",
+				destination: "OKAYAMA",
+				payload,
+			},
+		]);
+
+		await deliverJobs(
+			jobs,
+			{
+				onDelivered: noopOnDelivered,
+				onFailed: noopOnFailed,
+			},
+			true,
+		);
+
+		expect(env.OKAYAMA.sentBatches).toStrictEqual([
+			[
+				{
+					body: {
+						...payload,
+						__eventhub__: { deliveryJobId: "01TEST00000000000000000001" },
+					},
+					contentType: "json",
+				},
+			],
+		]);
+	});
+
+	test("injects delivery job ID when includeDeliveryJobId is true for R2", async () => {
+		// 1. Deliver jobs to an R2 bucket with includeDeliveryJobId enabled.
+		// 2. Verify the stored payload includes __eventhub__.deliveryJobId.
+		const env = createEnv();
+		const payload = { kind: "archive", avoidUrban: false };
+		const jobs = resolveDeliveryJobs(env, [
+			{
+				id: "01TEST00000000000000000011",
+				payloadId: "01TEST00000000000000000010",
+				destination: "ARCHIVE",
+				payload,
+			},
+		]);
+
+		await deliverJobs(
+			jobs,
+			{
+				onDelivered: noopOnDelivered,
+				onFailed: noopOnFailed,
+			},
+			true,
+		);
+
+		const archive = env.ARCHIVE as unknown as R2BucketMock;
+		const stored = archive.objects.get(
+			"01TEST00000000000000000010/01TEST00000000000000000011.json",
+		);
+		expect(stored).toBeDefined();
+		expect(JSON.parse(stored?.body ?? "{}")).toStrictEqual({
+			...payload,
+			__eventhub__: { deliveryJobId: "01TEST00000000000000000011" },
+		});
+	});
+
+	test("merges delivery job ID with existing __eventhub__ object", async () => {
+		// 1. Deliver a payload that already has an __eventhub__ object.
+		// 2. Verify the delivery job ID is merged, preserving existing fields.
+		const env = createEnv();
+		const payload = {
+			kind: "culture",
+			__eventhub__: { customField: "value" },
+		};
+		const jobs = resolveDeliveryJobs(env, [
+			{
+				id: "01TEST00000000000000000002",
+				payloadId: "01TEST00000000000000000000",
+				destination: "OKAYAMA",
+				payload,
+			},
+		]);
+
+		await deliverJobs(
+			jobs,
+			{
+				onDelivered: noopOnDelivered,
+				onFailed: noopOnFailed,
+			},
+			true,
+		);
+
+		expect(env.OKAYAMA.sentBatches).toStrictEqual([
+			[
+				{
+					body: {
+						kind: "culture",
+						__eventhub__: {
+							customField: "value",
+							deliveryJobId: "01TEST00000000000000000002",
+						},
+					},
+					contentType: "json",
+				},
+			],
+		]);
+	});
+
+	test("replaces non-object __eventhub__ with delivery job ID", async () => {
+		// 1. Deliver a payload with __eventhub__ set to a non-object value.
+		// 2. Verify the value is replaced with an object containing the delivery job ID.
+		const env = createEnv();
+		const payloadWithArray = {
+			kind: "culture",
+			__eventhub__: ["not", "an", "object"],
+		};
+		const jobs = resolveDeliveryJobs(env, [
+			{
+				id: "01TEST00000000000000000003",
+				payloadId: "01TEST00000000000000000000",
+				destination: "OKAYAMA",
+				payload: payloadWithArray,
+			},
+		]);
+
+		await deliverJobs(
+			jobs,
+			{
+				onDelivered: noopOnDelivered,
+				onFailed: noopOnFailed,
+			},
+			true,
+		);
+
+		expect(env.OKAYAMA.sentBatches).toStrictEqual([
+			[
+				{
+					body: {
+						kind: "culture",
+						__eventhub__: { deliveryJobId: "01TEST00000000000000000003" },
+					},
+					contentType: "json",
+				},
+			],
+		]);
+	});
+
+	test("does not modify original payload when injecting job ID", async () => {
+		// 1. Deliver a payload with includeDeliveryJobId enabled.
+		// 2. Verify the original payload object is not mutated.
+		const env = createEnv();
+		const payload = { kind: "culture", avoidUrban: true };
+		const payloadCopy = { ...payload };
+		const jobs = resolveDeliveryJobs(env, [
+			{
+				id: "01TEST00000000000000000004",
+				payloadId: "01TEST00000000000000000000",
+				destination: "OKAYAMA",
+				payload,
+			},
+		]);
+
+		await deliverJobs(
+			jobs,
+			{
+				onDelivered: noopOnDelivered,
+				onFailed: noopOnFailed,
+			},
+			true,
+		);
+
+		expect(payload).toStrictEqual(payloadCopy);
+		expect(payload).not.toHaveProperty("__eventhub__");
 	});
 });

@@ -20,6 +20,7 @@ import {
 	markDeliveryJobsCompleted,
 	markDeliveryJobsFailed,
 	persistDeliveryJobs,
+	recordDeliveryJobFailure,
 } from "./core/store";
 import type { EventPayload } from "./core/type";
 
@@ -57,6 +58,13 @@ export type DeliveryConfig = {
 	 * @default 900000 (15 minutes)
 	 */
 	maxRetryDelayMs: number;
+
+	/**
+	 * Whether to include the delivery job ID in the payload sent to destinations.
+	 * When enabled, the job ID is added at path `$.__eventhub__.deliveryJobId`.
+	 * @default false
+	 */
+	includeDeliveryJobId: boolean;
 };
 
 export type EjectOptions = {
@@ -93,6 +101,7 @@ const DEFAULT_ALARM_BATCH_SIZE = 50;
 const DEFAULT_MAX_DELIVERY_RETRIES = 10;
 const DEFAULT_INITIAL_RETRY_DELAY_MS = 10_000;
 const DEFAULT_MAX_RETRY_DELAY_MS = 900_000;
+const DEFAULT_INCLUDE_DELIVERY_JOB_ID = false;
 
 const assertPositiveInteger = (v: number, name: string) => {
 	if (Number.isInteger(v) && v > 0) return;
@@ -100,7 +109,22 @@ const assertPositiveInteger = (v: number, name: string) => {
 };
 
 /**
- * Configure delivery retry settings.
+ * Configure delivery retry settings and behavior.
+ *
+ * @example
+ * ```ts
+ * import { EventHub, configureDelivery } from "eventhub";
+ *
+ * export class MyEventHub extends EventHub<Env> {
+ *   deliveryConfig = configureDelivery({
+ *     includeDeliveryJobId: true,  // Enable job ID injection for reportFailure()
+ *     initialRetryDelayMs: 5000,   // Start retry after 5 seconds
+ *     maxRetryDelayMs: 300000,     // Cap retry delay at 5 minutes
+ *     maxDeliveryRetries: 10,      // Retry up to 10 times
+ *     alarmBatchSize: 100,         // Process 100 jobs per alarm
+ *   });
+ * }
+ * ```
  */
 export const configureDelivery = (
 	c: Partial<DeliveryConfig>,
@@ -111,6 +135,7 @@ export const configureDelivery = (
 		maxDeliveryRetries: DEFAULT_MAX_DELIVERY_RETRIES,
 		initialRetryDelayMs: DEFAULT_INITIAL_RETRY_DELAY_MS,
 		maxRetryDelayMs: DEFAULT_MAX_RETRY_DELAY_MS,
+		includeDeliveryJobId: DEFAULT_INCLUDE_DELIVERY_JOB_ID,
 		...c,
 	};
 
@@ -185,25 +210,30 @@ export abstract class EventHub<
 			return;
 		}
 
-		await deliverPersistedJobs(this.env, targetJobs, {
-			onDelivered: async (jobIds) => {
-				this.ctx.storage.transactionSync(() => {
-					markDeliveryJobsCompleted(this.ctx.storage.sql, jobIds);
-				});
+		await deliverPersistedJobs(
+			this.env,
+			targetJobs,
+			{
+				onDelivered: async (jobIds) => {
+					this.ctx.storage.transactionSync(() => {
+						markDeliveryJobsCompleted(this.ctx.storage.sql, jobIds);
+					});
+				},
+				onFailed: async (jobIds, error) => {
+					this.ctx.storage.transactionSync(() => {
+						markDeliveryJobsFailed(
+							this.ctx.storage.sql,
+							jobIds,
+							this.deliveryConfig.maxDeliveryRetries,
+							this.deliveryConfig.initialRetryDelayMs,
+							this.deliveryConfig.maxRetryDelayMs,
+							error,
+						);
+					});
+				},
 			},
-			onFailed: async (jobIds, error) => {
-				this.ctx.storage.transactionSync(() => {
-					markDeliveryJobsFailed(
-						this.ctx.storage.sql,
-						jobIds,
-						this.deliveryConfig.maxDeliveryRetries,
-						this.deliveryConfig.initialRetryDelayMs,
-						this.deliveryConfig.maxRetryDelayMs,
-						error,
-					);
-				});
-			},
-		});
+			this.deliveryConfig.includeDeliveryJobId,
+		);
 		await this.scheduleNextAlarmFromStorage();
 	}
 
@@ -241,7 +271,7 @@ export abstract class EventHub<
 	 * `options.max` defaults to `50` and must be an integer in the range
 	 * `1..100`.
 	 */
-	eject(before: number, options?: EjectOptions): EjectResult {
+	async eject(before: number, options?: EjectOptions): Promise<EjectResult> {
 		if (!Number.isFinite(before)) {
 			throw new Error("eventhub: before must be a finite number");
 		}
@@ -272,10 +302,10 @@ export abstract class EventHub<
 	 * integer in the range `1..100`. `options.maxBytes` defaults to `262144`
 	 * and must be an integer in the range `1..262144`.
 	 */
-	listEjected(
+	async listEjected(
 		ejectKey: string,
 		options?: ListEjectedOptions,
-	): ListEjectedResult {
+	): Promise<ListEjectedResult> {
 		if (ejectKey.length === 0) {
 			throw new Error("eventhub: ejectKey must not be empty");
 		}
@@ -313,7 +343,7 @@ export abstract class EventHub<
 	 * Removes a previously ejected snapshot. This operation is idempotent.
 	 * @param ejectKey Snapshot key returned by `eject()`.
 	 */
-	evict(ejectKey: string): void {
+	async evict(ejectKey: string): Promise<void> {
 		if (ejectKey.length === 0) {
 			throw new Error("eventhub: ejectKey must not be empty");
 		}
@@ -328,5 +358,76 @@ export abstract class EventHub<
 	 */
 	async alarm(): Promise<void> {
 		await this.deliverPersistedJobs();
+	}
+
+	/**
+	 * Records a consumer-reported failure for a delivery job. This operation is
+	 * idempotent: the first call for a given job ID records the failure, and
+	 * subsequent calls have no effect.
+	 *
+	 * **Typical Usage: Dead-Letter Queue Consumer**
+	 *
+	 * The recommended pattern is to configure a shared DLQ for all EventHub
+	 * destination queues and call `reportFailure()` from the DLQ consumer:
+	 *
+	 * ```ts
+	 * // DLQ consumer
+	 * export default {
+	 *   async queue(batch: MessageBatch, env: Env): Promise<void> {
+	 *     const hub = env.EVENT_HUB.get(env.EVENT_HUB.idFromName("default"));
+	 *
+	 *     for (const message of batch.messages) {
+	 *       try {
+	 *         await hub.reportFailure(message.body);
+	 *         message.ack();
+	 *       } catch (error) {
+	 *         console.error("Failed to report failure:", error);
+	 *         message.retry();
+	 *       }
+	 *     }
+	 *   },
+	 * };
+	 * ```
+	 *
+	 * **Prerequisites:**
+	 * - Set `includeDeliveryJobId: true` in your `deliveryConfig`
+	 * - Configure DLQs for your destination queues in `wrangler.jsonc`
+	 *
+	 * @param payload The payload that was delivered. Must be an object containing
+	 * a delivery job ID at `__eventhub__.deliveryJobId`.
+	 * @returns `true` when a new failure record is written, or `false` when no
+	 * record is added because the job was already recorded or no longer exists.
+	 * @throws {Error} If the payload is not an object or if the delivery job ID
+	 * cannot be extracted.
+	 */
+	async reportFailure(payload: unknown): Promise<boolean> {
+		if (
+			typeof payload !== "object" ||
+			payload === null ||
+			Array.isArray(payload)
+		) {
+			throw new Error("eventhub: payload must be an object");
+		}
+
+		const eventhubMetadata = (payload as Record<string, unknown>).__eventhub__;
+		if (
+			typeof eventhubMetadata !== "object" ||
+			eventhubMetadata === null ||
+			Array.isArray(eventhubMetadata)
+		) {
+			throw new Error(
+				"eventhub: __eventhub__ metadata not found or invalid in payload",
+			);
+		}
+
+		const deliveryJobId = (eventhubMetadata as Record<string, unknown>)
+			.deliveryJobId;
+		if (typeof deliveryJobId !== "string" || deliveryJobId.length === 0) {
+			throw new Error("eventhub: deliveryJobId must be a non-empty string");
+		}
+
+		return this.ctx.storage.transactionSync(() =>
+			recordDeliveryJobFailure(this.ctx.storage.sql, deliveryJobId),
+		);
 	}
 }

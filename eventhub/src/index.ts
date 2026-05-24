@@ -6,7 +6,7 @@ export type {
 	ListEjectedResult,
 } from "./core/store";
 export type { EventPayload, JSONObject } from "./core/type";
-export { EventHub } from "./eventhub";
+export { configureDelivery, EventHub } from "./eventhub";
 export type {
 	DeliveryConfig,
 	EjectOptions,
