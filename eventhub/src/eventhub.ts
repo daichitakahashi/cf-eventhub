@@ -395,10 +395,12 @@ export abstract class EventHub<
 	 *
 	 * @param payload The payload that was delivered. Must be an object containing
 	 * a delivery job ID at `__eventhub__.deliveryJobId`.
+	 * @returns `true` when a new failure record is written, or `false` when no
+	 * record is added because the job was already recorded or no longer exists.
 	 * @throws {Error} If the payload is not an object or if the delivery job ID
 	 * cannot be extracted.
 	 */
-	async reportFailure(payload: unknown): Promise<void> {
+	async reportFailure(payload: unknown): Promise<boolean> {
 		if (
 			typeof payload !== "object" ||
 			payload === null ||
@@ -424,7 +426,7 @@ export abstract class EventHub<
 			throw new Error("eventhub: deliveryJobId must be a non-empty string");
 		}
 
-		this.ctx.storage.transactionSync(() =>
+		return this.ctx.storage.transactionSync(() =>
 			recordDeliveryJobFailure(this.ctx.storage.sql, deliveryJobId),
 		);
 	}

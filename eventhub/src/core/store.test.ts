@@ -1397,18 +1397,20 @@ describe("recordDeliveryJobFailure", () => {
 				new Date("2026-05-04T00:00:00.000Z"),
 			);
 
-			recordDeliveryJobFailure(
+			const recorded = recordDeliveryJobFailure(
 				state.storage.sql,
 				jobs[0]?.id ?? "",
 				new Date("2026-05-04T00:00:10.000Z"),
 			);
 
 			const failures = state.storage.sql
-				.exec<{ delivery_job_id: string; reported_at: string }>(
-					"SELECT delivery_job_id, reported_at FROM delivery_job_failures",
-				)
+				.exec<{
+					delivery_job_id: string;
+					reported_at: string;
+				}>("SELECT delivery_job_id, reported_at FROM delivery_job_failures")
 				.toArray();
 
+			expect(recorded).toBe(true);
 			expect(failures).toStrictEqual([
 				{
 					delivery_job_id: jobs[0]?.id,
@@ -1435,23 +1437,28 @@ describe("recordDeliveryJobFailure", () => {
 				new Date("2026-05-04T00:00:00.000Z"),
 			);
 
-			recordDeliveryJobFailure(
+			const firstRecorded = recordDeliveryJobFailure(
 				state.storage.sql,
 				jobs[0]?.id ?? "",
 				new Date("2026-05-04T00:00:10.000Z"),
 			);
-			recordDeliveryJobFailure(
+			const secondRecorded = recordDeliveryJobFailure(
 				state.storage.sql,
 				jobs[0]?.id ?? "",
 				new Date("2026-05-04T00:00:20.000Z"),
 			);
 
 			const failures = state.storage.sql
-				.exec<{ delivery_job_id: string; reported_at: string }>(
-					"SELECT delivery_job_id, reported_at FROM delivery_job_failures",
-				)
+				.exec<{
+					delivery_job_id: string;
+					reported_at: string;
+				}>("SELECT delivery_job_id, reported_at FROM delivery_job_failures")
 				.toArray();
 
+			expect({ firstRecorded, secondRecorded }).toStrictEqual({
+				firstRecorded: true,
+				secondRecorded: false,
+			});
 			expect(failures).toStrictEqual([
 				{
 					delivery_job_id: jobs[0]?.id,
@@ -1482,28 +1489,32 @@ describe("recordDeliveryJobFailure", () => {
 				new Date("2026-05-04T00:00:00.000Z"),
 			);
 
-			recordDeliveryJobFailure(
-				state.storage.sql,
-				jobs[0]?.id ?? "",
-				new Date("2026-05-04T00:00:10.000Z"),
-			);
-			recordDeliveryJobFailure(
-				state.storage.sql,
-				jobs[1]?.id ?? "",
-				new Date("2026-05-04T00:00:15.000Z"),
-			);
-			recordDeliveryJobFailure(
-				state.storage.sql,
-				jobs[2]?.id ?? "",
-				new Date("2026-05-04T00:00:20.000Z"),
-			);
+			const recorded = [
+				recordDeliveryJobFailure(
+					state.storage.sql,
+					jobs[0]?.id ?? "",
+					new Date("2026-05-04T00:00:10.000Z"),
+				),
+				recordDeliveryJobFailure(
+					state.storage.sql,
+					jobs[1]?.id ?? "",
+					new Date("2026-05-04T00:00:15.000Z"),
+				),
+				recordDeliveryJobFailure(
+					state.storage.sql,
+					jobs[2]?.id ?? "",
+					new Date("2026-05-04T00:00:20.000Z"),
+				),
+			];
 
 			const failures = state.storage.sql
-				.exec<{ delivery_job_id: string; reported_at: string }>(
-					"SELECT delivery_job_id, reported_at FROM delivery_job_failures ORDER BY reported_at",
-				)
+				.exec<{
+					delivery_job_id: string;
+					reported_at: string;
+				}>("SELECT delivery_job_id, reported_at FROM delivery_job_failures ORDER BY reported_at")
 				.toArray();
 
+			expect(recorded).toStrictEqual([true, true, true]);
 			expect(failures).toStrictEqual([
 				{
 					delivery_job_id: jobs[0]?.id,
@@ -1527,18 +1538,20 @@ describe("recordDeliveryJobFailure", () => {
 		const stub = getStub("record-failure-missing-job");
 
 		await runInDurableObject(stub, (_instance, state) => {
-			recordDeliveryJobFailure(
+			const recorded = recordDeliveryJobFailure(
 				state.storage.sql,
 				"nonexistent_job_id",
 				new Date("2026-05-04T00:00:10.000Z"),
 			);
 
 			const failures = state.storage.sql
-				.exec<{ delivery_job_id: string; reported_at: string }>(
-					"SELECT delivery_job_id, reported_at FROM delivery_job_failures",
-				)
+				.exec<{
+					delivery_job_id: string;
+					reported_at: string;
+				}>("SELECT delivery_job_id, reported_at FROM delivery_job_failures")
 				.toArray();
 
+			expect(recorded).toBe(false);
 			expect(failures).toStrictEqual([]);
 		});
 	});
@@ -1579,18 +1592,20 @@ describe("recordDeliveryJobFailure", () => {
 			);
 
 			// Attempt to record failure after ejection
-			recordDeliveryJobFailure(
+			const recorded = recordDeliveryJobFailure(
 				state.storage.sql,
 				jobId,
 				new Date("2026-05-04T00:00:10.000Z"),
 			);
 
 			const failures = state.storage.sql
-				.exec<{ delivery_job_id: string; reported_at: string }>(
-					"SELECT delivery_job_id, reported_at FROM delivery_job_failures",
-				)
+				.exec<{
+					delivery_job_id: string;
+					reported_at: string;
+				}>("SELECT delivery_job_id, reported_at FROM delivery_job_failures")
 				.toArray();
 
+			expect(recorded).toBe(false);
 			expect(failures).toStrictEqual([]);
 		});
 	});
@@ -1672,9 +1687,9 @@ describe("eject and evict with delivery job failures", () => {
 
 			// Verify original failure records are deleted
 			const remainingFailures = state.storage.sql
-				.exec<{ delivery_job_id: string }>(
-					"SELECT delivery_job_id FROM delivery_job_failures",
-				)
+				.exec<{
+					delivery_job_id: string;
+				}>("SELECT delivery_job_id FROM delivery_job_failures")
 				.toArray();
 
 			expect(remainingFailures).toStrictEqual([]);
@@ -1845,9 +1860,9 @@ describe("eject and evict with delivery job failures", () => {
 			});
 
 			const ejectedFailures = state.storage.sql
-				.exec<{ delivery_job_id: string }>(
-					"SELECT delivery_job_id FROM ejected_delivery_job_failures",
-				)
+				.exec<{
+					delivery_job_id: string;
+				}>("SELECT delivery_job_id FROM ejected_delivery_job_failures")
 				.toArray();
 
 			expect(ejectedFailures).toStrictEqual([]);

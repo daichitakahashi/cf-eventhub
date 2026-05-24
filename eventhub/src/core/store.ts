@@ -969,17 +969,22 @@ export const recordDeliveryJobFailure = (
 	sql: SqlStorage,
 	deliveryJobId: string,
 	now = new Date(),
-): void => {
+): boolean => {
 	const reportedAt = now.toISOString();
-	sql.exec(
-		`
-			INSERT INTO delivery_job_failures (delivery_job_id, reported_at)
-			SELECT ?, ?
-			WHERE EXISTS (SELECT 1 FROM delivery_jobs WHERE id = ?)
-			ON CONFLICT DO NOTHING
-		`,
-		deliveryJobId,
-		reportedAt,
-		deliveryJobId,
+	return (
+		sql
+			.exec<{ delivery_job_id: string }>(
+				`
+					INSERT INTO delivery_job_failures (delivery_job_id, reported_at)
+					SELECT ?, ?
+					WHERE EXISTS (SELECT 1 FROM delivery_jobs WHERE id = ?)
+					ON CONFLICT DO NOTHING
+					RETURNING delivery_job_id
+				`,
+				deliveryJobId,
+				reportedAt,
+				deliveryJobId,
+			)
+			.toArray().length > 0
 	);
 };

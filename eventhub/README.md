@@ -200,7 +200,7 @@ Notes:
 
 ## Failure Reporting with Dead-Letter Queues
 
-EventHub supports consumer-reported failures through the `reportFailure()` method. The recommended pattern is to configure a shared dead-letter queue (DLQ) for all EventHub destination queues and have the DLQ consumer call `reportFailure()` to record a separate consumer-reported failure for the failed payload. This does not change `finalStatus` for the original delivery job.
+EventHub supports consumer-reported failures through the `reportFailure()` method. The recommended pattern is to configure a shared dead-letter queue (DLQ) for all EventHub destination queues and have the DLQ consumer call `reportFailure()` to record a separate consumer-reported failure for the failed payload. This does not change `finalStatus` for the original delivery job. `reportFailure()` returns `true` when it actually writes a new failure record, or `false` when the failure was already recorded or the job no longer exists.
 
 ### Setup Overview
 

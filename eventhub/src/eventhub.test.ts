@@ -675,7 +675,7 @@ describe("reportFailure", () => {
 				kind: "culture",
 				__eventhub__: { deliveryJobId: jobs[0]?.id ?? "" },
 			};
-			await (instance as TestEventHub).reportFailure(payload);
+			const recorded = await (instance as TestEventHub).reportFailure(payload);
 
 			const failures = state.storage.sql
 				.exec<{
@@ -684,6 +684,7 @@ describe("reportFailure", () => {
 				}>("SELECT delivery_job_id, reported_at FROM delivery_job_failures")
 				.toArray();
 
+			expect(recorded).toBe(true);
 			expect(failures).toMatchObject([
 				{
 					delivery_job_id: jobs[0]?.id,
@@ -713,7 +714,9 @@ describe("reportFailure", () => {
 				__eventhub__: { deliveryJobId: jobs[0]?.id ?? "" },
 			};
 
-			await (instance as TestEventHub).reportFailure(payload);
+			const firstRecorded = await (instance as TestEventHub).reportFailure(
+				payload,
+			);
 			const firstFailures = state.storage.sql
 				.exec<{
 					delivery_job_id: string;
@@ -721,7 +724,9 @@ describe("reportFailure", () => {
 				}>("SELECT delivery_job_id, reported_at FROM delivery_job_failures")
 				.toArray();
 
-			await (instance as TestEventHub).reportFailure(payload);
+			const secondRecorded = await (instance as TestEventHub).reportFailure(
+				payload,
+			);
 			const secondFailures = state.storage.sql
 				.exec<{
 					delivery_job_id: string;
@@ -729,6 +734,10 @@ describe("reportFailure", () => {
 				}>("SELECT delivery_job_id, reported_at FROM delivery_job_failures")
 				.toArray();
 
+			expect({ firstRecorded, secondRecorded }).toStrictEqual({
+				firstRecorded: true,
+				secondRecorded: false,
+			});
 			expect(firstFailures).toStrictEqual(secondFailures);
 		});
 	});
@@ -856,8 +865,10 @@ describe("reportFailure", () => {
 				__eventhub__: { deliveryJobId: jobs[1]?.id ?? "" },
 			};
 
-			await (instance as TestEventHub).reportFailure(payload1);
-			await (instance as TestEventHub).reportFailure(payload2);
+			const recorded = await Promise.all([
+				(instance as TestEventHub).reportFailure(payload1),
+				(instance as TestEventHub).reportFailure(payload2),
+			]);
 
 			const failures = state.storage.sql
 				.exec<{
@@ -867,10 +878,35 @@ describe("reportFailure", () => {
 				)
 				.toArray();
 
+			expect(recorded).toStrictEqual([true, true]);
 			expect(failures).toMatchObject([
 				{ delivery_job_id: jobs[0]?.id },
 				{ delivery_job_id: jobs[1]?.id },
 			]);
+		});
+	});
+
+	test("returns false when the delivery job no longer exists", async () => {
+		// 1. Call reportFailure with a valid-looking job ID that is not stored.
+		// 2. Verify the method returns false and no failure record is created.
+		const stub = getStub("report-failure-missing-job");
+
+		await runInDurableObject(stub, async (instance, state) => {
+			const recorded = await (instance as TestEventHub).reportFailure({
+				kind: "culture",
+				__eventhub__: { deliveryJobId: "missing_job_id" },
+			});
+
+			const failures = state.storage.sql
+				.exec<{ delivery_job_id: string }>(
+					"SELECT delivery_job_id FROM delivery_job_failures",
+				)
+				.toArray();
+
+			expect({ recorded, failures }).toStrictEqual({
+				recorded: false,
+				failures: [],
+			});
 		});
 	});
 });
