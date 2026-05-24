@@ -7,8 +7,7 @@ import {
 	listDeliveryJobStatuses,
 	persistDeliveryJobs,
 } from "./core/store";
-import { configureDelivery } from "./eventhub";
-import { TestEventHub, testRouting } from "./test";
+import { TestEventHub, type TestEventHubWithJobId, testRouting } from "./test";
 
 type PayloadRow = {
 	id: string;
@@ -31,6 +30,9 @@ type DeliveryJobRow = {
 
 const getStub = (name: string) =>
 	env.EVENT_HUB.get(env.EVENT_HUB.idFromName(name));
+
+const getStubWithJobId = (name: string) =>
+	env.EVENT_HUB_WITH_JOB_ID.get(env.EVENT_HUB_WITH_JOB_ID.idFromName(name));
 
 // @ts-expect-error
 const getArchiveBucket = (): R2Bucket => env.ARCHIVE as R2Bucket;
@@ -895,13 +897,8 @@ describe("includeDeliveryJobId configuration", () => {
 	test("delivers successfully when includeDeliveryJobId is true", async () => {
 		// 1. Configure EventHub with includeDeliveryJobId: true.
 		// 2. Publish a payload and verify delivery completes.
-		class TestEventHubWithJobId extends TestEventHub {
-			deliveryConfig = configureDelivery({ includeDeliveryJobId: true });
-		}
-
-		const id = env.EVENT_HUB.idFromName("with-job-id");
-		const stub = env.EVENT_HUB.get(
-			id,
+		const stub = getStubWithJobId(
+			"with-job-id",
 		) as DurableObjectStub<TestEventHubWithJobId>;
 		const payload = { kind: "culture" };
 
@@ -921,13 +918,8 @@ describe("includeDeliveryJobId configuration", () => {
 		// 1. Configure EventHub with includeDeliveryJobId: true.
 		// 2. Publish a payload.
 		// 3. Verify the payload stored in the database does not contain the job ID.
-		class TestEventHubWithJobId extends TestEventHub {
-			deliveryConfig = configureDelivery({ includeDeliveryJobId: true });
-		}
-
-		const id = env.EVENT_HUB.idFromName("db-without-job-id");
-		const stub = env.EVENT_HUB.get(
-			id,
+		const stub = getStubWithJobId(
+			"db-without-job-id",
 		) as DurableObjectStub<TestEventHubWithJobId>;
 		const payload = { kind: "culture" };
 

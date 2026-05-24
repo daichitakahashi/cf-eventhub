@@ -47,4 +47,9 @@ export class TestEventHub extends EventHub<Env> {
 	routing = testRouting;
 }
 
+export class TestEventHubWithJobId extends EventHub<Env> {
+	deliveryConfig = configureDelivery({ includeDeliveryJobId: true });
+	routing = testRouting;
+}
+
 export default {};
