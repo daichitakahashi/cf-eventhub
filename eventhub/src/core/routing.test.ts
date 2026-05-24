@@ -270,7 +270,10 @@ describe("findRoutes", () => {
 
 describe("routeByConfig", () => {
 	test("stores the parsed json path cache in the strategy instance", () => {
-		const strategy = routeByConfig<{ ORDER_HANDLER: Queue }>({
+		const env = {
+			ORDER_HANDLER: {} as Queue,
+		};
+		const strategy = routeByConfig(env, {
 			routes: [
 				{
 					condition: {
@@ -288,5 +291,31 @@ describe("routeByConfig", () => {
 		expect(strategy.findRoutes({ eventName: "orderPlaced" })).toStrictEqual([
 			{ destination: "ORDER_HANDLER" },
 		]);
+	});
+
+	test("resolves queue and R2 destinations from env", () => {
+		const queue = { sendBatch: async () => {} } as unknown as Queue;
+		const bucket = {
+			put: async () => ({}),
+			createMultipartUpload: async () => ({}),
+		} as unknown as R2Bucket;
+		const strategy = routeByConfig(
+			{
+				QUEUE_DESTINATION: queue,
+				ARCHIVE: bucket,
+			},
+			{
+			routes: [],
+		},
+		);
+
+		expect(strategy.resolveDestination("QUEUE_DESTINATION")).toStrictEqual({
+			kind: "queue",
+			queue,
+		});
+		expect(strategy.resolveDestination("ARCHIVE")).toStrictEqual({
+			kind: "r2",
+			bucket,
+		});
 	});
 });

@@ -1,6 +1,8 @@
+import { env } from "cloudflare:workers";
 import { EventHub } from ".";
-import { routeByConfig } from "./core/routing";
+import { routeByConfig, routeFunc } from "./core/routing";
 import { configureDelivery } from "./eventhub";
+import { QueueMock, R2BucketMock } from "./core/mock";
 
 type Env = {
 	OKAYAMA: Queue;
@@ -9,7 +11,7 @@ type Env = {
 	ARCHIVE: R2Bucket;
 };
 
-export const testRouting = routeByConfig<Env>({
+export const testRouting = routeByConfig<Env>(env as unknown as Env, {
 	routes: [
 		{
 			condition: {
@@ -47,9 +49,37 @@ export class TestEventHub extends EventHub<Env> {
 	routing = testRouting;
 }
 
-export class TestEventHubWithJobId extends EventHub<Env> {
+type EnvForTestEventHubWithJobId = {
+	QUEUE: Queue;
+	BUCKET: R2Bucket;
+};
+
+export class TestEventHubWithJobId extends EventHub<EnvForTestEventHubWithJobId> {
 	deliveryConfig = configureDelivery({ includeDeliveryJobId: true });
-	routing = testRouting;
+	queue = new QueueMock();
+	bucket = new R2BucketMock();
+	routing = routeFunc<EnvForTestEventHubWithJobId>(
+		{
+			QUEUE: this.queue,
+			BUCKET: this.bucket,
+		},
+		(e) => {
+			const typ = e.type;
+			if (typ === "queue")
+				return [
+					{
+						destination: "QUEUE",
+					},
+				];
+			if (typ === "archive")
+				return [
+					{
+						destination: "BUCKET",
+					},
+				];
+			return [];
+		},
+	);
 }
 
 export default {};

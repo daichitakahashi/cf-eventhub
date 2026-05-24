@@ -45,7 +45,13 @@ const routing = routeByConfig<{
 	OKAYAMA: Queue;
 	HOKKAIDO: Queue;
 	OKINAWA: Queue;
-}>({
+}>(
+	env as unknown as {
+		OKAYAMA: Queue;
+		HOKKAIDO: Queue;
+		OKINAWA: Queue;
+	},
+	{
 	routes: [
 		{
 			condition: {
@@ -69,7 +75,8 @@ const routing = routeByConfig<{
 			destination: "OKINAWA",
 		},
 	],
-});
+},
+);
 
 const getStub = (name: string) =>
 	env.EVENT_HUB.get(env.EVENT_HUB.idFromName(name));

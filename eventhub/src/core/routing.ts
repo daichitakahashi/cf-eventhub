@@ -8,22 +8,38 @@ import type { JSONObject } from "./type";
 
 type Destination = Queue | R2Bucket;
 
-type Destinations<Env extends Record<string, unknown>> = keyof {
-	[K in keyof Env as K extends string
-		? Env[K] extends Destination
-			? K
-			: never
-		: never]: Env[K];
+export type Destinations<Env extends object> = Extract<
+	keyof {
+		[K in keyof Env as K extends string
+			? Env[K] extends Destination
+				? K
+				: never
+			: never]: Env[K];
+	},
+	string
+>;
+
+export type QueueDestination = {
+	kind: "queue";
+	queue: Queue<JSONObject>;
 };
+
+export type R2Destination = {
+	kind: "r2";
+	bucket: R2Bucket;
+};
+
+export type ResolvedDestination = QueueDestination | R2Destination;
 
 const safe: unique symbol = Symbol();
 
-export interface RoutingStrategy<Env extends Record<string, unknown>> {
+export interface RoutingStrategy<Env extends object> {
 	[safe]: true;
 	findRoutes(message: JSONObject): FoundRoute<Env>[];
+	resolveDestination(destination: Destinations<Env>): ResolvedDestination;
 }
 
-type FoundRoute<Env extends Record<string, unknown>> = {
+type FoundRoute<Env extends object> = {
 	destination: Destinations<Env>;
 };
 
@@ -140,18 +156,26 @@ export type LogicalOperator =
 
 export type Condition = Comparator | LogicalOperator;
 
-export type Route<Env extends Record<string, unknown>> = {
+export type Route<Env extends object> = {
 	condition: Condition;
 	destination: Destinations<Env>;
 };
 
-export type Config<Env extends Record<string, unknown>> = {
+export type Config<Env extends object> = {
 	routes: Route<Env>[];
 };
 
 type PathCache = Map<string, readonly Token[]>;
 
 const immediate = <T>(f: () => T) => f();
+
+const isQueue = (value: unknown): value is Queue<JSONObject> =>
+	typeof value === "object" && value !== null && "sendBatch" in value;
+const isR2Bucket = (value: unknown): value is R2Bucket =>
+	typeof value === "object" &&
+	value !== null &&
+	"put" in value &&
+	"createMultipartUpload" in value;
 
 const queryWithOptionalCache = (
 	message: unknown,
@@ -219,7 +243,7 @@ const matchCond =
 		return cond.anyOf.some(matchCond(message, pathCache));
 	};
 
-export const findRoutes = <Env extends Record<string, unknown>>(
+export const findRoutes = <Env extends object>(
 	c: Config<Env>,
 	message: JSONObject,
 	pathCache?: PathCache,
@@ -233,7 +257,33 @@ export const findRoutes = <Env extends Record<string, unknown>>(
 		}));
 };
 
-export const routeByConfig = <Env extends Record<string, unknown>>(
+const resolveDestinationBinding = <Env extends object>(
+	env: Env,
+	destination: Destinations<Env>,
+): ResolvedDestination => {
+	const binding = (env as Record<PropertyKey, unknown>)[destination];
+	if (!binding) {
+		throw new Error(`eventhub: ${String(destination)} not set`);
+	}
+	if (isQueue(binding)) {
+		return {
+			kind: "queue",
+			queue: binding,
+		};
+	}
+	if (isR2Bucket(binding)) {
+		return {
+			kind: "r2",
+			bucket: binding,
+		};
+	}
+	throw new Error(
+		`eventhub: value of ${String(destination)} is not a Queue or R2Bucket`,
+	);
+};
+
+export const routeByConfig = <Env extends object>(
+	env: Env,
 	config: Config<Env>,
 ): RoutingStrategy<Env> => {
 	const pathCache: PathCache = new Map();
@@ -241,12 +291,17 @@ export const routeByConfig = <Env extends Record<string, unknown>>(
 	return {
 		[safe]: true,
 		findRoutes: (message: JSONObject) => findRoutes(config, message, pathCache),
+		resolveDestination: (destination: Destinations<Env>) =>
+			resolveDestinationBinding(env, destination),
 	};
 };
 
-export const routeFunc = <Env extends Record<string, unknown>>(
+export const routeFunc = <Env extends object>(
+	env: Env,
 	fn: (message: JSONObject) => FoundRoute<Env>[],
 ): RoutingStrategy<Env> => ({
 	[safe]: true,
 	findRoutes: fn,
+	resolveDestination: (destination: Destinations<Env>) =>
+		resolveDestinationBinding(env, destination),
 });

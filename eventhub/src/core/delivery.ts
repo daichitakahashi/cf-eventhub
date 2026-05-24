@@ -1,23 +1,20 @@
+import type {
+	Destinations,
+	ResolvedDestination,
+	RoutingStrategy,
+} from "./routing";
 import type { PendingDeliveryJobs, PersistedDeliveryJob } from "./store";
 import type { EventPayload } from "./type";
 
 const MAX_SEND_BATCH_COUNT = 100;
 
-type QueueDestination = {
-	kind: "queue";
-	queue: Queue<EventPayload>;
-};
-
-type R2Destination = {
-	kind: "r2";
-	bucket: R2Bucket;
-};
-
-type DeliveryTarget = QueueDestination | R2Destination;
-
 // A persisted delivery job with its resolved delivery target.
-export type DeliveryJob = PersistedDeliveryJob & {
-	target: DeliveryTarget;
+export type DeliveryJob<Env extends object> = Omit<
+	PersistedDeliveryJob,
+	"destination"
+> & {
+	target: ResolvedDestination;
+	destination: Destinations<Env>;
 };
 
 // Lifecycle callbacks fired after each batch delivery attempt.
@@ -31,80 +28,50 @@ const groupJobsByDestination = <T extends { destination: string }>(
 	jobs: readonly T[],
 ) => Map.groupBy(jobs, (j) => j.destination);
 
-const isQueue = (value: unknown): value is Queue<EventPayload> =>
-	typeof value === "object" && value !== null && "sendBatch" in value;
-const isR2Bucket = (value: unknown): value is R2Bucket =>
-	typeof value === "object" &&
-	value !== null &&
-	"put" in value &&
-	"createMultipartUpload" in value; // to distinguish between R2Bucket and KVNamespace(both instances have "put" method).
-
-// Resolves a delivery binding from the environment and validates its shape.
-const getDestinationBinding = (
-	env: Record<string, unknown>,
-	name: string,
-): DeliveryTarget => {
-	const binding = env[name];
-	if (!binding) {
-		throw new Error(`eventhub: ${name} not set`);
-	}
-	if (isQueue(binding)) {
-		return {
-			kind: "queue",
-			queue: binding,
-		};
-	}
-	if (isR2Bucket(binding)) {
-		return {
-			kind: "r2",
-			bucket: binding,
-		};
-	}
-	throw new Error(`eventhub: value of ${name} is not a Queue or R2Bucket`);
-};
-
 // Attaches delivery bindings to persisted jobs before sending them.
-export const resolveDeliveryJobs = (
-	env: Record<string, unknown>,
+export const resolveDeliveryJobs = <Env extends object>(
+	routing: RoutingStrategy<Env>,
 	jobs: readonly PersistedDeliveryJob[],
-): DeliveryJob[] => {
-	const targetsByDestination = new Map<string, DeliveryTarget>();
+): DeliveryJob<Env>[] => {
+	const targetsByDestination = new Map<Destinations<Env>, ResolvedDestination>();
 
 	for (const { destination } of jobs) {
 		targetsByDestination.set(
-			destination,
-			getDestinationBinding(env, destination),
+			destination as Destinations<Env>,
+			routing.resolveDestination(destination as Destinations<Env>),
 		);
 	}
 
 	return jobs.map((job) => {
-		const target = targetsByDestination.get(job.destination);
+		const destination = job.destination as Destinations<Env>;
+		const target = targetsByDestination.get(destination);
 		if (!target) {
 			throw new Error(`eventhub: ${job.destination} not resolved`);
 		}
 
 		return {
 			...job,
+			destination,
 			target,
 		};
 	});
 };
 
 // Fails fast if any configured destination binding is missing.
-export const assertDestinationBindingsExist = (
-	env: Record<string, unknown>,
+export const assertDestinationBindingsExist = <Env extends object>(
+	routing: RoutingStrategy<Env>,
 	pendingDeliveryJobs: PendingDeliveryJobs,
 ): void => {
-	const destinations = new Set<string>();
+	const destinations = new Set<Destinations<Env>>();
 
 	for (const { destinations: items } of pendingDeliveryJobs.payloads) {
 		for (const destination of items) {
-			destinations.add(destination);
+			destinations.add(destination as Destinations<Env>);
 		}
 	}
 
 	for (const destination of destinations) {
-		getDestinationBinding(env, destination);
+		routing.resolveDestination(destination);
 	}
 };
 
@@ -130,8 +97,8 @@ const injectDeliveryJobId = (
 	};
 };
 
-const deliverQueueJobs = async (
-	jobs: readonly DeliveryJob[],
+const deliverQueueJobs = async <Env extends object>(
+	jobs: readonly DeliveryJob<Env>[],
 	queue: Queue<EventPayload>,
 	handlers: DeliverJobsHandlers,
 	includeDeliveryJobId: boolean,
@@ -155,8 +122,8 @@ const deliverQueueJobs = async (
 	}
 };
 
-const deliverR2Jobs = async (
-	jobs: readonly DeliveryJob[],
+const deliverR2Jobs = async <Env extends object>(
+	jobs: readonly DeliveryJob<Env>[],
 	bucket: R2Bucket,
 	handlers: DeliverJobsHandlers,
 	includeDeliveryJobId: boolean,
@@ -180,8 +147,8 @@ const deliverR2Jobs = async (
 };
 
 // Sends jobs in destination-local units and reports success or failure per attempt.
-export const deliverJobs = async (
-	jobs: readonly DeliveryJob[],
+export const deliverJobs = async <Env extends object>(
+	jobs: readonly DeliveryJob<Env>[],
 	handlers: DeliverJobsHandlers,
 	includeDeliveryJobId: boolean,
 ): Promise<void> => {
@@ -206,8 +173,8 @@ export const deliverJobs = async (
 };
 
 // Resolves queues per destination and keeps other destinations moving on failure.
-export const deliverPersistedJobs = async (
-	env: Record<string, unknown>,
+export const deliverPersistedJobs = async <Env extends object>(
+	routing: RoutingStrategy<Env>,
 	jobs: readonly PersistedDeliveryJob[],
 	handlers: DeliverJobsHandlers,
 	includeDeliveryJobId: boolean,
@@ -215,7 +182,7 @@ export const deliverPersistedJobs = async (
 	for (const destinationJobs of groupJobsByDestination(jobs).values()) {
 		try {
 			await deliverJobs(
-				resolveDeliveryJobs(env, destinationJobs),
+				resolveDeliveryJobs(routing, destinationJobs),
 				handlers,
 				includeDeliveryJobId,
 			);
