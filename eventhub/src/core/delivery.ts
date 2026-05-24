@@ -33,12 +33,20 @@ export const resolveDeliveryJobs = <Env extends object>(
 	routing: RoutingStrategy<Env>,
 	jobs: readonly PersistedDeliveryJob[],
 ): DeliveryJob<Env>[] => {
-	const targetsByDestination = new Map<Destinations<Env>, ResolvedDestination>();
+	const targetsByDestination = new Map<
+		Destinations<Env>,
+		ResolvedDestination
+	>();
+	const destinations = new Set<Destinations<Env>>();
 
 	for (const { destination } of jobs) {
+		destinations.add(destination as Destinations<Env>);
+	}
+
+	for (const destination of destinations) {
 		targetsByDestination.set(
-			destination as Destinations<Env>,
-			routing.resolveDestination(destination as Destinations<Env>),
+			destination,
+			routing.resolveDestination(destination),
 		);
 	}
 
