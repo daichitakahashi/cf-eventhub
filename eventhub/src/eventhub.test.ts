@@ -107,6 +107,88 @@ describe("EventHub integration", () => {
 		});
 	});
 
+	test("lists live payloads through RPC", async () => {
+		// 1. Publish routed and unroutable payloads through the Durable Object entrypoint.
+		// 2. Page through live payloads and verify delivery job metadata is included.
+		const stub = getStub("list-live-payloads");
+
+		await stub.publish(
+			{ kind: "culture", ordinal: 1 },
+			{ kind: "nature", ordinal: 2 },
+			{ kind: "other", ordinal: 3 },
+		);
+
+		const firstPage = await stub.list({ max: 2, maxBytes: 262_144 });
+		const secondPage = await stub.list({
+			cursor: firstPage.cursor,
+			max: 2,
+			maxBytes: 262_144,
+		});
+
+		expect({
+			firstPage,
+			secondPayloads: secondPage.payloads.map(({ payload }) => payload),
+		}).toMatchObject({
+			firstPage: {
+				cursor: expect.any(String),
+				payloads: [
+					{
+						payload: { kind: "culture", ordinal: 1 },
+						deliveryJobs: [{ destination: "OKAYAMA" }],
+					},
+					{
+						payload: { kind: "nature", ordinal: 2 },
+						deliveryJobs: [
+							{ destination: "HOKKAIDO" },
+							{ destination: "OKINAWA" },
+						],
+					},
+				],
+			},
+			secondPayloads: [{ kind: "other", ordinal: 3 }],
+		});
+		expect(secondPage.cursor).toBeUndefined();
+	});
+
+	test("lists live payloads by creation time descending through RPC", async () => {
+		const stub = getStub("list-live-payloads-desc");
+
+		await runInDurableObject(stub, async (_instance, state) => {
+			let sequence = 0;
+			state.storage.transactionSync(() => {
+				for (const ordinal of [1, 2, 3]) {
+					persistDeliveryJobs(
+						state.storage.sql,
+						createPendingDeliveryJobs(testRouting, [{ kind: "other", ordinal }]),
+						() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
+						new Date(`2026-05-04T00:0${ordinal}:00.000Z`),
+						10_000,
+					);
+				}
+			});
+		});
+
+		const firstPage = await stub.list({ order: "desc", max: 2 });
+		const secondPage = await stub.list({
+			order: "desc",
+			cursor: firstPage.cursor,
+			max: 2,
+		});
+
+		expect({
+			firstPayloads: firstPage.payloads.map(({ payload }) => payload),
+			secondPayloads: secondPage.payloads.map(({ payload }) => payload),
+		}).toStrictEqual({
+			firstPayloads: [
+				{ kind: "other", ordinal: 3 },
+				{ kind: "other", ordinal: 2 },
+			],
+			secondPayloads: [{ kind: "other", ordinal: 1 }],
+		});
+		expect(firstPage.cursor).toEqual(expect.any(String));
+		expect(secondPage.cursor).toBeUndefined();
+	});
+
 	test("records completed_at after waitUntil delivery succeeds", async () => {
 		// 1. Publish a payload and wait for async delivery to finish.
 		// 2. Verify all created jobs are marked completed.
@@ -554,6 +636,15 @@ describe("EventHub integration", () => {
 		await runInDurableObject(stub, async (instance) => {
 			assert(instance instanceof TestEventHub);
 
+			await expect(instance.list({ max: 101 })).rejects.toThrow(
+				"eventhub: max must be <= 100",
+			);
+			await expect(instance.list({ maxBytes: 262_145 })).rejects.toThrow(
+				"eventhub: maxBytes must be <= 262144",
+			);
+			await expect(
+				instance.list({ order: "newest" as "asc" }),
+			).rejects.toThrow('eventhub: order must be "asc" or "desc"');
 			await expect(instance.eject(Date.now(), { max: 101 })).rejects.toThrow(
 				"eventhub: max must be <= 100",
 			);
