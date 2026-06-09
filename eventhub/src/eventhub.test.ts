@@ -911,6 +911,137 @@ describe("reportFailure", () => {
 	});
 });
 
+describe("redrive", () => {
+	test("creates and delivers a new job from an existing delivery job", async () => {
+		// 1. Publish a payload and wait for the original job to complete.
+		// 2. Redrive the job and verify a separate job is delivered with a new ID.
+		const stub = getStubWithJobId(
+			"redrive-completed-job",
+		) as DurableObjectStub<TestEventHubWithJobId>;
+		const payload = { type: "queue" };
+		let originalJobId = "";
+
+		await stub.publish(payload);
+
+		await vi.waitFor(async () => {
+			await runInDurableObject(stub, async (instance, state) => {
+				const jobs = state.storage.sql
+					.exec<
+						Pick<DeliveryJobRow, "id" | "payload_id" | "finalized_at">
+					>("SELECT id, payload_id, finalized_at FROM delivery_jobs")
+					.toArray();
+
+				expect(jobs).toMatchObject([{ finalized_at: expect.any(String) }]);
+				originalJobId = jobs[0]?.id ?? "";
+				expect(
+					(instance as TestEventHubWithJobId).queue.sentBatches,
+				).toStrictEqual([
+					[
+						{
+							body: {
+								...payload,
+								__eventhub__: { deliveryJobId: originalJobId },
+							},
+							contentType: "json",
+						},
+					],
+				]);
+			});
+		});
+
+		const redriven = await stub.redrive(originalJobId);
+
+		expect(redriven).toBe(true);
+		await vi.waitFor(async () => {
+			await runInDurableObject(stub, async (instance, state) => {
+				const payloads = state.storage.sql
+					.exec<PayloadRow>("SELECT id, body FROM payloads ORDER BY id")
+					.toArray();
+				const jobs = state.storage.sql
+					.exec<
+						Pick<
+							DeliveryJobRow,
+							"id" | "payload_id" | "final_status" | "finalized_at"
+						>
+					>(
+						`
+							SELECT id, payload_id, final_status, finalized_at
+							FROM delivery_jobs
+							ORDER BY created_at, id
+						`,
+					)
+					.toArray();
+
+				expect(jobs).toMatchObject([
+					{
+						id: originalJobId,
+						final_status: "completed",
+						finalized_at: expect.any(String),
+					},
+					{
+						final_status: "completed",
+						finalized_at: expect.any(String),
+					},
+				]);
+
+				const redrivenJobId = jobs[1]?.id ?? "";
+				expect({
+					distinctJobId: redrivenJobId !== originalJobId,
+					distinctPayloadId: jobs[1]?.payload_id !== jobs[0]?.payload_id,
+					storedPayloads: payloads.map((row) => JSON.parse(row.body)),
+					sentBatches: (instance as TestEventHubWithJobId).queue.sentBatches,
+				}).toStrictEqual({
+					distinctJobId: true,
+					distinctPayloadId: true,
+					storedPayloads: [payload, payload],
+					sentBatches: [
+						[
+							{
+								body: {
+									...payload,
+									__eventhub__: { deliveryJobId: originalJobId },
+								},
+								contentType: "json",
+							},
+						],
+						[
+							{
+								body: {
+									...payload,
+									__eventhub__: { deliveryJobId: redrivenJobId },
+								},
+								contentType: "json",
+							},
+						],
+					],
+				});
+			});
+		});
+	});
+
+	test("returns false when the source job does not exist", async () => {
+		const stub = getStub("redrive-missing-job");
+
+		expect(await stub.redrive("missing_job_id")).toBe(false);
+		await runInDurableObject(stub, async (_instance, state) => {
+			const jobs = state.storage.sql
+				.exec<DeliveryJobRow>("SELECT id FROM delivery_jobs")
+				.toArray();
+			expect(jobs).toStrictEqual([]);
+		});
+	});
+
+	test("throws when deliveryJobId is empty", async () => {
+		const stub = getStub("redrive-empty-id");
+
+		await runInDurableObject(stub, async (instance, _state) => {
+			await expect((instance as TestEventHub).redrive("")).rejects.toThrow(
+				"eventhub: deliveryJobId must not be empty",
+			);
+		});
+	});
+});
+
 describe("includeDeliveryJobId configuration", () => {
 	test("delivers successfully when includeDeliveryJobId is false (default)", async () => {
 		// 1. Publish payloads with default configuration (includeDeliveryJobId: false).

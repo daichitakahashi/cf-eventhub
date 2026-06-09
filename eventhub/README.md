@@ -30,6 +30,7 @@ Delivery is attempted immediately, and failed jobs are retried via Durable Objec
 The `EventHub` Durable Object exposes the following RPC methods:
 
 - `publish(payload, ...rest)`
+- `redrive(deliveryJobId)`
 - `reportFailure(payload)`
 - `eject(before, options?)`
 - `listEjected(ejectKey, options?)`
@@ -198,6 +199,7 @@ Notes:
 - Queue destinations are delivered with `sendBatch()`
 - R2 destinations are delivered with `put()`
 - Events with no matching route are still persisted as payloads
+- `redrive(deliveryJobId)` creates a new independent payload and delivery job from an existing, non-ejected job, then starts delivery immediately. It returns `false` if the source job no longer exists.
 
 ## Failure Reporting with Dead-Letter Queues
 

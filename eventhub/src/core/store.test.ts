@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { runInDurableObject } from "cloudflare:test";
-import { describe, expect, test, vi } from "vitest";
+import { assert, describe, expect, test, vi } from "vitest";
 
 import { routeByConfig } from "./routing";
 import {
@@ -15,6 +15,7 @@ import {
 	markDeliveryJobsFailed,
 	persistDeliveryJobs,
 	recordDeliveryJobFailure,
+	redriveDeliveryJob,
 } from "./store";
 
 type PayloadRow = {
@@ -289,6 +290,295 @@ describe("persistDeliveryJobs", () => {
 				[{ kind: "other" }],
 			);
 			expect(deliveryJobs).toStrictEqual([]);
+		});
+	});
+});
+
+describe("redriveDeliveryJob", () => {
+	test("creates an independent payload and job from an existing job", async () => {
+		// 1. Persist and finalize an original delivery job.
+		// 2. Redrive it and verify the new job has fresh IDs and reset retry state.
+		const stub = getStub("store-redrive-job");
+
+		await runInDurableObject(stub, async (_instance, state) => {
+			let sequence = 0;
+			const [originalJob] = persistDeliveryJobs(
+				state.storage.sql,
+				createPendingDeliveryJobs(routing, [{ kind: "culture" }]),
+				() => `01ORIG000000000000${String(sequence++).padStart(6, "0")}`,
+				new Date("2026-05-04T00:00:00.000Z"),
+				10_000,
+			);
+			assert(originalJob, "expected original delivery job");
+			markDeliveryJobsFailed(
+				state.storage.sql,
+				[originalJob.id],
+				1,
+				10_000,
+				10_000,
+				new Error("permanent failure"),
+				new Date("2026-05-04T00:00:20.000Z"),
+			);
+			markDeliveryJobsFailed(
+				state.storage.sql,
+				[originalJob.id],
+				1,
+				10_000,
+				10_000,
+				new Error("permanent failure"),
+				new Date("2026-05-04T00:00:30.000Z"),
+			);
+
+			let redriveSequence = 0;
+			const redrivenJob = redriveDeliveryJob(
+				state.storage.sql,
+				originalJob.id,
+				() =>
+					`01REDRIVE0000000000${String(redriveSequence++).padStart(6, "0")}`,
+				new Date("2026-05-04T00:01:00.000Z"),
+				5_000,
+			);
+			assert(redrivenJob, "expected redriven delivery job");
+
+			const payloads = state.storage.sql
+				.exec<PayloadRow>("SELECT id, body, created_at FROM payloads ORDER BY id")
+				.toArray();
+			const deliveryJobs = state.storage.sql
+				.exec<DeliveryJobRow>(
+					`
+						SELECT
+							id,
+							payload_id,
+							destination,
+							created_at,
+							final_status,
+							finalized_at,
+							retry_count,
+							last_failed_at,
+							last_error,
+							next_retry_at
+						FROM delivery_jobs
+						ORDER BY created_at, id
+					`,
+				)
+				.toArray();
+
+			expect({
+				redrivenJob,
+				payloads: payloads.map((payload) => ({
+					...payload,
+					body: JSON.parse(payload.body),
+				})),
+				deliveryJobs,
+			}).toMatchObject({
+				redrivenJob: {
+					id: "01REDRIVE0000000000000001",
+					payloadId: "01REDRIVE0000000000000000",
+					destination: "OKAYAMA",
+					payload: { kind: "culture" },
+				},
+				payloads: [
+					{
+						id: originalJob.payloadId,
+						body: { kind: "culture" },
+						created_at: "2026-05-04T00:00:00.000Z",
+					},
+					{
+						id: "01REDRIVE0000000000000000",
+						body: { kind: "culture" },
+						created_at: "2026-05-04T00:01:00.000Z",
+					},
+				],
+				deliveryJobs: [
+					{
+						id: originalJob.id,
+						payload_id: originalJob.payloadId,
+						destination: "OKAYAMA",
+						final_status: "failed",
+						retry_count: 2,
+					},
+					{
+						id: "01REDRIVE0000000000000001",
+						payload_id: "01REDRIVE0000000000000000",
+						destination: "OKAYAMA",
+						created_at: "2026-05-04T00:01:00.000Z",
+						final_status: null,
+						finalized_at: null,
+						retry_count: 0,
+						last_failed_at: null,
+						last_error: null,
+						next_retry_at: "2026-05-04T00:01:05.000Z",
+					},
+				],
+			});
+		});
+	});
+
+	test("returns null when the source job does not exist", async () => {
+		const stub = getStub("store-redrive-missing-job");
+
+		await runInDurableObject(stub, async (_instance, state) => {
+			const redrivenJob = redriveDeliveryJob(
+				state.storage.sql,
+				"missing_job_id",
+				() => "unused",
+				new Date("2026-05-04T00:01:00.000Z"),
+			);
+			const payloads = state.storage.sql
+				.exec<PayloadRow>("SELECT id FROM payloads")
+				.toArray();
+			const deliveryJobs = state.storage.sql
+				.exec<DeliveryJobRow>("SELECT id FROM delivery_jobs")
+				.toArray();
+
+			expect({ redrivenJob, payloads, deliveryJobs }).toStrictEqual({
+				redrivenJob: null,
+				payloads: [],
+				deliveryJobs: [],
+			});
+		});
+	});
+
+	test("keeps the redriven job after the original payload is ejected and evicted", async () => {
+		// 1. Redrive a finalized delivery job into a new active payload/job.
+		// 2. Eject and evict only the original finalized payload.
+		// 3. Verify the redriven job remains deliverable without the original rows.
+		const stub = getStub("store-redrive-survives-evict");
+
+		await runInDurableObject(stub, async (_instance, state) => {
+			let sequence = 0;
+			const [originalJob] = persistDeliveryJobs(
+				state.storage.sql,
+				createPendingDeliveryJobs(routing, [{ kind: "culture", version: 1 }]),
+				() => `01ORIG000000000000${String(sequence++).padStart(6, "0")}`,
+				new Date("2026-05-04T00:00:00.000Z"),
+				10_000,
+			);
+			assert(originalJob, "expected original delivery job");
+			markDeliveryJobsCompleted(
+				state.storage.sql,
+				[originalJob.id],
+				new Date("2026-05-04T00:01:00.000Z"),
+			);
+
+			let redriveSequence = 0;
+			const redrivenJob = redriveDeliveryJob(
+				state.storage.sql,
+				originalJob.id,
+				() =>
+					`01REDRIVE0000000000${String(redriveSequence++).padStart(6, "0")}`,
+				new Date("2026-05-04T00:02:00.000Z"),
+				10_000,
+			);
+			assert(redrivenJob, "expected redriven delivery job");
+
+			const ejected = ejectPayloads(
+				state.storage.sql,
+				new Date("2026-05-04T00:01:30.000Z").getTime(),
+				50,
+				"01EJECT00000000000000000020",
+			);
+			evictEjection(state.storage.sql, "01EJECT00000000000000000020");
+
+			const payloads = state.storage.sql
+				.exec<PayloadRow>("SELECT id, body FROM payloads ORDER BY id")
+				.toArray();
+			const deliveryJobs = state.storage.sql
+				.exec<DeliveryJobRow>(
+					`
+						SELECT
+							id,
+							payload_id,
+							destination,
+							created_at,
+							final_status,
+							finalized_at,
+							retry_count,
+							last_failed_at,
+							last_error,
+							next_retry_at
+						FROM delivery_jobs
+						ORDER BY id
+					`,
+				)
+				.toArray();
+			const deliverableJobs = listDeliverableJobs(
+				state.storage.sql,
+				10,
+				new Date("2026-05-04T00:02:11.000Z"),
+			);
+
+			expect({
+				ejected,
+				payloads: payloads.map((payload) => ({
+					id: payload.id,
+					body: JSON.parse(payload.body),
+				})),
+				deliveryJobs,
+				deliverableJobs,
+			}).toMatchObject({
+				ejected: { ejectKey: "01EJECT00000000000000000020" },
+				payloads: [
+					{
+						id: redrivenJob.payloadId,
+						body: { kind: "culture", version: 1 },
+					},
+				],
+				deliveryJobs: [
+					{
+						id: redrivenJob.id,
+						payload_id: redrivenJob.payloadId,
+						destination: "OKAYAMA",
+						final_status: null,
+						finalized_at: null,
+						retry_count: 0,
+					},
+				],
+				deliverableJobs: [
+					{
+						id: redrivenJob.id,
+						payloadId: redrivenJob.payloadId,
+						destination: "OKAYAMA",
+						payload: { kind: "culture", version: 1 },
+					},
+				],
+			});
+		});
+	});
+
+	test("returns null when the source job has already been ejected", async () => {
+		const stub = getStub("store-redrive-after-eject");
+
+		await runInDurableObject(stub, async (_instance, state) => {
+			let sequence = 0;
+			const [originalJob] = persistDeliveryJobs(
+				state.storage.sql,
+				createPendingDeliveryJobs(routing, [{ kind: "culture" }]),
+				() => `01ORIG000000000000${String(sequence++).padStart(6, "0")}`,
+				new Date("2026-05-04T00:00:00.000Z"),
+				10_000,
+			);
+			assert(originalJob, "expected original delivery job");
+			markDeliveryJobsCompleted(
+				state.storage.sql,
+				[originalJob.id],
+				new Date("2026-05-04T00:01:00.000Z"),
+			);
+			ejectPayloads(
+				state.storage.sql,
+				new Date("2026-05-04T00:02:00.000Z").getTime(),
+				50,
+				"01EJECT00000000000000000021",
+			);
+
+			const redrivenJob = redriveDeliveryJob(
+				state.storage.sql,
+				originalJob.id,
+				() => "unused",
+				new Date("2026-05-04T00:03:00.000Z"),
+			);
+
+			expect(redrivenJob).toBeNull();
 		});
 	});
 });

@@ -21,6 +21,7 @@ import {
 	markDeliveryJobsFailed,
 	persistDeliveryJobs,
 	recordDeliveryJobFailure,
+	redriveDeliveryJob,
 } from "./core/store";
 import type { EventPayload } from "./core/type";
 
@@ -260,6 +261,37 @@ export abstract class EventHub<
 		);
 		await this.scheduleNextAlarmFromStorage();
 		this.ctx.waitUntil(this.deliverPersistedJobs(persistedJobs));
+	}
+
+	/**
+	 * Creates a new independent delivery job from an existing job and starts
+	 * delivery immediately. The new job stores its own payload row and does not
+	 * retain a reference to the original job.
+	 * @param deliveryJobId Existing delivery job ID to redrive.
+	 * @returns `true` when a new job is created, or `false` when the source job
+	 * no longer exists.
+	 */
+	async redrive(deliveryJobId: string): Promise<boolean> {
+		if (deliveryJobId.length === 0) {
+			throw new Error("eventhub: deliveryJobId must not be empty");
+		}
+
+		const persistedJob = this.ctx.storage.transactionSync(() =>
+			redriveDeliveryJob(
+				this.ctx.storage.sql,
+				deliveryJobId,
+				(now) => this.idGenerator.generate(now),
+				new Date(),
+				this.deliveryConfig.initialRetryDelayMs,
+			),
+		);
+		if (!persistedJob) {
+			return false;
+		}
+
+		await this.scheduleNextAlarmFromStorage();
+		this.ctx.waitUntil(this.deliverPersistedJobs([persistedJob]));
+		return true;
 	}
 
 	/**
