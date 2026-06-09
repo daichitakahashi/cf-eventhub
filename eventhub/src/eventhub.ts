@@ -8,6 +8,8 @@ import { MonotonicUlidGenerator } from "./core/id";
 import type { RoutingStrategy } from "./core/routing";
 import {
 	type EjectResult,
+	type ListOrder,
+	type ListResult,
 	type ListEjectedResult,
 	type PersistedDeliveryJob,
 	createPendingDeliveryJobs,
@@ -15,6 +17,7 @@ import {
 	evictEjection,
 	getNextRetryAt,
 	initializeSchema,
+	list as listPayloads,
 	listEjected,
 	listDeliverableJobs,
 	markDeliveryJobsCompleted,
@@ -95,7 +98,35 @@ export type ListEjectedOptions = {
 	maxBytes?: number;
 };
 
+export type { ListOrder };
+
+export type ListOptions = {
+	/**
+	 * Opaque cursor returned by the previous `list()` call.
+	 * Omit this field to read the first page.
+	 */
+	cursor?: string;
+	/**
+	 * Maximum number of payloads to include in one page.
+	 */
+	max?: number;
+	/**
+	 * Soft page budget, in bytes, based on serialized payload bodies.
+	 * This limit does not cap the full RPC response size, because delivery job
+	 * metadata is added after page selection. The first payload is still returned
+	 * when present, even if its body alone exceeds this budget.
+	 */
+	maxBytes?: number;
+	/**
+	 * Sort direction by event creation time.
+	 * Defaults to `"asc"`.
+	 */
+	order?: ListOrder;
+};
+
 const MAX_EJECT_PAYLOADS = 100;
+const MAX_LIST_PAYLOADS = 100;
+const MAX_LIST_BYTES = 262_144;
 const MAX_LIST_EJECTED_PAYLOADS = 100;
 const MAX_LIST_EJECTED_BYTES = 262_144;
 const DEFAULT_ALARM_BATCH_SIZE = 50;
@@ -108,6 +139,11 @@ const assertPositiveInteger = (v: number, name: string) => {
 	if (Number.isInteger(v) && v > 0) return;
 	throw new Error(`eventhub: ${name} must be a positive integer`);
 };
+
+function assertListOrder(v: string): asserts v is ListOrder {
+	if (v === "asc" || v === "desc") return;
+	throw new Error('eventhub: order must be "asc" or "desc"');
+}
 
 /**
  * Configure delivery retry settings and behavior.
@@ -292,6 +328,43 @@ export abstract class EventHub<
 		await this.scheduleNextAlarmFromStorage();
 		this.ctx.waitUntil(this.deliverPersistedJobs([persistedJob]));
 		return true;
+	}
+
+	/**
+	 * Lists live payloads with bounded page size and payload-body size budget.
+	 * @param options Optional pagination settings such as cursor, item count, and
+	 * payload-body byte budget. `options.max` defaults to `50` and must be an
+	 * integer in the range `1..100`. `options.maxBytes` defaults to `262144`
+	 * and must be an integer in the range `1..262144`. The first payload is
+	 * still returned when present, even if its body alone exceeds this budget.
+	 */
+	async list(options?: ListOptions): Promise<ListResult> {
+		const order = options?.order ?? "asc";
+		assertListOrder(order);
+
+		const max = options?.max;
+		if (max !== undefined) {
+			assertPositiveInteger(max, "max");
+			if (max > MAX_LIST_PAYLOADS)
+				throw new Error(`eventhub: max must be <= ${MAX_LIST_PAYLOADS}`);
+		}
+
+		const maxBytes = options?.maxBytes;
+		if (maxBytes !== undefined) {
+			assertPositiveInteger(maxBytes, "maxBytes");
+			if (maxBytes > MAX_LIST_BYTES)
+				throw new Error(`eventhub: maxBytes must be <= ${MAX_LIST_BYTES}`);
+		}
+
+		return this.ctx.storage.transactionSync(() =>
+			listPayloads(
+				this.ctx.storage.sql,
+				options?.cursor,
+				max ?? 50,
+				maxBytes ?? MAX_LIST_BYTES,
+				order,
+			),
+		);
 	}
 
 	/**

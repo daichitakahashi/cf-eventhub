@@ -32,6 +32,7 @@ The `EventHub` Durable Object exposes the following RPC methods:
 - `publish(payload, ...rest)`
 - `redrive(deliveryJobId)`
 - `reportFailure(payload)`
+- `list(options?)`
 - `eject(before, options?)`
 - `listEjected(ejectKey, options?)`
 - `evict(ejectKey)`

@@ -8,6 +8,7 @@ import {
 	ejectPayloads,
 	evictEjection,
 	getNextRetryAt,
+	list,
 	listEjected,
 	listDeliverableJobs,
 	listDeliveryJobStatuses,
@@ -579,6 +580,166 @@ describe("redriveDeliveryJob", () => {
 			);
 
 			expect(redrivenJob).toBeNull();
+		});
+	});
+});
+
+describe("list", () => {
+	test("lists live payloads with delivery jobs and reported failures", async () => {
+		// 1. Persist payloads with and without routed delivery jobs.
+		// 2. Record a downstream failure for one job.
+		// 3. Verify list returns payloads with their live delivery job state.
+		const stub = getStub("store-list-live-payloads");
+
+		await runInDurableObject(stub, async (_instance, state) => {
+			let sequence = 0;
+			const jobs = state.storage.transactionSync(() =>
+				persistDeliveryJobs(
+					state.storage.sql,
+					createPendingDeliveryJobs(routing, [
+						{ kind: "culture", ordinal: 1 },
+						{ kind: "nature", ordinal: 2 },
+						{ kind: "other", ordinal: 3 },
+					]),
+					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
+					new Date("2026-05-04T00:00:00.000Z"),
+					10_000,
+				),
+			);
+			state.storage.transactionSync(() => {
+				markDeliveryJobsCompleted(
+					state.storage.sql,
+					[jobs[0]?.id ?? ""],
+					new Date("2026-05-04T00:01:00.000Z"),
+				);
+				recordDeliveryJobFailure(
+					state.storage.sql,
+					jobs[0]?.id ?? "",
+					new Date("2026-05-04T00:02:00.000Z"),
+				);
+			});
+
+			const page = state.storage.transactionSync(() =>
+				list(state.storage.sql, undefined, 50, 262_144),
+			);
+
+			expect(page).toMatchObject({
+				payloads: [
+					{
+						payload: { kind: "culture", ordinal: 1 },
+						deliveryJobs: [
+							{
+								finalStatus: "completed",
+								failureReportedAt: "2026-05-04T00:02:00.000Z",
+							},
+						],
+					},
+					{
+						payload: { kind: "nature", ordinal: 2 },
+						deliveryJobs: [
+							{ destination: "HOKKAIDO", failureReportedAt: null },
+							{ destination: "OKINAWA", failureReportedAt: null },
+						],
+					},
+					{
+						payload: { kind: "other", ordinal: 3 },
+						deliveryJobs: [],
+					},
+				],
+			});
+			expect(page.cursor).toBeUndefined();
+		});
+	});
+
+	test("continues live payload pagination by cursor", async () => {
+		const stub = getStub("store-list-live-cursor-pages");
+
+		await runInDurableObject(stub, async (_instance, state) => {
+			let sequence = 0;
+			state.storage.transactionSync(() => {
+				persistDeliveryJobs(
+					state.storage.sql,
+					createPendingDeliveryJobs(routing, [
+						{ kind: "other", ordinal: 1 },
+						{ kind: "other", ordinal: 2 },
+						{ kind: "other", ordinal: 3 },
+					]),
+					() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
+					new Date("2026-05-04T00:00:00.000Z"),
+					10_000,
+				);
+			});
+
+			const firstPage = state.storage.transactionSync(() =>
+				list(state.storage.sql, undefined, 2, 262_144),
+			);
+			const secondPage = state.storage.transactionSync(() =>
+				list(state.storage.sql, firstPage.cursor, 2, 262_144),
+			);
+
+			expect({
+				firstPayloads: firstPage.payloads.map(({ payload }) => payload),
+				secondPayloads: secondPage.payloads.map(({ payload }) => payload),
+			}).toStrictEqual({
+				firstPayloads: [
+					{ kind: "other", ordinal: 1 },
+					{ kind: "other", ordinal: 2 },
+				],
+				secondPayloads: [{ kind: "other", ordinal: 3 }],
+			});
+			expect(firstPage.cursor).toEqual(expect.any(String));
+			expect(secondPage.cursor).toBeUndefined();
+		});
+	});
+
+	test("lists live payloads by creation time descending", async () => {
+		const stub = getStub("store-list-live-desc");
+
+		await runInDurableObject(stub, async (_instance, state) => {
+			let sequence = 0;
+			state.storage.transactionSync(() => {
+				for (const ordinal of [1, 2, 3]) {
+					persistDeliveryJobs(
+						state.storage.sql,
+						createPendingDeliveryJobs(routing, [{ kind: "other", ordinal }]),
+						() => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
+						new Date(`2026-05-04T00:0${ordinal}:00.000Z`),
+						10_000,
+					);
+				}
+			});
+
+			const firstPage = state.storage.transactionSync(() =>
+				list(state.storage.sql, undefined, 2, 262_144, "desc"),
+			);
+			const secondPage = state.storage.transactionSync(() =>
+				list(state.storage.sql, firstPage.cursor, 2, 262_144, "desc"),
+			);
+
+			expect({
+				firstPayloads: firstPage.payloads.map(({ payload }) => payload),
+				secondPayloads: secondPage.payloads.map(({ payload }) => payload),
+			}).toStrictEqual({
+				firstPayloads: [
+					{ kind: "other", ordinal: 3 },
+					{ kind: "other", ordinal: 2 },
+				],
+				secondPayloads: [{ kind: "other", ordinal: 1 }],
+			});
+			expect(firstPage.cursor).toEqual(expect.any(String));
+			expect(secondPage.cursor).toBeUndefined();
+		});
+	});
+
+	test("rejects an invalid live payload cursor", async () => {
+		const stub = getStub("store-list-live-invalid-cursor");
+
+		await runInDurableObject(stub, async (_instance, state) => {
+			expect(() =>
+				state.storage.transactionSync(() =>
+					list(state.storage.sql, "not-base64", 50, 262_144),
+				),
+			).toThrow("eventhub: invalid cursor");
 		});
 	});
 });

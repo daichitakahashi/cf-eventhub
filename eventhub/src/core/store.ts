@@ -48,14 +48,16 @@ export type DeliveryJobStatus = {
 	createdAt: string;
 } & DeliveryRetryState;
 
-export type EjectedDeliveryJob = DeliveryJobStatus & {
+export type ListedDeliveryJob = DeliveryJobStatus & {
 	failureReportedAt: string | null;
 };
 
-export type EjectedPayload = {
+export type ListedPayload = {
 	payload: EventPayload;
-	deliveryJobs: EjectedDeliveryJob[];
+	deliveryJobs: ListedDeliveryJob[];
 };
+
+export type ListOrder = "asc" | "desc";
 
 export type EjectResult =
 	| {
@@ -65,10 +67,14 @@ export type EjectResult =
 			ejectKey: string;
 	  };
 
-export type ListEjectedResult = {
+export type ListResult = {
 	cursor?: string;
-	payloads: EjectedPayload[];
+	payloads: ListedPayload[];
 };
+
+export type EjectedDeliveryJob = ListedDeliveryJob;
+export type EjectedPayload = ListedPayload;
+export type ListEjectedResult = ListResult;
 
 // Inserts a payload row once before creating per-destination jobs.
 const insertPayload = (
@@ -148,6 +154,10 @@ export const initializeSchema = (sql: SqlStorage): void => {
 	sql.exec(`
 		CREATE INDEX IF NOT EXISTS idx_delivery_jobs_payload_id
 		ON delivery_jobs (payload_id)
+	`);
+	sql.exec(`
+		CREATE INDEX IF NOT EXISTS idx_payloads_created_at_id
+		ON payloads (created_at, id)
 	`);
 	sql.exec(`
 		CREATE INDEX IF NOT EXISTS idx_delivery_jobs_final_status
@@ -546,6 +556,289 @@ type EjectedPayloadRow = {
 	body: string;
 	created_at: string;
 	body_bytes: number;
+};
+
+type PayloadPageRow = {
+	payload_id: string;
+	body: string;
+	created_at: string;
+	body_bytes: number;
+};
+
+const listPayloadRows = (
+	sql: SqlStorage,
+	cursor: string | undefined,
+	limit: number,
+	maxBytes: number,
+	order: ListOrder,
+): PayloadPageRow[] => {
+	const orderSql = order === "asc" ? "ASC" : "DESC";
+	const nextCondition =
+		order === "asc"
+			? `
+				p2.created_at > page.created_at
+				OR (
+					p2.created_at = page.created_at
+					AND p2.id > page.payload_id
+				)
+			`
+			: `
+				p2.created_at < page.created_at
+				OR (
+					p2.created_at = page.created_at
+					AND p2.id < page.payload_id
+				)
+			`;
+	const cursorCondition =
+		order === "asc"
+			? `
+				p.created_at > ?3
+				OR (p.created_at = ?3 AND p.id > ?4)
+			`
+			: `
+				p.created_at < ?3
+				OR (p.created_at = ?3 AND p.id < ?4)
+			`;
+
+	if (cursor === undefined) {
+		return sql
+			.exec<PayloadPageRow>(
+				`
+					WITH RECURSIVE
+					first_row AS (
+						SELECT
+							p.id AS payload_id,
+							p.body,
+							p.created_at,
+							octet_length(p.body) AS body_bytes
+						FROM payloads p
+						ORDER BY p.created_at ${orderSql}, p.id ${orderSql}
+						LIMIT 1
+					),
+					page(
+						payload_id,
+						body,
+						created_at,
+						body_bytes,
+						total_bytes,
+						row_count
+					) AS (
+						SELECT
+							fr.payload_id,
+							fr.body,
+							fr.created_at,
+							fr.body_bytes,
+							fr.body_bytes AS total_bytes,
+							1 AS row_count
+						FROM first_row fr
+
+						UNION ALL
+
+						SELECT
+							p.id AS payload_id,
+							p.body,
+							p.created_at,
+							octet_length(p.body) AS body_bytes,
+							page.total_bytes + octet_length(p.body) AS total_bytes,
+							page.row_count + 1 AS row_count
+						FROM page
+						JOIN payloads p
+							ON p.id = (
+								SELECT p2.id
+								FROM payloads p2
+								WHERE ${nextCondition}
+								ORDER BY p2.created_at ${orderSql}, p2.id ${orderSql}
+								LIMIT 1
+							)
+						WHERE page.row_count < ?1
+							AND page.total_bytes + octet_length(p.body) <= ?2
+					)
+					SELECT
+						payload_id,
+						body,
+						created_at,
+						body_bytes
+					FROM page
+					ORDER BY created_at ${orderSql}, payload_id ${orderSql}
+				`,
+				limit,
+				maxBytes,
+			)
+			.toArray();
+	}
+
+	const { createdAt, payloadId } = decodeCursor(cursor);
+	return sql
+		.exec<PayloadPageRow>(
+			`
+				WITH RECURSIVE
+				first_row AS (
+					SELECT
+						p.id AS payload_id,
+						p.body,
+						p.created_at,
+						octet_length(p.body) AS body_bytes
+					FROM payloads p
+					WHERE ${cursorCondition}
+					ORDER BY p.created_at ${orderSql}, p.id ${orderSql}
+					LIMIT 1
+				),
+				page(
+					payload_id,
+					body,
+					created_at,
+					body_bytes,
+					total_bytes,
+					row_count
+				) AS (
+					SELECT
+						fr.payload_id,
+						fr.body,
+						fr.created_at,
+						fr.body_bytes,
+						fr.body_bytes AS total_bytes,
+						1 AS row_count
+					FROM first_row fr
+
+					UNION ALL
+
+					SELECT
+						p.id AS payload_id,
+						p.body,
+						p.created_at,
+						octet_length(p.body) AS body_bytes,
+						page.total_bytes + octet_length(p.body) AS total_bytes,
+						page.row_count + 1 AS row_count
+					FROM page
+					JOIN payloads p
+						ON p.id = (
+							SELECT p2.id
+							FROM payloads p2
+							WHERE ${nextCondition}
+							ORDER BY p2.created_at ${orderSql}, p2.id ${orderSql}
+							LIMIT 1
+						)
+					WHERE page.row_count < ?1
+						AND page.total_bytes + octet_length(p.body) <= ?2
+				)
+				SELECT
+					payload_id,
+					body,
+					created_at,
+					body_bytes
+				FROM page
+				ORDER BY created_at ${orderSql}, payload_id ${orderSql}
+			`,
+			limit,
+			maxBytes,
+			createdAt,
+			payloadId,
+		)
+		.toArray();
+};
+
+export const list = (
+	sql: SqlStorage,
+	cursor?: string,
+	max = 50,
+	maxBytes = 262_144, // 256KiB
+	order: ListOrder = "asc",
+): ListResult => {
+	const payloadRows = listPayloadRows(sql, cursor, max, maxBytes, order);
+	if (payloadRows.length === 0) {
+		return { payloads: [] };
+	}
+
+	const payloadIds = payloadRows.map(({ payload_id }) => payload_id);
+	const placeholders = payloadIds.map(() => "?").join(", ");
+	const deliveryJobs = sql
+		.exec<{
+			id: string;
+			payload_id: string;
+			destination: string;
+			created_at: string;
+			final_status: DeliveryFinalStatus | null;
+			finalized_at: string | null;
+			retry_count: number;
+			last_failed_at: string | null;
+			last_error: string | null;
+			next_retry_at: string;
+			failure_reported_at: string | null;
+		}>(
+			`
+				SELECT
+					dj.id,
+					dj.payload_id,
+					dj.destination,
+					dj.created_at,
+					dj.final_status,
+					dj.finalized_at,
+					dj.retry_count,
+					dj.last_failed_at,
+					dj.last_error,
+					dj.next_retry_at,
+					djf.reported_at AS failure_reported_at
+				FROM delivery_jobs dj
+				LEFT JOIN delivery_job_failures djf
+					ON djf.delivery_job_id = dj.id
+				WHERE dj.payload_id IN (${placeholders})
+				ORDER BY dj.created_at ASC, dj.id ASC
+			`,
+			...payloadIds,
+		)
+		.toArray()
+		.map(
+			(row): ListedDeliveryJob => ({
+				id: row.id,
+				payloadId: row.payload_id,
+				destination: row.destination,
+				createdAt: row.created_at,
+				finalStatus: row.final_status,
+				finalizedAt: row.finalized_at,
+				retryCount: row.retry_count,
+				lastFailedAt: row.last_failed_at,
+				lastError: row.last_error,
+				nextRetryAt: row.next_retry_at,
+				failureReportedAt: row.failure_reported_at,
+			}),
+		);
+	const jobsByPayloadId = Map.groupBy(deliveryJobs, (job) => job.payloadId);
+	const lastRow = payloadRows[payloadRows.length - 1];
+	const hasMoreCondition =
+		order === "asc"
+			? `
+				p.created_at > ?1
+				OR (p.created_at = ?1 AND p.id > ?2)
+			`
+			: `
+				p.created_at < ?1
+				OR (p.created_at = ?1 AND p.id < ?2)
+			`;
+	const orderSql = order === "asc" ? "ASC" : "DESC";
+	const hasMore =
+		sql
+			.exec<{ payload_id: string }>(
+				`
+					SELECT p.id AS payload_id
+					FROM payloads p
+					WHERE ${hasMoreCondition}
+					ORDER BY p.created_at ${orderSql}, p.id ${orderSql}
+					LIMIT 1
+				`,
+				lastRow.created_at,
+				lastRow.payload_id,
+			)
+			.toArray().length > 0;
+
+	return {
+		cursor: hasMore
+			? encodeCursor(lastRow.created_at, lastRow.payload_id)
+			: undefined,
+		payloads: payloadRows.map(({ payload_id, body }) => ({
+			payload: JSON.parse(body) as EventPayload,
+			deliveryJobs: jobsByPayloadId.get(payload_id) ?? [],
+		})),
+	};
 };
 
 const listEjectedPayloadRows = (
