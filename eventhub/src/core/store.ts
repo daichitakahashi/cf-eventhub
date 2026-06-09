@@ -272,6 +272,47 @@ export const persistDeliveryJobs = (
 	return jobs;
 };
 
+// Creates a new independent payload and delivery job from an existing job.
+export const redriveDeliveryJob = (
+	sql: SqlStorage,
+	deliveryJobId: string,
+	generateId: (now: number) => string,
+	now = new Date(),
+	initialRetryDelayMs = 0,
+): PersistedDeliveryJob | null => {
+	const row = sql
+		.exec<PersistedDeliveryJobRow>(
+			`
+				SELECT dj.id, dj.payload_id, dj.destination, p.body
+				FROM delivery_jobs dj
+				INNER JOIN payloads p ON p.id = dj.payload_id
+				WHERE dj.id = ?
+			`,
+			deliveryJobId,
+		)
+		.toArray()[0];
+	if (!row) {
+		return null;
+	}
+
+	const payload = JSON.parse(row.body) as EventPayload;
+	const nowMs = now.getTime();
+	const createdAt = now.toISOString();
+	const nextRetryAt = new Date(nowMs + initialRetryDelayMs).toISOString();
+	const payloadId = generateId(nowMs);
+	const jobId = generateId(nowMs);
+
+	insertPayload(sql, payloadId, payload, createdAt);
+	insertDeliveryJob(sql, jobId, payloadId, row.destination, createdAt, nextRetryAt);
+
+	return {
+		id: jobId,
+		payloadId,
+		destination: row.destination,
+		payload,
+	};
+};
+
 // Marks delivered jobs as completed after a successful queue enqueue.
 export const markDeliveryJobsCompleted = (
 	sql: SqlStorage,
