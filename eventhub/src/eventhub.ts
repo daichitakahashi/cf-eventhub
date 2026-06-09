@@ -100,10 +100,26 @@ export type ListEjectedOptions = {
 
 export type { ListOrder };
 
-export type ListOptions = ListEjectedOptions & {
+export type ListOptions = {
+	/**
+	 * Opaque cursor returned by the previous `list()` call.
+	 * Omit this field to read the first page.
+	 */
+	cursor?: string;
+	/**
+	 * Maximum number of payloads to include in one page.
+	 */
+	max?: number;
+	/**
+	 * Soft page budget, in bytes, based on serialized payload bodies.
+	 * This limit does not cap the full RPC response size, because delivery job
+	 * metadata is added after page selection. The first payload is still returned
+	 * when present, even if its body alone exceeds this budget.
+	 */
+	maxBytes?: number;
 	/**
 	 * Sort direction by event creation time.
-	 * Defaults to `"asc"` for backward compatibility.
+	 * Defaults to `"asc"`.
 	 */
 	order?: ListOrder;
 };
@@ -319,7 +335,8 @@ export abstract class EventHub<
 	 * @param options Optional pagination settings such as cursor, item count, and
 	 * payload-body byte budget. `options.max` defaults to `50` and must be an
 	 * integer in the range `1..100`. `options.maxBytes` defaults to `262144`
-	 * and must be an integer in the range `1..262144`.
+	 * and must be an integer in the range `1..262144`. The first payload is
+	 * still returned when present, even if its body alone exceeds this budget.
 	 */
 	async list(options?: ListOptions): Promise<ListResult> {
 		const order = options?.order ?? "asc";
