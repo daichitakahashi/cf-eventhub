@@ -88,6 +88,31 @@ importers:
         specifier: 'catalog:'
         version: 4.67.0(@cloudflare/workers-types@4.20260219.0)
 
+  console:
+    dependencies:
+      '@hono/valibot-validator':
+        specifier: ^0.5.3
+        version: 0.5.3(hono@4.9.10)(valibot@1.1.0(typescript@5.7.2))
+      clsx:
+        specifier: ^2.1.1
+        version: 2.1.1
+      eventhub:
+        specifier: workspace:*
+        version: link:../eventhub
+      hono:
+        specifier: ^4.9.10
+        version: 4.9.10
+      valibot:
+        specifier: ^1.1.0
+        version: 1.1.0(typescript@5.7.2)
+    devDependencies:
+      typescript:
+        specifier: ^5.6.2
+        version: 5.7.2
+      wrangler:
+        specifier: 'catalog:'
+        version: 4.67.0(@cloudflare/workers-types@4.20260219.0)
+
   eventhub:
     devDependencies:
       '@cloudflare/vitest-pool-workers':
@@ -127,16 +152,16 @@ importers:
 
   internal/dev-eventhub:
     dependencies:
-      cf-eventhub:
-        specifier: workspace:../../cf-eventhub
-        version: link:../../cf-eventhub
+      '@cf-eventhub/web-console':
+        specifier: workspace:../../console
+        version: link:../../console
+      eventhub:
+        specifier: workspace:../../eventhub
+        version: link:../../eventhub
     devDependencies:
       '@cloudflare/vitest-pool-workers':
         specifier: 'catalog:'
         version: 0.12.14(@cloudflare/workers-types@4.20260219.0)(@vitest/runner@4.1.5)(@vitest/snapshot@4.1.5)(vitest@2.0.5(@types/node@25.6.0))
-      '@cloudflare/workers-types':
-        specifier: 'catalog:'
-        version: 4.20260219.0
       typescript:
         specifier: ^5.5.2
         version: 5.6.3
@@ -4904,6 +4929,11 @@ snapshots:
       hono: 4.9.10
       valibot: 1.1.0(typescript@5.6.3)
 
+  '@hono/valibot-validator@0.5.3(hono@4.9.10)(valibot@1.1.0(typescript@5.7.2))':
+    dependencies:
+      hono: 4.9.10
+      valibot: 1.1.0(typescript@5.7.2)
+
   '@img/colour@1.0.0': {}
 
   '@img/sharp-darwin-arm64@0.34.5':
@@ -7669,6 +7699,10 @@ snapshots:
   valibot@1.1.0(typescript@5.6.3):
     optionalDependencies:
       typescript: 5.6.3
+
+  valibot@1.1.0(typescript@5.7.2):
+    optionalDependencies:
+      typescript: 5.7.2
 
   validate-npm-package-license@3.0.4:
     dependencies:

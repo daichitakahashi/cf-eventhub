@@ -1,0 +1,28 @@
+{
+  "name": "@cf-eventhub/console",
+  "type": "module",
+  "version": "0.0.0",
+  "repository": {
+    "url": "https://github.com/daichitakahashi/cf-eventhub"
+  },
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy --minify"
+  },
+  "dependencies": {
+    "@hono/valibot-validator": "^0.5.3",
+    "clsx": "^2.1.1",
+    "eventhub": "workspace:*",
+    "hono": "^4.9.10",
+    "valibot": "^1.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.2",
+    "wrangler": "catalog:"
+  },
+  "exports": {
+    "types": "./src/index.ts",
+    "default": "./src/index.ts"
+  },
+  "files": ["src", "worker-configuration.d.ts", "wrangler.jsonc", "README.md"]
+}

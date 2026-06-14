@@ -193,7 +193,7 @@ export const configureDelivery = (
 // Durable object that persists delivery jobs and retries them via alarms.
 export abstract class EventHub<
 	// biome-ignore lint/complexity/noBannedTypes: default
-	Env extends Record<string, unknown> = {},
+	Env extends object = {},
 > extends DurableObject<Env> {
 	private readonly idGenerator: MonotonicUlidGenerator;
 	protected deliveryConfig = configureDelivery({});

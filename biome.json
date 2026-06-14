@@ -26,6 +26,8 @@
   },
   "javascript": {
     "globals": [
+      "Env",
+      "ExportedHandler",
       "Queue",
       "MessageSendRequest",
       "Message",
@@ -52,7 +54,9 @@
       "SqlStorage",
       "SqlStorageValue",
       "SqlStorageStatement",
-      "SqlStorageCursor"
+      "SqlStorageCursor",
+      "WorkflowEvent",
+      "WorkflowStep"
     ]
   }
 }
