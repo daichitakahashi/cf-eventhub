@@ -10,11 +10,10 @@ export const StatusIndicator: FC<{
     case "ongoing":
       color = "fill-yellow-500";
       break;
-    case "complete":
+    case "completed":
       color = "fill-sky-500";
       break;
     case "failed":
-    case "lost":
       color = "fill-red-500";
       break;
     default:

@@ -1,12 +1,8 @@
-import type {
-  EventPayload,
-  ListResult,
-  ListedDeliveryJob,
-} from "eventhub/src";
+import type { EventPayload, ListResult, ListedDeliveryJob } from "eventhub";
 
 import type { Env } from "./factory";
 
-export type DispatchStatus = "ongoing" | "complete" | "failed" | "lost";
+export type DispatchStatus = "ongoing" | "completed" | "failed";
 
 export type ConsoleDispatch = {
   id: string;
@@ -39,14 +35,6 @@ export const toTimestamp = (value: string | null | undefined): number => {
   return Number.isNaN(parsed) ? 0 : parsed;
 };
 
-const toDispatchStatus = (job: ListedDeliveryJob): DispatchStatus => {
-  if (job.finalStatus === null) return "ongoing";
-  if (job.finalStatus === "completed") {
-    return job.failureReportedAt ? "lost" : "complete";
-  }
-  return "failed";
-};
-
 const toCreatedAt = (jobs: ListedDeliveryJob[]): string | null =>
   jobs.reduce<string | null>((oldest, job) => {
     if (!oldest || job.createdAt < oldest) return job.createdAt;
@@ -66,7 +54,7 @@ export const normalizeEvents = (result: ListResult): ConsoleEvent[] =>
         id: job.id,
         payloadId: job.payloadId,
         destination: job.destination,
-        status: toDispatchStatus(job),
+        status: job.finalStatus || "ongoing",
         retryCount: job.retryCount,
         createdAt: job.createdAt,
         lastFailedAt: job.lastFailedAt,

@@ -26,9 +26,9 @@ const formatAttempts = (dispatch: Dispatch): string =>
 
 const statusText = (dispatch: Dispatch): string => {
   if (dispatch.status === "ongoing") return "ongoing";
-  if (dispatch.status === "complete") return "complete";
-  if (dispatch.status === "failed") return "failed";
-  return "consumer failed";
+  if (dispatch.status === "completed") return "delivered";
+  if (dispatch.status === "failed") return "consumer failed";
+  return dispatch.status || "unknown";
 };
 
 export const Event: FC<{
@@ -167,17 +167,25 @@ export const DispatchDetails: FC<{
             {statusText(dispatch)}
           </div>
         </Description>
-        <Description title="Created at">{formatDate(dispatch.createdAt)}</Description>
+        <Description title="Created at">
+          {formatDate(dispatch.createdAt)}
+        </Description>
         <Description title="Finalized at">
           {dispatch.finalizedAt ? formatDate(dispatch.finalizedAt) : "-"}
         </Description>
         <Description title="Next retry at">
-          {dispatch.status === "ongoing" ? formatDate(dispatch.nextRetryAt) : "-"}
+          {dispatch.status === "ongoing"
+            ? formatDate(dispatch.nextRetryAt)
+            : "-"}
         </Description>
         <Description title="Retry count">{dispatch.retryCount}</Description>
-        <Description title="Final status">{dispatch.finalStatus ?? "-"}</Description>
+        <Description title="Final status">
+          {dispatch.finalStatus ?? "-"}
+        </Description>
         <Description title="Consumer failure reported at">
-          {dispatch.failureReportedAt ? formatDate(dispatch.failureReportedAt) : "-"}
+          {dispatch.failureReportedAt
+            ? formatDate(dispatch.failureReportedAt)
+            : "-"}
         </Description>
         <Description title="Last error">
           <pre class="whitespace-pre-wrap break-all">
