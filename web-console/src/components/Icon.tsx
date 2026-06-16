@@ -16,7 +16,7 @@ export const ScanSearch: FC<{ title: string }> = ({ title }) => (
     class="lucide lucide-scan-search"
     title={title}
     role="img"
-    aria-label
+    aria-label={title}
   >
     <path d="M3 7V5a2 2 0 0 1 2-2h2" />
     <path d="M17 3h2a2 2 0 0 1 2 2v2" />
@@ -41,7 +41,7 @@ export const SunMedium: FC<{ title: string }> = ({ title }) => (
     class="lucide lucide-sun-medium"
     title={title}
     role="img"
-    aria-label
+    aria-label={title}
   >
     <circle cx="12" cy="12" r="4" />
     <path d="M12 3v1" />

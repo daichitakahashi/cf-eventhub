@@ -35,7 +35,7 @@ export class DevEventHub extends EventHub<Env> {
 const eventHubName = "hub";
 const placeholder = `// example payload for this demo
 {
-  "eventName": "", // this wil be used as a title of the event
+  "eventName": "", // this will be used as a title of the event
   "flaky": false // if true, queue consumer may fail
 }`;
 

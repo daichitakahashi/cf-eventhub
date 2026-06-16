@@ -169,7 +169,7 @@ export const DeliveryJobDetails: FC<{
           {job.finalizedAt ? formatDate(job.finalizedAt) : "-"}
         </Description>
         <Description title="Retry">
-          <dl class="divide-y divide-gray-200 =rounded-md =border =border-gray-200">
+          <dl class="divide-y divide-gray-200">
             <div class="pb-2 sm:grid sm:grid-cols-3 sm:gap-4">
               <dt class="text-sm/6 text-gray-900">Next retry at</dt>
               <dd class="text-sm/6 text-gray-700 sm:col-span-2">
