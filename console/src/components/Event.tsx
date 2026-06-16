@@ -14,27 +14,27 @@ import {
   TableRow,
 } from "./Table";
 import { Textarea } from "./Textarea";
-import type { Dispatch, EventWithDispatches } from "./types";
+import type { DeliveryJob, EventWithDeliveryJobs } from "./types";
 
-const formatDispatchUpdatedAt = (dispatch: Dispatch): DateTime =>
-  dispatch.finalizedAt ?? dispatch.lastFailedAt ?? dispatch.createdAt;
+const formatDeliveryUpdatedAt = (job: DeliveryJob): DateTime =>
+  job.finalizedAt ?? job.lastFailedAt ?? job.createdAt;
 
-const formatAttempts = (dispatch: Dispatch): string =>
-  dispatch.status === "ongoing"
-    ? `${dispatch.retryCount} failures`
-    : `${dispatch.retryCount + 1} attempts`;
+const formatAttempts = (job: DeliveryJob): string =>
+  job.status === "ongoing"
+    ? `${job.retryCount} failures`
+    : `${job.retryCount + 1} attempts`;
 
-const statusText = (dispatch: Dispatch): string => {
-  if (dispatch.status === "ongoing") return "ongoing";
-  if (dispatch.status === "completed") return "delivered";
-  if (dispatch.status === "failed") return "consumer failed";
-  return dispatch.status || "unknown";
+const statusText = (job: DeliveryJob): string => {
+  if (job.status === "ongoing") return "ongoing";
+  if (job.status === "completed") return "delivered";
+  if (job.status === "failed") return "consumer failed";
+  return job.status || "unknown";
 };
 
 export const Event: FC<{
-  event: EventWithDispatches;
+  event: EventWithDeliveryJobs;
   formatDate: (d: DateTime) => string;
-  eventTitle?: (e: EventWithDispatches) => string;
+  eventTitle?: (e: EventWithDeliveryJobs) => string;
 }> = ({ event, formatDate, eventTitle }) => {
   const title = eventTitle ? eventTitle(event) : event.id;
   const payload = JSON.stringify(event.payload, null, 4);
@@ -90,19 +90,15 @@ export const Event: FC<{
             <TableHead>Details</TableHead>
           </TableRow>
         </TableHeader>
-        <TableBody id={`event-dispatches-${event.id}`}>
-          {event.dispatches.length > 0 ? (
-            event.dispatches.map((dispatch) => (
-              <DispatchRow
-                key={dispatch.id}
-                dispatch={dispatch}
-                formatDate={formatDate}
-              />
+        <TableBody id={`event-deliveryjobs-${event.id}`}>
+          {event.deliveryJobs.length > 0 ? (
+            event.deliveryJobs.map((job) => (
+              <DeliveryJobRow key={job.id} job={job} formatDate={formatDate} />
             ))
           ) : (
             <TableRow>
               <TableCell class="text-center pt-6 pb-2" colspan={5}>
-                no dispatches.
+                no delivery jobs.
               </TableCell>
             </TableRow>
           )}
@@ -112,95 +108,90 @@ export const Event: FC<{
   );
 };
 
-const DispatchRow: FC<{
-  dispatch: Dispatch;
+const DeliveryJobRow: FC<{
+  job: DeliveryJob;
   formatDate: (d: DateTime) => string;
-}> = ({ dispatch, formatDate }) => (
+}> = ({ job, formatDate }) => (
   <TableRow>
     <TableCell>
-      <code>{dispatch.destination}</code>
+      <code>{job.destination}</code>
     </TableCell>
     <TableCell>
       <div class="flex gap-1 items-center">
-        <StatusIndicator status={dispatch.status} />
-        {statusText(dispatch)}
+        <StatusIndicator status={job.status} />
+        {statusText(job)}
       </div>
     </TableCell>
-    <TableCell>{formatAttempts(dispatch)}</TableCell>
-    <TableCell>{formatDate(formatDispatchUpdatedAt(dispatch))}</TableCell>
+    <TableCell>{formatAttempts(job)}</TableCell>
+    <TableCell>{formatDate(formatDeliveryUpdatedAt(job))}</TableCell>
     <TableCell>
       <button
         type="button"
         class="w-fit cursor-pointer hover:text-gray-500"
-        data-open-dispatch-detail={dispatch.id}
+        data-open-deliveryjob-detail={job.id}
       >
         <ScanSearch title="Show detail" />
       </button>
-      <template id={`dispatch-detail-${dispatch.id}`}>
-        <DispatchDetails dispatch={dispatch} formatDate={formatDate} />
+      <template id={`deliveryjob-detail-${job.id}`}>
+        <DeliveryJobDetails job={job} formatDate={formatDate} />
       </template>
     </TableCell>
   </TableRow>
 );
 
-export const DispatchDetails: FC<{
-  dispatch: Dispatch;
+export const DeliveryJobDetails: FC<{
+  job: DeliveryJob;
   formatDate: (d: DateTime) => string;
-}> = ({ dispatch, formatDate }) => (
-  <div class={`dispatch-${dispatch.id}`}>
+}> = ({ job, formatDate }) => (
+  <div class={`deliveryjob-${job.id}`}>
     <h2 class="text-2xl font-semibold">
       <span class="flex gap-2 items-center">
-        <Sunrise title="" /> Dispatch details
+        <Sunrise title="" /> Delivery details
       </span>
     </h2>
     <div class="my-6">
       <DescriptionList>
-        <Description title="Dispatch ID">
-          <code>{dispatch.id}</code>
+        <Description title="Delivery job ID">
+          <code>{job.id}</code>
         </Description>
         <Description title="Destination">
-          <code>{dispatch.destination}</code>
+          <code>{job.destination}</code>
         </Description>
         <Description title="Status">
           <div class="flex gap-1 items-center">
-            <StatusIndicator status={dispatch.status} />
-            {statusText(dispatch)}
+            <StatusIndicator status={job.status} />
+            {statusText(job)}
           </div>
         </Description>
         <Description title="Created at">
-          {formatDate(dispatch.createdAt)}
+          {formatDate(job.createdAt)}
         </Description>
         <Description title="Finalized at">
-          {dispatch.finalizedAt ? formatDate(dispatch.finalizedAt) : "-"}
+          {job.finalizedAt ? formatDate(job.finalizedAt) : "-"}
         </Description>
         <Description title="Next retry at">
-          {dispatch.status === "ongoing"
-            ? formatDate(dispatch.nextRetryAt)
-            : "-"}
+          {job.status === "ongoing" ? formatDate(job.nextRetryAt) : "-"}
         </Description>
-        <Description title="Retry count">{dispatch.retryCount}</Description>
-        <Description title="Final status">
-          {dispatch.finalStatus ?? "-"}
-        </Description>
+        <Description title="Retry count">{job.retryCount}</Description>
         <Description title="Consumer failure reported at">
-          {dispatch.failureReportedAt
-            ? formatDate(dispatch.failureReportedAt)
-            : "-"}
+          {job.failureReportedAt ? formatDate(job.failureReportedAt) : "-"}
         </Description>
         <Description title="Last error">
-          <pre class="whitespace-pre-wrap break-all">
-            {dispatch.lastError ?? "-"}
-          </pre>
+          {job.lastError ? (
+            <pre class="whitespace-pre-wrap break-all">{job.lastError}</pre>
+          ) : (
+            "-"
+          )}
         </Description>
       </DescriptionList>
     </div>
     <div class="flex gap-2">
-      <form method="post" action={`/api/dispatches/${dispatch.id}/retry`}>
+      <form method="post" action={`/api/delivery-jobs/${job.id}/retry`}>
         <Button
           type="submit"
-          data-confirm="Are you sure you wish to retry this dispatch?"
+          data-confirm="Are you sure you wish to redrive this delivery job?"
         >
-          Retry as new dispatch
+          Redrive this delivery
         </Button>
       </form>
       <Button type="button" data-close-dialog secondary>

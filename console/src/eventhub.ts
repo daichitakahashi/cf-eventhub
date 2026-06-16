@@ -2,13 +2,13 @@ import type { EventPayload, ListResult, ListedDeliveryJob } from "eventhub";
 
 import type { Env } from "./factory";
 
-export type DispatchStatus = "ongoing" | "completed" | "failed";
+export type DeliveryStatus = "ongoing" | "completed" | "failed";
 
-export type ConsoleDispatch = {
+export type ConsoleDeliveryJob = {
   id: string;
   payloadId: string;
   destination: string;
-  status: DispatchStatus;
+  status: DeliveryStatus;
   retryCount: number;
   createdAt: string;
   lastFailedAt: string | null;
@@ -23,7 +23,7 @@ export type ConsoleEvent = {
   id: string;
   createdAt: string | null;
   payload: EventPayload;
-  dispatches: ConsoleDispatch[];
+  deliveryJobs: ConsoleDeliveryJob[];
 };
 
 export const getHub = (env: Env["Bindings"], hubName: string) =>
@@ -45,12 +45,12 @@ export const normalizeEvents = (result: ListResult): ConsoleEvent[] =>
   result.payloads.map((item, index) => {
     const createdAt = toCreatedAt(item.deliveryJobs);
     const fallbackId =
-      createdAt === null ? `payload-no-dispatch-${index}` : `payload-${index}`;
+      createdAt === null ? `payload-no-delivery-${index}` : `payload-${index}`;
     return {
       id: item.deliveryJobs[0]?.payloadId ?? fallbackId,
       createdAt,
       payload: item.payload,
-      dispatches: item.deliveryJobs.map((job) => ({
+      deliveryJobs: item.deliveryJobs.map((job) => ({
         id: job.id,
         payloadId: job.payloadId,
         destination: job.destination,

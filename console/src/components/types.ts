@@ -1,8 +1,8 @@
 import type { JSX } from "hono/jsx";
 
 export type {
-  ConsoleDispatch as Dispatch,
-  ConsoleEvent as EventWithDispatches,
+  ConsoleDeliveryJob as DeliveryJob,
+  ConsoleEvent as EventWithDeliveryJobs,
 } from "../eventhub";
 
 export type ElementProps<Element extends keyof JSX.IntrinsicElements> =

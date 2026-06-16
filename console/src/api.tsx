@@ -29,7 +29,7 @@ const handler = factory
     });
   })
   .post(
-    "/dispatches/:id/retry",
+    "/delivery-jobs/:id/retry",
     vValidator(
       "param",
       v.object({
@@ -41,7 +41,7 @@ const handler = factory
         c.req.valid("param").id,
       );
       if (!retried) {
-        return c.redirect("/?error=dispatch-not-found");
+        return c.redirect("/?error=delivery-not-found");
       }
       return c.redirect("/");
     },

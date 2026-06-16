@@ -9,21 +9,21 @@ import { Event } from "../components/Event";
 import { SunMedium } from "../components/Icon";
 import { Pagination } from "../components/Pagination";
 import { Textarea } from "../components/Textarea";
+import { getHub, normalizeEvents, toTimestamp } from "../eventhub";
 import type { DateTime } from "../factory";
 import { factory } from "../factory";
-import { getHub, normalizeEvents, toTimestamp } from "../eventhub";
 
 const maxPayloadRows = 10;
 
 const pageScript = (
   refreshIntervalSeconds: number,
   lastUpdatedAt: number,
-  hasOngoingDispatch: boolean,
+  hasOngoingDelivery: boolean,
 ) => `
 (() => {
   const createModal = document.getElementById("create-event-modal");
-  const dispatchDetailModal = document.getElementById("dispatch-detail-modal");
-  const dispatchDetailFrame = document.getElementById("dispatch-detail-frame");
+  const deliveryDetailModal = document.getElementById("deliveryjob-detail-modal");
+  const deliveryDetailFrame = document.getElementById("deliveryjob-detail-frame");
   const notification = document.getElementById("new-event-notification");
   const dismissNotification = document.getElementById("dismiss-notification");
 
@@ -59,19 +59,19 @@ const pageScript = (
       return;
     }
 
-    const detailButton = target.closest("[data-open-dispatch-detail]");
+    const detailButton = target.closest("[data-open-deliveryjob-detail]");
     if (
       detailButton &&
       detailButton instanceof HTMLElement &&
-      dispatchDetailModal &&
-      dispatchDetailFrame
+      deliveryDetailModal &&
+      deliveryDetailFrame
     ) {
-      const id = detailButton.dataset.openDispatchDetail;
+      const id = detailButton.dataset.openDeliveryjobDetail;
       if (!id) return;
-      const template = document.getElementById(\`dispatch-detail-\${id}\`);
+      const template = document.getElementById(\`deliveryjob-detail-\${id}\`);
       if (!(template instanceof HTMLTemplateElement)) return;
-      dispatchDetailFrame.innerHTML = template.innerHTML;
-      dispatchDetailModal.showModal();
+      deliveryDetailFrame.innerHTML = template.innerHTML;
+      deliveryDetailModal.showModal();
       return;
     }
   });
@@ -106,7 +106,7 @@ const pageScript = (
   window.setInterval(() => {
     if (document.visibilityState === "visible") {
       void checkLatestEvent();
-      ${hasOngoingDispatch ? "window.location.reload();" : ""}
+      ${hasOngoingDelivery ? "window.location.reload();" : ""}
     }
   }, ${refreshIntervalSeconds * 1000});
 })();
@@ -192,8 +192,8 @@ export const createHandler = ({
         const latest = await hub.list({ max: 1, order: "desc" });
         const events = normalizeEvents(listed);
         const latestEvent = normalizeEvents(latest)[0];
-        const hasOngoingDispatch = events.some((event) =>
-          event.dispatches.some((dispatch) => dispatch.status === "ongoing"),
+        const hasOngoingDelivery = events.some((event) =>
+          event.deliveryJobs.some((job) => job.status === "ongoing"),
         );
         const lastUpdatedAt = toTimestamp(latestEvent?.createdAt);
 
@@ -225,7 +225,10 @@ export const createHandler = ({
             .filter((createdAt): createdAt is string => createdAt !== null);
           if (dateRange.length === 0) return undefined;
           if (dateRange.length === 1) return [dateRange[0]] as [string];
-          return [dateRange[dateRange.length - 1], dateRange[0]] as [string, string];
+          return [dateRange[dateRange.length - 1], dateRange[0]] as [
+            string,
+            string,
+          ];
         })();
 
         return c.render(
@@ -240,7 +243,11 @@ export const createHandler = ({
                   <SunMedium title="" />
                 </div>
                 <div class="text-white px-2 py-1">
-                  <a class="hover:underline" href="/" title="Go to the latest events">
+                  <a
+                    class="hover:underline"
+                    href="/"
+                    title="Go to the latest events"
+                  >
                     New event created
                   </a>
                 </div>
@@ -259,7 +266,9 @@ export const createHandler = ({
                 <h1 class="text-3xl font-semibold pt-1">
                   eventhub:
                   <span class="ml-2 text-gray-500">console</span>
-                  {environment && <span class="ml-2 uppercase">[{environment}]</span>}
+                  {environment && (
+                    <span class="ml-2 uppercase">[{environment}]</span>
+                  )}
                 </h1>
                 <Button type="button" data-open-create-modal>
                   <div class="flex gap-2 py-1">
@@ -307,10 +316,13 @@ export const createHandler = ({
               </dialog>
 
               <dialog
-                id="dispatch-detail-modal"
+                id="deliveryjob-detail-modal"
                 class="outline outline-1 outline-gray-900/20 rounded-xl backdrop:bg-gray-100/30 backdrop:backdrop-blur-[2px]"
               >
-                <div id="dispatch-detail-frame" class="m-[1px] p-4 rounded-xl" />
+                <div
+                  id="deliveryjob-detail-frame"
+                  class="m-[1px] p-4 rounded-xl"
+                />
               </dialog>
 
               <div class="mx-16 mt-2 mb-4">
@@ -319,9 +331,9 @@ export const createHandler = ({
                     Invalid JSON payload. Please enter a valid JSON object.
                   </div>
                 )}
-                {error === "dispatch-not-found" && (
+                {error === "delivery-not-found" && (
                   <div class="rounded-md bg-red-100 text-red-800 px-4 py-2">
-                    Dispatch not found. It may have already been archived.
+                    Delivery job not found. It may have already been archived.
                   </div>
                 )}
               </div>
@@ -350,11 +362,12 @@ export const createHandler = ({
               </div>
             </div>
             <script
+              // biome-ignore  lint/security/noDangerouslySetInnerHtml: safe
               dangerouslySetInnerHTML={{
                 __html: pageScript(
                   refreshIntervalSeconds,
                   lastUpdatedAt,
-                  hasOngoingDispatch,
+                  hasOngoingDelivery,
                 ),
               }}
             />

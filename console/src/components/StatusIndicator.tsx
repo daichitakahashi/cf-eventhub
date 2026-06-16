@@ -1,9 +1,9 @@
 import type { FC } from "hono/jsx";
 
-import type { EventWithDispatches } from "./types";
+import type { EventWithDeliveryJobs } from "./types";
 
 export const StatusIndicator: FC<{
-  status: EventWithDispatches["dispatches"][number]["status"];
+  status: EventWithDeliveryJobs["deliveryJobs"][number]["status"];
 }> = ({ status }) => {
   let color = "fill-black";
   switch (status) {
