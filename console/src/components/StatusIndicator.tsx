@@ -14,6 +14,7 @@ export const StatusIndicator: FC<{
       color = "fill-sky-500";
       break;
     case "failed":
+    case "consumer_failed":
       color = "fill-red-500";
       break;
     default:

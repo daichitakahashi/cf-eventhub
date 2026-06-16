@@ -5,7 +5,11 @@ import type {
   ListedDeliveryJob,
 } from "eventhub";
 
-export type DeliveryStatus = "ongoing" | "completed" | "failed";
+export type DeliveryStatus =
+  | "ongoing"
+  | "completed"
+  | "failed"
+  | "consumer_failed";
 
 export type ConsoleDeliveryJob = {
   id: string;
@@ -35,6 +39,35 @@ export const toTimestamp = (value: string | null | undefined): number => {
   return Number.isNaN(parsed) ? 0 : parsed;
 };
 
+export const getDeliveryJobUpdatedAt = (
+  job: Pick<
+    ListedDeliveryJob,
+    "createdAt" | "failureReportedAt" | "finalizedAt" | "lastFailedAt"
+  >,
+): string => {
+  const updates = [
+    job.createdAt,
+    job.finalizedAt,
+    job.lastFailedAt,
+    job.failureReportedAt,
+  ].filter((value): value is string => value !== null);
+  return updates.reduce((latest, value) =>
+    toTimestamp(value) > toTimestamp(latest) ? value : latest,
+  );
+};
+
+export const getEventsLastUpdatedAt = (events: ConsoleEvent[]): number =>
+  events.reduce(
+    (lastUpdatedAt, event) =>
+      Math.max(
+        lastUpdatedAt,
+        ...event.deliveryJobs.map((job) =>
+          toTimestamp(getDeliveryJobUpdatedAt(job)),
+        ),
+      ),
+    0,
+  );
+
 const toCreatedAt = (jobs: ListedDeliveryJob[]): string | null =>
   jobs.reduce<string | null>((oldest, job) => {
     if (!oldest || job.createdAt < oldest) return job.createdAt;
@@ -54,7 +87,9 @@ export const normalizeEvents = (result: ListResult): ConsoleEvent[] =>
         id: job.id,
         payloadId: job.payloadId,
         destination: job.destination,
-        status: job.finalStatus || "ongoing",
+        status: job.failureReportedAt
+          ? "consumer_failed"
+          : job.finalStatus || "ongoing",
         retryCount: job.retryCount,
         createdAt: job.createdAt,
         lastFailedAt: job.lastFailedAt,

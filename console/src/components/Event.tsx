@@ -1,5 +1,6 @@
 import type { FC } from "hono/jsx";
 
+import { getDeliveryJobUpdatedAt } from "../eventhub";
 import type { DateTime } from "../factory";
 import { Button } from "./Button";
 import { Description, DescriptionList } from "./DescriptionList";
@@ -16,9 +17,6 @@ import {
 import { Textarea } from "./Textarea";
 import type { DeliveryJob, EventWithDeliveryJobs } from "./types";
 
-const formatDeliveryUpdatedAt = (job: DeliveryJob): DateTime =>
-  job.finalizedAt ?? job.lastFailedAt ?? job.createdAt;
-
 const formatAttempts = (job: DeliveryJob): string =>
   job.status === "ongoing"
     ? `${job.retryCount} failures`
@@ -27,8 +25,9 @@ const formatAttempts = (job: DeliveryJob): string =>
 const statusText = (job: DeliveryJob): string => {
   if (job.status === "ongoing") return "ongoing";
   if (job.status === "completed") return "delivered";
-  if (job.status === "failed") return "consumer failed";
-  return job.status || "unknown";
+  if (job.status === "failed") return "delivery failed";
+  if (job.status === "consumer_failed") return "consumer failed";
+  return job.status;
 };
 
 export const Event: FC<{
@@ -123,7 +122,7 @@ const DeliveryJobRow: FC<{
       </div>
     </TableCell>
     <TableCell>{formatAttempts(job)}</TableCell>
-    <TableCell>{formatDate(formatDeliveryUpdatedAt(job))}</TableCell>
+    <TableCell>{formatDate(getDeliveryJobUpdatedAt(job))}</TableCell>
     <TableCell>
       <button
         type="button"

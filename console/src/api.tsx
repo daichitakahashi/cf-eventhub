@@ -3,7 +3,7 @@ import type { EventPayload } from "eventhub";
 import type { Context } from "hono";
 import * as v from "valibot";
 
-import { normalizeEvents, toTimestamp } from "./eventhub";
+import { getEventsLastUpdatedAt, normalizeEvents } from "./eventhub";
 import { type Env, factory } from "./factory";
 
 const parseEventPayload = (value: string): unknown => {
@@ -21,12 +21,11 @@ const handler = factory
   .createApp()
   .get("/events/latest", async (c) => {
     const list = await c.var.getEventHub().list({
-      max: 1,
+      max: 10,
       order: "desc",
     });
-    const latestEvent = normalizeEvents(list)[0];
     return c.json({
-      lastUpdatedAt: toTimestamp(latestEvent?.createdAt),
+      lastUpdatedAt: getEventsLastUpdatedAt(normalizeEvents(list)),
     });
   })
   .post(

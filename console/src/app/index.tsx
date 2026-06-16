@@ -10,7 +10,7 @@ import { Event } from "../components/Event";
 import { SunMedium } from "../components/Icon";
 import { Pagination } from "../components/Pagination";
 import { Textarea } from "../components/Textarea";
-import { normalizeEvents, toTimestamp } from "../eventhub";
+import { getEventsLastUpdatedAt, normalizeEvents } from "../eventhub";
 import type { DateTime } from "../factory";
 import { factory } from "../factory";
 
@@ -209,13 +209,13 @@ export const createHandler = ({
           cursor: cursor ?? undefined,
           order: "desc",
         });
-        const latest = await hub.list({ max: 1, order: "desc" });
+        const latest = await hub.list({ max: 10, order: "desc" });
         const events = normalizeEvents(listed);
-        const latestEvent = normalizeEvents(latest)[0];
+        const latestEvents = normalizeEvents(latest);
         const hasOngoingDelivery = events.some((event) =>
           event.deliveryJobs.some((job) => job.status === "ongoing"),
         );
-        const lastUpdatedAt = toTimestamp(latestEvent?.createdAt);
+        const lastUpdatedAt = getEventsLastUpdatedAt(latestEvents);
 
         const nextUrl = listed.cursor
           ? (() => {
@@ -257,7 +257,7 @@ export const createHandler = ({
                     href="/"
                     title="Go to the latest events"
                   >
-                    New event created
+                    Events or delivery statuses have been updated
                   </a>
                 </div>
                 <button
