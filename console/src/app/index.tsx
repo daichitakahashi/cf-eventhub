@@ -4,12 +4,13 @@ import { Style } from "hono/css";
 import { jsxRenderer } from "hono/jsx-renderer";
 import * as v from "valibot";
 
+import type { EventHub } from "eventhub";
 import { Button } from "../components/Button";
 import { Event } from "../components/Event";
 import { SunMedium } from "../components/Icon";
 import { Pagination } from "../components/Pagination";
 import { Textarea } from "../components/Textarea";
-import { getHub, normalizeEvents, toTimestamp } from "../eventhub";
+import { normalizeEvents, toTimestamp } from "../eventhub";
 import type { DateTime } from "../factory";
 import { factory } from "../factory";
 
@@ -129,16 +130,12 @@ const renderer = (environment?: string) =>
     );
   });
 
-const defaultPlaceholder = JSON.stringify(
-  {
+const defaultPlaceholder = `{
     eventName: "My Event",
     data: {
-      message: "Hello, world!",
-    },
-  },
-  null,
-  4,
-);
+        message: "Hello, world!"
+    }
+}`;
 
 /**
  * Creates a handler for the web console.
@@ -150,7 +147,7 @@ export const createHandler = ({
   refreshIntervalSeconds = 5,
   color,
   environment,
-  hubName = "default",
+  eventHub = { binding: "EVENT_HUB", instance: "default" },
   eventTitle,
   createEventPlaceholder,
 }: {
@@ -159,7 +156,10 @@ export const createHandler = ({
   refreshIntervalSeconds?: number;
   color?: `#${string}`;
   environment?: string;
-  hubName?: string;
+  eventHub?: {
+    binding: string;
+    instance: string;
+  };
   eventTitle?: (e: ReturnType<typeof normalizeEvents>[number]) => string;
   createEventPlaceholder?: string;
 }) =>
@@ -175,8 +175,14 @@ export const createHandler = ({
           typeof d2 === "string" ? new Date(d2) : d2,
         );
       });
-      c.set("hubName", hubName);
-      console.log("placeholder", createEventPlaceholder);
+      const binding = c.env[
+        eventHub.binding
+      ] as DurableObjectNamespace<EventHub>;
+      if (!binding) throw new Error("EventHub binding not found");
+
+      c.set("eventHubBinding", binding);
+      c.set("eventHubInstance", eventHub.instance);
+      c.set("getEventHub", () => binding.getByName(eventHub.instance));
       return next();
     })
     .get(
@@ -196,7 +202,7 @@ export const createHandler = ({
       async (c) => {
         const { cursor, error } = c.req.valid("query");
         const max = c.req.valid("query").pageSize;
-        const hub = getHub(c.env, c.var.hubName);
+        const hub = c.var.getEventHub();
 
         const listed = await hub.list({
           max,

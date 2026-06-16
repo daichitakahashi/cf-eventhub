@@ -1,10 +1,10 @@
 import { vValidator } from "@hono/valibot-validator";
+import type { EventPayload } from "eventhub";
 import type { Context } from "hono";
-import type { EventPayload } from "eventhub/src";
 import * as v from "valibot";
 
+import { normalizeEvents, toTimestamp } from "./eventhub";
 import { type Env, factory } from "./factory";
-import { getHub, normalizeEvents, toTimestamp } from "./eventhub";
 
 const parseEventPayload = (value: string): unknown => {
   try {
@@ -14,12 +14,13 @@ const parseEventPayload = (value: string): unknown => {
   }
 };
 
-const redirectWithError = (c: Context<Env>) => c.redirect("/?error=invalid-payload");
+const redirectWithError = (c: Context<Env>) =>
+  c.redirect("/?error=invalid-payload");
 
 const handler = factory
   .createApp()
   .get("/events/latest", async (c) => {
-    const list = await getHub(c.env, c.var.hubName).list({
+    const list = await c.var.getEventHub().list({
       max: 1,
       order: "desc",
     });
@@ -37,9 +38,9 @@ const handler = factory
       }),
     ),
     async (c) => {
-      const retried = await getHub(c.env, c.var.hubName).redrive(
-        c.req.valid("param").id,
-      );
+      const retried = await c.var
+        .getEventHub()
+        .redrive(c.req.valid("param").id);
       if (!retried) {
         return c.redirect("/?error=delivery-not-found");
       }
@@ -63,7 +64,7 @@ const handler = factory
       ) {
         return redirectWithError(c);
       }
-      await getHub(c.env, c.var.hubName).publish(parsed as EventPayload);
+      await c.var.getEventHub().publish(parsed as EventPayload);
       return c.redirect("/");
     },
   );

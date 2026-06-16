@@ -50,7 +50,10 @@ export default {
       }),
       eventTitle: (e) =>
         e.payload.eventName ? String(e.payload.eventName) : e.id,
-      hubName: eventHubName,
+      eventHub: {
+        binding: "EVENT_HUB",
+        instance: eventHubName,
+      },
       createEventPlaceholder: placeholder,
     });
     return handler.fetch(request, env);

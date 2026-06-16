@@ -12,17 +12,22 @@
   "dependencies": {
     "@hono/valibot-validator": "^0.5.3",
     "clsx": "^2.1.1",
-    "eventhub": "workspace:*",
     "hono": "^4.9.10",
     "valibot": "^1.1.0"
   },
   "devDependencies": {
+    "eventhub": "workspace:*",
     "typescript": "^5.6.2",
-    "wrangler": "catalog:"
+    "wrangler": "catalog:",
+    "@cloudflare/workers-types": "catalog:"
   },
   "exports": {
     "types": "./src/index.ts",
     "default": "./src/index.ts"
   },
-  "files": ["src", "worker-configuration.d.ts", "wrangler.jsonc", "README.md"]
+  "files": [
+    "src",
+    "README.md",
+    "CHANGELOG.md"
+  ]
 }

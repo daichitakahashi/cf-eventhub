@@ -1,6 +1,9 @@
-import type { EventPayload, ListResult, ListedDeliveryJob } from "eventhub";
-
-import type { Env } from "./factory";
+import type {
+  EventHub,
+  EventPayload,
+  ListResult,
+  ListedDeliveryJob,
+} from "eventhub";
 
 export type DeliveryStatus = "ongoing" | "completed" | "failed";
 
@@ -25,9 +28,6 @@ export type ConsoleEvent = {
   payload: EventPayload;
   deliveryJobs: ConsoleDeliveryJob[];
 };
-
-export const getHub = (env: Env["Bindings"], hubName: string) =>
-  env.EVENT_HUB.get(env.EVENT_HUB.idFromName(hubName));
 
 export const toTimestamp = (value: string | null | undefined): number => {
   if (!value) return 0;
