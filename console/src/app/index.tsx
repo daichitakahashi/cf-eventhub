@@ -129,6 +129,17 @@ const renderer = (environment?: string) =>
     );
   });
 
+const defaultPlaceholder = JSON.stringify(
+  {
+    eventName: "My Event",
+    data: {
+      message: "Hello, world!",
+    },
+  },
+  null,
+  4,
+);
+
 /**
  * Creates a handler for the web console.
  * @returns Hono handler.
@@ -141,6 +152,7 @@ export const createHandler = ({
   environment,
   hubName = "default",
   eventTitle,
+  createEventPlaceholder,
 }: {
   pageSize?: number;
   dateFormatter?: Intl.DateTimeFormat;
@@ -149,6 +161,7 @@ export const createHandler = ({
   environment?: string;
   hubName?: string;
   eventTitle?: (e: ReturnType<typeof normalizeEvents>[number]) => string;
+  createEventPlaceholder?: string;
 }) =>
   factory
     .createApp()
@@ -163,6 +176,7 @@ export const createHandler = ({
         );
       });
       c.set("hubName", hubName);
+      console.log("placeholder", createEventPlaceholder);
       return next();
     })
     .get(
@@ -207,17 +221,6 @@ export const createHandler = ({
               return `/?${query.toString()}`;
             })()
           : undefined;
-
-        const placeholder = JSON.stringify(
-          {
-            name: "My Event",
-            payload: {
-              message: "Hello, world!",
-            },
-          },
-          null,
-          4,
-        );
 
         const range = (() => {
           const dateRange = events
@@ -293,7 +296,9 @@ export const createHandler = ({
                       <div class="mb-1">Enter your payload here:</div>
                       <Textarea
                         name="payload"
-                        placeholder={placeholder}
+                        placeholder={
+                          createEventPlaceholder || defaultPlaceholder
+                        }
                         cols={60}
                         rows={maxPayloadRows}
                         minlength={1}

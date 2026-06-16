@@ -1,5 +1,5 @@
+import type { EventHub } from "eventhub";
 import { createFactory } from "hono/factory";
-import type { EventHub } from "eventhub/src";
 
 export type DateTime = Date | string;
 

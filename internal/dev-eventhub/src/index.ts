@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
-import { EventHub, routeByConfig, configureDelivery } from "eventhub";
 import { createWebConsole } from "@cf-eventhub/web-console";
+import { EventHub, configureDelivery, routeByConfig } from "eventhub";
 
 export class DevEventHub extends EventHub<Env> {
   routing = routeByConfig(env, {
@@ -33,14 +33,25 @@ export class DevEventHub extends EventHub<Env> {
 }
 
 const eventHubName = "hub";
+const placeholder = `// example payload for this demo
+{
+  "eventName": "", // this wil be used as a title of the event
+  "flaky": false // if true, queue consumer may fail
+}`;
 
 export default {
   fetch: async (request, env) => {
     const handler = createWebConsole({
       pageSize: 10,
       refreshIntervalSeconds: 10,
-      eventTitle: (e) => e.payload.eventName || e.id,
+      dateFormatter: new Intl.DateTimeFormat("ja", {
+        dateStyle: "short",
+        timeStyle: "long",
+      }),
+      eventTitle: (e) =>
+        e.payload.eventName ? String(e.payload.eventName) : e.id,
       hubName: eventHubName,
+      createEventPlaceholder: placeholder,
     });
     return handler.fetch(request, env);
   },
