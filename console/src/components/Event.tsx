@@ -169,19 +169,38 @@ export const DeliveryJobDetails: FC<{
         <Description title="Finalized at">
           {job.finalizedAt ? formatDate(job.finalizedAt) : "-"}
         </Description>
-        <Description title="Next retry at">
-          {job.status === "ongoing" ? formatDate(job.nextRetryAt) : "-"}
+        <Description title="Retry">
+          <dl class="divide-y divide-gray-200 =rounded-md =border =border-gray-200">
+            <div class="pb-2 sm:grid sm:grid-cols-3 sm:gap-4">
+              <dt class="text-sm/6 text-gray-900">Next retry at</dt>
+              <dd class="text-sm/6 text-gray-700 sm:col-span-2">
+                {job.status === "ongoing" ? formatDate(job.nextRetryAt) : "-"}
+              </dd>
+            </div>
+            <div class="py-2 sm:grid sm:grid-cols-3 sm:gap-4">
+              <dt class="text-sm/6 text-gray-900">Retry count</dt>
+              <dd class="text-sm/6 text-gray-700 sm:col-span-2">
+                {job.retryCount}
+              </dd>
+            </div>
+            <div class="pt-2 sm:grid sm:grid-cols-3 sm:gap-4">
+              <dt class="text-sm/6 text-gray-900">Last delivery error</dt>
+              <dd class="text-sm/6 text-gray-700 sm:col-span-2">
+                {job.lastError ? (
+                  <pre class="whitespace-pre-wrap break-all">
+                    {job.lastError}
+                  </pre>
+                ) : (
+                  "-"
+                )}
+              </dd>
+            </div>
+          </dl>
         </Description>
-        <Description title="Retry count">{job.retryCount}</Description>
-        <Description title="Consumer failure reported at">
-          {job.failureReportedAt ? formatDate(job.failureReportedAt) : "-"}
-        </Description>
-        <Description title="Last error">
-          {job.lastError ? (
-            <pre class="whitespace-pre-wrap break-all">{job.lastError}</pre>
-          ) : (
-            "-"
-          )}
+        <Description title="Consumer failure">
+          {job.failureReportedAt
+            ? `reported at ${formatDate(job.failureReportedAt)}`
+            : "-"}
         </Description>
       </DescriptionList>
     </div>
