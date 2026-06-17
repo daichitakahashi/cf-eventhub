@@ -1,6 +1,4 @@
 import { vValidator } from "@hono/valibot-validator";
-import { clsx } from "clsx";
-import { Style } from "hono/css";
 import { jsxRenderer } from "hono/jsx-renderer";
 import * as v from "valibot";
 
@@ -13,6 +11,7 @@ import { Textarea } from "../components/Textarea";
 import { getEventsLastUpdatedAt, normalizeEvents } from "../eventhub";
 import type { DateTime } from "../factory";
 import { factory } from "../factory";
+import { styles } from "./styles";
 
 const maxPayloadRows = 10;
 
@@ -122,8 +121,10 @@ const renderer = (environment?: string) =>
       <html lang="en">
         <head>
           <title>{title}</title>
-          <Style />
-          <script src="https://cdn.tailwindcss.com" />
+          <style
+            // biome-ignore  lint/security/noDangerouslySetInnerHtml: generated stylesheet
+            dangerouslySetInnerHTML={{ __html: styles }}
+          />
         </head>
         <body>{children}</body>
       </html>
@@ -247,7 +248,7 @@ export const createHandler = ({
               class="fixed inset-x-0 mx-auto top-8 h-0 flex justify-center"
               style="display:none;"
             >
-              <div class="z-[999] w-fit flex items-center text-white rounded-full bg-black drop-shadow-xl pl-4 pr-2 py-6">
+              <div class="z-999 w-fit flex items-center text-white rounded-full bg-black drop-shadow-xl pl-4 pr-2 py-6">
                 <div>
                   <SunMedium title="" />
                 </div>
@@ -269,7 +270,10 @@ export const createHandler = ({
                 </button>
               </div>
             </div>
-            <div class={clsx("h-2", color ? `bg-[${color}]` : "bg-blue-300")} />
+            <div
+              class="h-2 bg-blue-300"
+              style={color ? `background-color: ${color};` : undefined}
+            />
             <div class="pb-6">
               <div class="mx-16 my-12 flex justify-between">
                 <h1 class="text-3xl font-semibold pt-1">
@@ -289,9 +293,9 @@ export const createHandler = ({
 
               <dialog
                 id="create-event-modal"
-                class="outline outline-1 outline-gray-900/20 rounded-xl backdrop:bg-gray-100/30 backdrop:backdrop-blur-[2px]"
+                class="outline-1 outline-gray-900/20 rounded-xl backdrop:bg-gray-100/30 backdrop:backdrop-blur-[2px]"
               >
-                <div class="m-[1px] p-4 rounded-xl">
+                <div class="m-px p-4 rounded-xl">
                   <h2 class="text-2xl font-semibold">
                     <span class="flex gap-1 items-center">
                       <SunMedium title="" /> Create event
@@ -328,11 +332,11 @@ export const createHandler = ({
 
               <dialog
                 id="deliveryjob-detail-modal"
-                class="outline outline-1 outline-gray-900/20 rounded-xl backdrop:bg-gray-100/30 backdrop:backdrop-blur-[2px]"
+                class="outline-1 outline-gray-900/20 rounded-xl backdrop:bg-gray-100/30 backdrop:backdrop-blur-[2px]"
               >
                 <div
                   id="deliveryjob-detail-frame"
-                  class="m-[1px] p-4 rounded-xl"
+                  class="m-px p-4 rounded-xl"
                 />
               </dialog>
 

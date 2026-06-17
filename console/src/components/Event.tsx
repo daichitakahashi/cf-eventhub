@@ -66,12 +66,12 @@ export const Event: FC<{
             my-1
             rounded-md
             hover:bg-gray-200
-            active:outline
             active:outline-1
             active:bg-gray-400
             active:text-white
             text-sm
             select-none
+            cursor-pointer
           "
           type="button"
           data-copy-payload={JSON.stringify(event.payload)}
