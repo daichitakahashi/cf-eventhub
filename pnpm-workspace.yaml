@@ -4,10 +4,11 @@ packages:
   - internal/*
 
 catalog:
-  "@cloudflare/vitest-pool-workers": 0.12.14
-  "@cloudflare/workers-types": 4.20260219.0
-  wrangler: 4.67.0
+  "@cloudflare/vitest-pool-workers": 0.16.16
+  "@cloudflare/workers-types": 4.20260617.1
+  wrangler: 4.101.0
   typescript: 6.0.3
+  vitest: 4.1.9
 
 minimumReleaseAge: 1440
 

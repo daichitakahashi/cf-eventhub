@@ -18,7 +18,7 @@
     "@cloudflare/vitest-pool-workers": "catalog:",
     "@types/node": "^25.6.0",
     "typescript": "catalog:",
-    "vitest": "~3.2.0",
+    "vitest": "catalog:",
     "wrangler": "catalog:"
   },
   "exports": {

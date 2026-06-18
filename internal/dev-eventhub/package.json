@@ -6,7 +6,6 @@
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
     "start": "wrangler dev",
-    "test": "vitest",
     "cf-typegen": "wrangler types"
   },
   "dependencies": {
@@ -14,9 +13,7 @@
     "@cf-eventhub/web-console": "workspace:../../web-console"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "catalog:",
-    "typescript": "^5.5.2",
-    "vitest": "2.0.5",
+    "typescript": "catalog:",
     "wrangler": "catalog:"
   }
 }
