@@ -10,7 +10,7 @@
     "cf-typegen": "wrangler types"
   },
   "dependencies": {
-    "eventhub": "workspace:../../eventhub",
+    "cf-eventhub": "workspace:../../cf-eventhub",
     "@cf-eventhub/web-console": "workspace:../../console"
   },
   "devDependencies": {

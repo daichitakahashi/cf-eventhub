@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { createWebConsole } from "@cf-eventhub/web-console";
-import { EventHub, configureDelivery, routeByConfig } from "eventhub";
+import { EventHub, configureDelivery, routeByConfig } from "cf-eventhub";
 
 export class DevEventHub extends EventHub<Env> {
   routing = routeByConfig(env, {

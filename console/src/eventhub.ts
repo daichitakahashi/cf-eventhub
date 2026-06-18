@@ -3,7 +3,7 @@ import type {
   EventPayload,
   ListResult,
   ListedDeliveryJob,
-} from "eventhub";
+} from "cf-eventhub";
 
 export type DeliveryStatus =
   | "ongoing"

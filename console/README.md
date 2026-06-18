@@ -9,7 +9,7 @@ test events, and redrive failed delivery jobs.
 Install the console package alongside your EventHub Worker application.
 
 ```sh
-npm install @cf-eventhub/console eventhub
+npm install @cf-eventhub/console cf-eventhub
 ```
 
 Create a Worker entrypoint that mounts the console handler.

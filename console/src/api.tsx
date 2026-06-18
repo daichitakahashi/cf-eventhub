@@ -1,5 +1,5 @@
 import { vValidator } from "@hono/valibot-validator";
-import type { EventPayload } from "eventhub";
+import type { EventPayload } from "cf-eventhub";
 import type { Context } from "hono";
 import * as v from "valibot";
 

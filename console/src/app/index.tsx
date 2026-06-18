@@ -2,7 +2,7 @@ import { vValidator } from "@hono/valibot-validator";
 import { jsxRenderer } from "hono/jsx-renderer";
 import * as v from "valibot";
 
-import type { EventHub } from "eventhub";
+import type { EventHub } from "cf-eventhub";
 import { Button } from "../components/Button";
 import { Event } from "../components/Event";
 import { SunMedium } from "../components/Icon";

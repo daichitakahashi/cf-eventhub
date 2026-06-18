@@ -1,4 +1,4 @@
-import type { EventHub } from "eventhub";
+import type { EventHub } from "cf-eventhub";
 import { createFactory } from "hono/factory";
 
 export type DateTime = Date | string;

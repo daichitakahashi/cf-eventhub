@@ -2,66 +2,32 @@
   "name": "cf-eventhub",
   "type": "module",
   "version": "0.3.5",
-  "keywords": ["cloudflare"],
+  "keywords": [
+    "cloudflare"
+  ],
   "repository": {
     "url": "https://github.com/daichitakahashi/cf-eventhub"
   },
   "scripts": {
-    "build": "tsup --external cloudflare:workers",
-    "test": "vitest -c vitest.config.worker.mts",
-    "test-node": "vitest -c vitest.config.node.mts",
-    "migration:generate": "drizzle-kit generate"
+    "dev": "wrangler dev",
+    "start": "wrangler dev",
+    "cf-typegen": "wrangler types",
+    "test": "vitest run"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "catalog:",
-    "@cloudflare/workers-types": "catalog:",
-    "@electric-sql/pglite": "^0.3.10",
-    "@types/jsonpath": "^0.2.4",
-    "@types/node": "^22.7.4",
-    "drizzle-kit": "^0.31.5",
-    "testcontainers": "^10.13.1",
-    "tsup": "^8.3.5",
+    "@types/node": "^25.6.0",
     "typescript": "^5.6.2",
-    "vitest": "3.2.0",
+    "vitest": "~3.2.0",
     "wrangler": "catalog:"
   },
-  "dependencies": {
-    "async-mutex": "^0.5.0",
-    "drizzle-orm": "0.44.6",
-    "jsonpath": "^1.1.1",
-    "neverthrow": "^8.1.1",
-    "postgres": "^3.4.7",
-    "valibot": "1.1.0"
-  },
-  "tsup": {
-    "entry": [
-      "src/**/*.ts",
-      "!src/**/*.test.ts",
-      "!src/repositorytest/**/*.ts"
-    ],
-    "splitting": false,
-    "sourcemap": true,
-    "format": ["esm", "cjs"],
-    "dts": true,
-    "clean": true
-  },
   "exports": {
-    ".": {
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
-    },
-    "./core": {
-      "import": "./dist/core/index.js",
-      "require": "./dist/core/index.cjs"
-    },
-    "./dev": {
-      "import": "./dist/dev/index.js",
-      "require": "./dist/dev/index.cjs"
-    },
-    "./postgresjs": {
-      "import": "./dist/postgres/postgresjs.js",
-      "require": "./dist/postgres/index.cjs"
-    }
+    "types": "./src/index.ts",
+    "default": "./src/index.ts"
   },
-  "files": ["dist", "src/migration"]
+  "files": [
+    "src",
+    "README.md",
+    "CHANGELOG.md"
+  ]
 }
