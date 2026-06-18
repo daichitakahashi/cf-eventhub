@@ -41,14 +41,14 @@ export const Event: FC<{
   return (
     <div
       id={`event-${event.id}`}
-      class="mx-16 rounded-lg bg-white px-6 py-4 ring-1 ring-gray-900/20 drop-shadow"
+      class="md:mx-16 mx-6 rounded-lg bg-white px-6 py-4 ring-1 ring-gray-900/20 drop-shadow"
     >
-      <div class="flex justify-between font-semibold leading-7">
+      <div class="w-full flex justify-between gap-x-2 flex-wrap font-semibold leading-7">
         <div class="flex place-items-center gap-1">
           <SunMedium title="" />
           <p class="text-gray-900">{title}</p>
         </div>
-        <p class="text-gray-500">
+        <p class="text-gray-500 text-nowrap">
           {event.createdAt ? formatDate(event.createdAt) : "-"}
         </p>
       </div>

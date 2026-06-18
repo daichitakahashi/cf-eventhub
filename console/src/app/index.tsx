@@ -275,7 +275,7 @@ export const createHandler = ({
               style={color ? `background-color: ${color};` : undefined}
             />
             <div class="pb-6">
-              <div class="mx-16 my-12 flex justify-between">
+              <div class="md:mx-16 mx-6 my-12 flex justify-between flex-wrap gap-2">
                 <h1 class="text-3xl font-semibold pt-1">
                   eventhub:
                   <span class="ml-2 text-gray-500">console</span>
@@ -284,7 +284,7 @@ export const createHandler = ({
                   )}
                 </h1>
                 <Button type="button" data-open-create-modal>
-                  <div class="flex gap-2 py-1">
+                  <div class="flex gap-2 py-1 text-nowrap">
                     <SunMedium title="Create event" />
                     Create event
                   </div>

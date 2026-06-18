@@ -21,8 +21,10 @@ export const StatusIndicator: FC<{
       status satisfies never;
   }
   return (
-    <svg class={`size-2 ${color}`} title="" role="img" aria-label>
-      <circle cx="4" cy="4" r="4" />
-    </svg>
+    <div class="size-2">
+      <svg class={`size-2 ${color}`} title="" role="img" aria-label>
+        <circle cx="4" cy="4" r="4" />
+      </svg>
+    </div>
   );
 };
