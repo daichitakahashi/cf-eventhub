@@ -5,7 +5,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "pnpm --filter dev-eventhub dev",
+    "dev": "pnpm --filter eventhub-demo dev",
     "ci:publish": "pnpm publish -r --access public --no-git-checks"
   },
   "keywords": [],
@@ -15,6 +15,14 @@
     "@biomejs/biome": "^1.9.4"
   },
   "devDependencies": {
-    "@changesets/cli": "^2.29.7"
+    "@changesets/cli": "^2.31.0"
+  },
+  "packageManager": "pnpm@11.7.0",
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "^24.0.0",
+      "onFail": "download"
+    }
   }
 }

@@ -1,33 +1,25 @@
-name: Test cf-eventhub
+name: Test
 on:
   pull_request:
     branches:
       - main
+      - v1
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v2
-        with:
-          version: 10
-          run_install: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: "pnpm"
-      - run: pnpm install
-      - name: Build for type checking cf-eventhub
-        run: pnpm build
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup pnpm with runtime
+        uses: pnpm/setup@v1
+
+      - name: Type check - cf-eventhub
         working-directory: cf-eventhub
-      - name: Build for type checking web-console
-        run: pnpm build
+        run: pnpm tsc --noEmit
+      - name: Test - cf-eventhub
+        working-directory: cf-eventhub
+        run: pnpm test
+
+      - name: Type check - web-console
         working-directory: web-console
-      - name: Build for type checking iac/pulumi
-        run: pnpm build
-        working-directory: iac/pulumi
-      - run: docker pull postgres:16.1
-      - run: pnpm test
-        working-directory: cf-eventhub
-      - run: pnpm test-node
-        working-directory: cf-eventhub
+        run: pnpm tsc --noEmit

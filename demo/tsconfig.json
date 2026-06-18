@@ -3,16 +3,21 @@
     /* Visit https://aka.ms/tsconfig.json to read more about this file */
 
     /* Set the JavaScript language version for emitted JavaScript and include compatible library declarations. */
-    "target": "ESNext",
+    "target": "es2021",
     /* Specify a set of bundled library declaration files that describe the target runtime environment. */
-    "lib": ["ESNext"],
+    "lib": ["es2021"],
     /* Specify what JSX code is generated. */
     "jsx": "react-jsx",
+    "jsxImportSource": "hono/jsx",
 
     /* Specify what module code is generated. */
     "module": "es2022",
     /* Specify how TypeScript looks up a file from a given module specifier. */
     "moduleResolution": "Bundler",
+    /* Specify type package names to be included without being referenced in a source file. */
+    // "types": [
+    // 	"@cloudflare/workers-types/2023-07-01"
+    // ],
     /* Enable importing .json files */
     "resolveJsonModule": true,
 
@@ -36,10 +41,7 @@
 
     /* Skip type checking all .d.ts files. */
     "skipLibCheck": true,
-    "types": [
-      "./worker-configuration.d.ts",
-      "node",
-      "@cloudflare/vitest-pool-workers/types",
-    ],
   },
+  "exclude": ["test"],
+  "include": ["worker-configuration.d.ts", "src/**/*.ts"],
 }

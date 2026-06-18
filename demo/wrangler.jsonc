@@ -1,0 +1,55 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "eventhub-demo",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-13",
+  "compatibility_flags": ["nodejs_compat"],
+  "migrations": [
+    {
+      "new_sqlite_classes": ["DevEventHub"],
+      "tag": "v1",
+    },
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "class_name": "DevEventHub",
+        "name": "EVENT_HUB",
+      },
+    ],
+  },
+  "queues": {
+    "producers": [
+      {
+        "binding": "STABLE_QUEUE",
+        "queue": "stable-queue",
+      },
+      {
+        "binding": "FLAKY_QUEUE",
+        "queue": "flaky-queue",
+      },
+    ],
+    "consumers": [
+      {
+        "queue": "stable-queue",
+        "max_retries": 0,
+        "dead_letter_queue": "dlq",
+      },
+      {
+        "queue": "flaky-queue",
+        "max_retries": 0,
+        "dead_letter_queue": "dlq",
+      },
+      {
+        "queue": "dlq",
+        "max_retries": 0,
+      },
+    ],
+  },
+  "r2_buckets": [
+    {
+      "bucket_name": "sink",
+      "binding": "SINK_BUCKET",
+    },
+  ],
+}

@@ -1,24 +1,15 @@
-export { Config } from "./hub/routing";
-export type { QueueMessage } from "./hub/queue";
-
 type JSONPrimitive = string | boolean | number | null | undefined;
 type JSONArray = readonly NoInfer<JSONPrimitive | JSONObject | JSONArray>[];
+
+/**
+ * Event payload object.
+ *
+ * `undefined` is accepted at the type level for authoring convenience, but
+ * EventHub treats it the same as an absent property because payloads are
+ * handled as JSON-serialized data.
+ */
 export type JSONObject = {
   [key: string]: NoInfer<JSONPrimitive | JSONArray | JSONObject>;
 };
 
 export type EventPayload = JSONObject;
-
-type StructuredClonable = Date;
-
-export type RpcSerializable<T> = {
-  [K in keyof T as K extends string
-    ? K
-    : never]: T[K] extends readonly (infer E)[]
-    ? readonly RpcSerializable<E>[]
-    : T[K] extends StructuredClonable
-      ? T[K]
-      : T[K] extends object
-        ? RpcSerializable<T[K]>
-        : T[K];
-};

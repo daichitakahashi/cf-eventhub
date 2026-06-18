@@ -18,6 +18,7 @@ export const Button: FC<ElementProps<"button"> & { secondary?: boolean }> = ({
       disabled:text-gray-500
       disabled:bg-gray-100
       disabled:cursor-default
+      cursor-pointer
     `}
     {...props}
   />
