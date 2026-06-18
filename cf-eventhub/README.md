@@ -1,6 +1,6 @@
-# EventHub
+# cf-eventhub
 
-EventHub is an event aggregation component built on Cloudflare Durable Objects. It persists JSON events published from Workers and delivers them to Queue or R2 destinations based on routing rules.
+cf-eventhub is an event aggregation component built on Cloudflare Durable Objects. It persists JSON events published from Workers and delivers them to Queue or R2 destinations based on routing rules.
 
 Delivery is attempted immediately, and failed jobs are retried via Durable Object Alarms. Once delivery has completed or permanently failed, finalized events can be snapshotted with `eject()`, paged through with `listEjected()`, archived elsewhere, and then removed with `evict()`.
 
