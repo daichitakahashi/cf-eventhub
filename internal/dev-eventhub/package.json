@@ -10,11 +10,11 @@
     "cf-typegen": "wrangler types"
   },
   "dependencies": {
-    "cf-eventhub": "workspace:../../cf-eventhub"
+    "eventhub": "workspace:../../eventhub",
+    "@cf-eventhub/web-console": "workspace:../../console"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "catalog:",
-    "@cloudflare/workers-types": "catalog:",
     "typescript": "^5.5.2",
     "vitest": "2.0.5",
     "wrangler": "catalog:"

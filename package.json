@@ -5,7 +5,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "node internal/index.mjs",
+    "dev": "pnpm --filter dev-eventhub dev",
     "ci:publish": "pnpm publish -r --access public --no-git-checks"
   },
   "keywords": [],
@@ -15,7 +15,6 @@
     "@biomejs/biome": "^1.9.4"
   },
   "devDependencies": {
-    "@changesets/cli": "^2.29.7",
-    "chalk": "^5.6.2"
+    "@changesets/cli": "^2.29.7"
   }
 }

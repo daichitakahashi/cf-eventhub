@@ -14,5 +14,15 @@
 		"typescript": "^5.5.2",
 		"vitest": "~3.2.0",
 		"wrangler": "^4.87.0"
-	}
+	},
+	"exports": {
+		"types": "./src/index.ts",
+		"default": "./src/index.ts"
+	},
+	"files": [
+		"src",
+		"worker-configuration.d.ts",
+		"wrangler.jsonc",
+		"README.md"
+	]
 }

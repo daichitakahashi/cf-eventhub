@@ -1,0 +1,47 @@
+@import "tailwindcss";
+
+@source "../**/*.tsx";
+
+@theme {
+  --default-border-color: var(--color-gray-200);
+  --color-background: #ffffff;
+  --color-input: #e5e7eb;
+  --color-muted: #f3f4f6;
+  --color-muted-foreground: #6b7280;
+  --color-ring: #111827;
+}
+
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: #e5e7eb;
+  }
+
+  dialog {
+    margin: auto;
+    padding: 0;
+    color: inherit;
+    background-color: #ffffff;
+    max-width: calc(100vw - 2rem);
+    max-height: calc(100vh - 2rem);
+  }
+
+  dialog:not([open]) {
+    display: none;
+  }
+}
+
+@layer components {
+  .border,
+  .border-b,
+  [class~="[&>tr]:border-b"] > tr {
+    border-color: var(--color-gray-200);
+  }
+
+  .divide-y > :not(:last-child) {
+    border-color: var(--color-gray-200);
+  }
+}
