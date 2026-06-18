@@ -16,5 +16,13 @@
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.0"
+  },
+  "packageManager": "pnpm@11.7.0",
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "^24.0.0",
+      "onFail": "download"
+    }
   }
 }

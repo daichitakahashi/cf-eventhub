@@ -3,6 +3,13 @@ packages:
   - web-console
   - demo
 
+allowBuilds:
+  '@biomejs/biome': true
+  '@parcel/watcher': true
+  esbuild: true
+  sharp: true
+  workerd: true
+
 catalog:
   "@cloudflare/vitest-pool-workers": 0.16.16
   "@cloudflare/workers-types": 4.20260617.1
