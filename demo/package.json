@@ -1,5 +1,5 @@
 {
-  "name": "dev-eventhub",
+  "name": "eventhub-demo",
   "version": "0.0.0",
   "private": true,
   "scripts": {
@@ -9,8 +9,8 @@
     "cf-typegen": "wrangler types"
   },
   "dependencies": {
-    "cf-eventhub": "workspace:../../cf-eventhub",
-    "@cf-eventhub/web-console": "workspace:../../web-console"
+    "cf-eventhub": "workspace:../cf-eventhub",
+    "@cf-eventhub/web-console": "workspace:../web-console"
   },
   "devDependencies": {
     "typescript": "catalog:",

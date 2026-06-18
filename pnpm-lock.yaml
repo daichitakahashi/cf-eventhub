@@ -54,14 +54,14 @@ importers:
         specifier: 'catalog:'
         version: 4.101.0(@cloudflare/workers-types@4.20260617.1)
 
-  internal/dev-eventhub:
+  demo:
     dependencies:
       '@cf-eventhub/web-console':
-        specifier: workspace:../../web-console
-        version: link:../../web-console
+        specifier: workspace:../web-console
+        version: link:../web-console
       cf-eventhub:
-        specifier: workspace:../../cf-eventhub
-        version: link:../../cf-eventhub
+        specifier: workspace:../cf-eventhub
+        version: link:../cf-eventhub
     devDependencies:
       typescript:
         specifier: 'catalog:'

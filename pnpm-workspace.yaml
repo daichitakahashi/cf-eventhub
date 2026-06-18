@@ -1,7 +1,7 @@
 packages:
   - cf-eventhub
   - web-console
-  - internal/*
+  - demo
 
 catalog:
   "@cloudflare/vitest-pool-workers": 0.16.16
