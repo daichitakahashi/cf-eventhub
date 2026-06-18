@@ -55,7 +55,7 @@ const PaginationLabel: FC<ElementProps<"span">> = (props) => (
 export const Pagination: FC<{
   topUrl?: string;
   nextUrl?: string;
-  range?: [Date] | [Date, Date];
+  range?: [DateTime] | [DateTime, DateTime];
   formatDateRange: (d1: DateTime, d2: DateTime) => string;
 }> = ({ topUrl, nextUrl, range, formatDateRange }) => (
   <PaginationSection>

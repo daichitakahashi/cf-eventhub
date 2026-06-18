@@ -1,26 +1,35 @@
 import { vValidator } from "@hono/valibot-validator";
+import type { EventPayload } from "cf-eventhub";
+import type { Context } from "hono";
 import * as v from "valibot";
 
-import { factory } from "./factory";
+import { getEventsLastUpdatedAt, normalizeEvents } from "./eventhub";
+import { type Env, factory } from "./factory";
+
+const parseEventPayload = (value: string): unknown => {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+};
+
+const redirectWithError = (c: Context<Env>) =>
+  c.redirect("/?error=invalid-payload");
 
 const handler = factory
   .createApp()
-  // Get timestamp of the latest event.
   .get("/events/latest", async (c) => {
-    const events = await c.env.EVENTHUB.listEvents({
-      maxItems: 1,
-      orderBy: "CREATED_AT_DESC",
+    const list = await c.var.getEventHub().list({
+      max: 10,
+      order: "desc",
     });
-
-    if (events.list.length === 0) {
-      return c.json({ lastUpdatedAt: 0 });
-    }
-    const lastUpdatedAt = events.list[0].createdAt.getTime();
-    return c.json({ lastUpdatedAt });
+    return c.json({
+      lastUpdatedAt: getEventsLastUpdatedAt(normalizeEvents(list)),
+    });
   })
-  // Retry dispatch.
   .post(
-    "/dispatches/:id/retry",
+    "/delivery-jobs/:id/retry",
     vValidator(
       "param",
       v.object({
@@ -28,43 +37,34 @@ const handler = factory
       }),
     ),
     async (c) => {
-      const { id } = c.req.valid("param");
-      await c.env.EVENTHUB.retryDispatch({ dispatchId: id });
-      return c.newResponse(null, {
-        status: 200,
-        headers: {
-          "HX-Refresh": "true", // Force reload dispatches.
-        },
-      });
+      const retried = await c.var
+        .getEventHub()
+        .redrive(c.req.valid("param").id);
+      if (!retried) {
+        return c.redirect("/?error=delivery-not-found");
+      }
+      return c.redirect("/");
     },
   )
-  // Create event.
   .post(
     "/events",
     vValidator(
       "form",
       v.object({
-        payload: v.string(),
+        payload: v.pipe(v.string(), v.minLength(1)),
       }),
     ),
     async (c) => {
-      try {
-        const payload = JSON.parse(c.req.valid("form").payload);
-        await c.env.EVENTHUB.putEvent([payload]);
-        return c.newResponse(null, {
-          status: 200,
-          headers: {
-            "HX-Redirect": "/", // Redirect to dispatches.
-          },
-        });
-      } catch {
-        return c.newResponse(null, {
-          status: 200,
-          headers: {
-            "HX-Refresh": "true",
-          },
-        });
+      const parsed = parseEventPayload(c.req.valid("form").payload);
+      if (
+        typeof parsed !== "object" ||
+        parsed === null ||
+        Array.isArray(parsed)
+      ) {
+        return redirectWithError(c);
       }
+      await c.var.getEventHub().publish(parsed as EventPayload);
+      return c.redirect("/");
     },
   );
 

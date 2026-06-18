@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "cf-eventhub": "workspace:../../cf-eventhub",
-    "@cf-eventhub/web-console": "workspace:../../console"
+    "@cf-eventhub/web-console": "workspace:../../web-console"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "catalog:",

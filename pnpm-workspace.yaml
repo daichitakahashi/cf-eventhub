@@ -1,8 +1,6 @@
 packages:
   - cf-eventhub
-  - console
   - web-console
-  - iac/pulumi
   - internal/*
 
 catalog:
