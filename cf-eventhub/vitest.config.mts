@@ -8,7 +8,7 @@ export default defineConfig({
       main: "./src/test.ts",
       miniflare: {
         queueProducers: ["OKAYAMA", "HOKKAIDO", "OKINAWA"],
-        r2Buckets: ["ARCHIVE"],
+        r2Buckets: ["ARCHIVE", "EVICTION_ARCHIVE"],
       },
     }),
   ],

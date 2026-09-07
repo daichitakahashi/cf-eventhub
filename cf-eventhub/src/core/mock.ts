@@ -42,9 +42,11 @@ export class QueueMock implements Queue<EventPayload> {
 export class R2BucketMock {
   readonly objects = new Map<string, { body: string; contentType?: string }>();
   private readonly failingKeys: Set<string>;
+  private readonly failAll: boolean;
 
-  constructor(failingKeys: string[] = []) {
+  constructor(failingKeys: string[] = [], failAll = false) {
     this.failingKeys = new Set(failingKeys);
+    this.failAll = failAll;
   }
 
   async head(): Promise<R2Object | null> {
@@ -66,7 +68,7 @@ export class R2BucketMock {
       | Blob,
     options?: R2PutOptions,
   ): Promise<R2Object> {
-    if (this.failingKeys.has(key)) {
+    if (this.failAll || this.failingKeys.has(key)) {
       throw new Error(`failed put ${key}`);
     }
     if (typeof value !== "string") {

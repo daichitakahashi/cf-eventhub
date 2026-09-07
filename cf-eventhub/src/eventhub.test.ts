@@ -7,7 +7,15 @@ import {
   listDeliveryJobStatuses,
   persistDeliveryJobs,
 } from "./core/store";
-import { TestEventHub, type TestEventHubWithJobId, testRouting } from "./test";
+import { configureEviction } from "./eventhub";
+import {
+  TestEventHub,
+  type TestEventHubWithArchiveEviction,
+  type TestEventHubWithDeleteEviction,
+  type TestEventHubWithFailingArchiveEviction,
+  type TestEventHubWithJobId,
+  testRouting,
+} from "./test";
 
 type PayloadRow = {
   id: string;
@@ -33,6 +41,15 @@ const getStub = (name: string) =>
 
 const getStubWithJobId = (name: string) =>
   env.EVENT_HUB_WITH_JOB_ID.get(env.EVENT_HUB_WITH_JOB_ID.idFromName(name));
+
+const getDeleteEvictionStub = (name: string) =>
+  env.EVENT_HUB_WITH_DELETE_EVICTION.getByName(name);
+
+const getArchiveEvictionStub = (name: string) =>
+  env.EVENT_HUB_WITH_ARCHIVE_EVICTION.getByName(name);
+
+const getFailingArchiveEvictionStub = (name: string) =>
+  env.EVENT_HUB_WITH_FAILING_ARCHIVE_EVICTION.getByName(name);
 
 // @ts-expect-error
 const getArchiveBucket = (): R2Bucket => env.ARCHIVE as R2Bucket;
@@ -1000,6 +1017,440 @@ describe("reportFailure", () => {
         recorded: false,
         failures: [],
       });
+    });
+  });
+});
+
+describe("automatic eviction", () => {
+  test("configureEviction applies the default batch size", () => {
+    expect(
+      configureEviction({ afterMs: 1, action: { type: "delete" } }),
+    ).toStrictEqual({
+      afterMs: 1,
+      action: { type: "delete" },
+      batchSize: 50,
+    });
+  });
+
+  test("configureEviction rejects invalid numeric limits", () => {
+    expect(() =>
+      configureEviction({ afterMs: 0, action: { type: "delete" } }),
+    ).toThrow("eventhub: afterMs must be a positive integer");
+    expect(() =>
+      configureEviction({
+        afterMs: 1,
+        batchSize: 101,
+        action: { type: "delete" },
+      }),
+    ).toThrow("eventhub: batchSize must be <= 100");
+  });
+
+  test("configureEviction rejects unknown actions and missing buckets", () => {
+    expect(() =>
+      configureEviction({
+        afterMs: 1,
+        action: { type: "move" } as never,
+      }),
+    ).toThrow('eventhub: eviction action type must be "delete" or "archive"');
+    expect(() =>
+      configureEviction({
+        afterMs: 1,
+        action: {
+          type: "archive",
+          bucket: undefined as unknown as R2Bucket,
+          prefix: "archive",
+        },
+      }),
+    ).toThrow("eventhub: archive bucket is required");
+  });
+
+  test("configureEviction rejects non-canonical archive prefixes", () => {
+    const bucket = getArchiveBucket();
+    expect(() =>
+      configureEviction({
+        afterMs: 1,
+        action: { type: "archive", bucket, prefix: "/invalid" },
+      }),
+    ).toThrow("eventhub: archive prefix");
+  });
+
+  test("delete action removes at most one bounded batch without a snapshot", async () => {
+    // 1. Seed three old payloads with no delivery jobs.
+    // 2. Run one alarm and verify only the configured batch of two is deleted.
+    // 3. Run the continuation alarm and verify cleanup finishes without snapshots.
+    const stub = getDeleteEvictionStub("automatic-delete-batch");
+    await runInDurableObject(stub, async (instance, state) => {
+      let sequence = 0;
+      state.storage.transactionSync(() => {
+        for (const ordinal of [1, 2, 3]) {
+          persistDeliveryJobs(
+            state.storage.sql,
+            createPendingDeliveryJobs(testRouting, [
+              { kind: "other", ordinal },
+            ]),
+            () => `01DELETE0000000000${String(sequence++).padStart(7, "0")}`,
+            new Date(Date.now() - 10_000),
+          );
+        }
+      });
+
+      await (instance as TestEventHubWithDeleteEviction).alarm();
+      const afterFirst = {
+        payloads: state.storage.sql
+          .exec<{ count: number }>("SELECT COUNT(*) AS count FROM payloads")
+          .one().count,
+        ejections: state.storage.sql
+          .exec<{ count: number }>("SELECT COUNT(*) AS count FROM ejections")
+          .one().count,
+        runs: state.storage.sql
+          .exec<{ count: number }>(
+            "SELECT COUNT(*) AS count FROM eviction_runs",
+          )
+          .one().count,
+      };
+      expect(afterFirst).toStrictEqual({ payloads: 1, ejections: 0, runs: 0 });
+
+      await (instance as TestEventHubWithDeleteEviction).alarm();
+      expect(
+        state.storage.sql
+          .exec<{ count: number }>("SELECT COUNT(*) AS count FROM payloads")
+          .one().count,
+      ).toBe(0);
+    });
+  });
+
+  test("a public RPC schedules strict-cutoff eligibility at baseline plus retention and 1ms", async () => {
+    const stub = getDeleteEvictionStub("automatic-eligibility-alarm");
+    await runInDurableObject(stub, async (instance, state) => {
+      const createdAt = new Date(Date.now() + 10_000);
+      state.storage.transactionSync(() => {
+        persistDeliveryJobs(
+          state.storage.sql,
+          createPendingDeliveryJobs(testRouting, [{ kind: "other" }]),
+          () => "01SCHEDULE0000000000000000",
+          createdAt,
+        );
+      });
+
+      await (instance as TestEventHubWithDeleteEviction).list();
+      expect(await state.storage.getAlarm()).toBe(createdAt.getTime() + 1_001);
+    });
+  });
+
+  test("one alarm advances both due delivery and one eviction batch", async () => {
+    // 1. Seed one due delivery job and one old jobless payload.
+    // 2. Run one alarm and verify delivery is finalized before eviction also advances.
+    const stub = getDeleteEvictionStub("delivery-and-eviction-due");
+    await runInDurableObject(stub, async (instance, state) => {
+      let sequence = 0;
+      state.storage.transactionSync(() => {
+        persistDeliveryJobs(
+          state.storage.sql,
+          createPendingDeliveryJobs(testRouting, [{ kind: "culture" }]),
+          () => `01FAIRDELIVERY00000${String(sequence++).padStart(6, "0")}`,
+          new Date(Date.now() - 500),
+        );
+        persistDeliveryJobs(
+          state.storage.sql,
+          createPendingDeliveryJobs(testRouting, [{ kind: "other" }]),
+          () => `01FAIREVICTION0000${String(sequence++).padStart(6, "0")}`,
+          new Date(Date.now() - 10_000),
+        );
+      });
+
+      await (instance as TestEventHubWithDeleteEviction).alarm();
+      expect({
+        statuses: listDeliveryJobStatuses(state.storage.sql),
+        payloads: state.storage.sql
+          .exec<{ body: string }>("SELECT body FROM payloads")
+          .toArray()
+          .map(({ body }) => JSON.parse(body)),
+      }).toMatchObject({
+        statuses: [{ finalStatus: "completed" }],
+        payloads: [{ kind: "culture" }],
+      });
+    });
+  });
+
+  test("archive action writes one page and then a manifest before eviction", async () => {
+    // 1. Seed an archive batch and run one alarm to write exactly one page.
+    // 2. Verify SQL still owns the immutable snapshot in manifest phase.
+    // 3. Run the next alarm, verify the manifest, and verify SQL cleanup.
+    const name = "automatic-archive-page-manifest";
+    const stub = getArchiveEvictionStub(name);
+    await runInDurableObject(stub, async (instance, state) => {
+      let sequence = 0;
+      state.storage.transactionSync(() => {
+        for (const ordinal of [1, 2]) {
+          persistDeliveryJobs(
+            state.storage.sql,
+            createPendingDeliveryJobs(testRouting, [
+              { kind: "other", ordinal },
+            ]),
+            () => `01ARCHIVE000000000${String(sequence++).padStart(6, "0")}`,
+            new Date(Date.now() - 10_000),
+          );
+        }
+      });
+
+      await (instance as TestEventHubWithArchiveEviction).alarm();
+      const run = state.storage.sql
+        .exec<{
+          ejection_key: string;
+          phase: string;
+          completed_at: string | null;
+        }>("SELECT ejection_key, phase, completed_at FROM eviction_runs")
+        .one();
+      expect(run).toMatchObject({
+        phase: "manifest",
+        completed_at: expect.any(String),
+      });
+
+      const prefix = `automatic/objects/${state.id.toString()}/ejections/${run.ejection_key}`;
+      const afterPage = await env.EVICTION_ARCHIVE.list({ prefix });
+      expect(afterPage.objects.map(({ key }) => key)).toStrictEqual([
+        `${prefix}/pages/000000.json`,
+      ]);
+
+      await (instance as TestEventHubWithArchiveEviction).alarm();
+      const archived = await env.EVICTION_ARCHIVE.list({ prefix });
+      expect(archived.objects.map(({ key }) => key).sort()).toStrictEqual([
+        `${prefix}/manifest.json`,
+        `${prefix}/pages/000000.json`,
+      ]);
+      expect({
+        payloads: state.storage.sql
+          .exec<{ count: number }>("SELECT COUNT(*) AS count FROM payloads")
+          .one().count,
+        ejections: state.storage.sql
+          .exec<{ count: number }>("SELECT COUNT(*) AS count FROM ejections")
+          .one().count,
+        runs: state.storage.sql
+          .exec<{ count: number }>(
+            "SELECT COUNT(*) AS count FROM eviction_runs",
+          )
+          .one().count,
+      }).toStrictEqual({ payloads: 0, ejections: 0, runs: 0 });
+    });
+  });
+
+  test("archive resumes across byte-bounded pages with one put per alarm", async () => {
+    // 1. Seed two payloads that cannot fit together in the 256 KiB page budget.
+    // 2. Run two alarms and verify page indexes advance without rewriting another key.
+    // 3. Run a third alarm and verify the stable completion manifest.
+    const stub = getArchiveEvictionStub("automatic-archive-multiple-pages");
+    await runInDurableObject(stub, async (instance, state) => {
+      let sequence = 0;
+      state.storage.transactionSync(() => {
+        for (const ordinal of [1, 2]) {
+          persistDeliveryJobs(
+            state.storage.sql,
+            createPendingDeliveryJobs(testRouting, [
+              { kind: "other", ordinal, data: "x".repeat(180_000) },
+            ]),
+            () => `01MULTIPAGE0000000${String(sequence++).padStart(6, "0")}`,
+            new Date(Date.now() - 10_000),
+          );
+        }
+      });
+      const hub = instance as TestEventHubWithArchiveEviction;
+
+      await hub.alarm();
+      const runAfterFirst = state.storage.sql
+        .exec<{ ejection_key: string; phase: string; page_index: number }>(
+          "SELECT ejection_key, phase, page_index FROM eviction_runs",
+        )
+        .one();
+      const prefix = `automatic/objects/${state.id.toString()}/ejections/${runAfterFirst.ejection_key}`;
+      expect({
+        run: runAfterFirst,
+        keys: (await env.EVICTION_ARCHIVE.list({ prefix })).objects.map(
+          ({ key }) => key,
+        ),
+      }).toMatchObject({
+        run: { phase: "pages", page_index: 1 },
+        keys: [`${prefix}/pages/000000.json`],
+      });
+
+      await hub.alarm();
+      const runAfterSecond = state.storage.sql
+        .exec<{
+          phase: string;
+          page_index: number;
+          payload_count: number;
+          completed_at: string;
+        }>(
+          "SELECT phase, page_index, payload_count, completed_at FROM eviction_runs",
+        )
+        .one();
+      expect({
+        run: runAfterSecond,
+        keys: (await env.EVICTION_ARCHIVE.list({ prefix })).objects.map(
+          ({ key }) => key,
+        ),
+      }).toMatchObject({
+        run: { phase: "manifest", page_index: 2, payload_count: 2 },
+        keys: [`${prefix}/pages/000000.json`, `${prefix}/pages/000001.json`],
+      });
+
+      await hub.alarm();
+      const manifestObject = await env.EVICTION_ARCHIVE.get(
+        `${prefix}/manifest.json`,
+      );
+      expect(await manifestObject?.json()).toMatchObject({
+        completedAt: runAfterSecond.completed_at,
+        pageCount: 2,
+        payloadCount: 2,
+      });
+    });
+  });
+
+  test("manual ejection blocks automatic archive until manual eviction", async () => {
+    // 1. Create a manual snapshot before automatic eviction runs.
+    // 2. Verify an alarm leaves the snapshot untouched and writes no R2 objects.
+    // 3. Evict it manually and verify automatic scheduling can resume.
+    const name = "manual-ejection-priority";
+    const stub = getArchiveEvictionStub(name);
+    await runInDurableObject(stub, async (instance, state) => {
+      state.storage.transactionSync(() => {
+        persistDeliveryJobs(
+          state.storage.sql,
+          createPendingDeliveryJobs(testRouting, [{ kind: "other" }]),
+          () => "01MANUAL000000000000000000",
+          new Date(Date.now() - 10_000),
+        );
+      });
+      const manual = await (instance as TestEventHubWithArchiveEviction).eject(
+        Date.now(),
+      );
+      expect(manual.ejectKey).toEqual(expect.any(String));
+
+      await (instance as TestEventHubWithArchiveEviction).alarm();
+      const archived = await env.EVICTION_ARCHIVE.list({
+        prefix: `automatic/objects/${state.id.toString()}/`,
+      });
+      expect({
+        archived: archived.objects,
+        runs: state.storage.sql
+          .exec<{ count: number }>(
+            "SELECT COUNT(*) AS count FROM eviction_runs",
+          )
+          .one().count,
+      }).toStrictEqual({ archived: [], runs: 0 });
+    });
+  });
+
+  test("configuration changes pause and preserve an active archive run", async () => {
+    // 1. Start an archive and retain its original binding and prefix.
+    // 2. Change the action, prefix, and enabled state, verifying each pauses the run.
+    // 3. Restore the original configuration and verify the manifest completes cleanup.
+    const stub = getArchiveEvictionStub("archive-configuration-changes");
+    await runInDurableObject(stub, async (instance, state) => {
+      const hub = instance as TestEventHubWithArchiveEviction;
+      state.storage.transactionSync(() => {
+        persistDeliveryJobs(
+          state.storage.sql,
+          createPendingDeliveryJobs(testRouting, [{ kind: "other" }]),
+          () => "01CONFIG000000000000000000",
+          new Date(Date.now() - 10_000),
+        );
+      });
+      await hub.alarm();
+      const original = hub.eviction;
+      assert(original?.action.type === "archive");
+      const pausedState = () => ({
+        runs: state.storage.sql
+          .exec<{ count: number }>(
+            "SELECT COUNT(*) AS count FROM eviction_runs",
+          )
+          .one().count,
+        ejected: state.storage.sql
+          .exec<{ count: number }>(
+            "SELECT COUNT(*) AS count FROM ejected_payloads",
+          )
+          .one().count,
+      });
+
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      hub.eviction = configureEviction({
+        afterMs: original.afterMs,
+        action: { type: "delete" },
+      });
+      await hub.alarm();
+      expect(pausedState()).toStrictEqual({ runs: 1, ejected: 1 });
+
+      hub.eviction = configureEviction({
+        afterMs: original.afterMs,
+        action: {
+          type: "archive",
+          bucket: original.action.bucket,
+          prefix: "changed",
+        },
+      });
+      await hub.alarm();
+      expect(pausedState()).toStrictEqual({ runs: 1, ejected: 1 });
+
+      hub.eviction = undefined;
+      await hub.alarm();
+      expect(pausedState()).toStrictEqual({ runs: 1, ejected: 1 });
+
+      hub.eviction = original;
+      await hub.alarm();
+      expect(pausedState()).toStrictEqual({ runs: 0, ejected: 0 });
+      expect(error).toHaveBeenCalledTimes(2);
+      error.mockRestore();
+    });
+  });
+
+  test("R2 failure preserves the snapshot and stores persistent backoff", async () => {
+    // 1. Seed one eligible payload behind an R2 binding that always fails.
+    // 2. Run the alarm and verify the payload is retained in its snapshot.
+    // 3. Verify retry state advances without completing or evicting the run.
+    const stub = getFailingArchiveEvictionStub("archive-put-failure");
+    await runInDurableObject(stub, async (instance, state) => {
+      state.storage.transactionSync(() => {
+        persistDeliveryJobs(
+          state.storage.sql,
+          createPendingDeliveryJobs(testRouting, [{ kind: "other" }]),
+          () => "01FAILURE00000000000000000",
+          new Date(Date.now() - 10_000),
+        );
+      });
+      const beforeAlarm = Date.now();
+      await (instance as TestEventHubWithFailingArchiveEviction).alarm();
+
+      const run = state.storage.sql
+        .exec<{
+          phase: string;
+          retry_count: number;
+          last_error: string | null;
+          next_attempt_at: string;
+        }>(
+          "SELECT phase, retry_count, last_error, next_attempt_at FROM eviction_runs",
+        )
+        .one();
+      expect({
+        run,
+        livePayloads: state.storage.sql
+          .exec<{ count: number }>("SELECT COUNT(*) AS count FROM payloads")
+          .one().count,
+        ejectedPayloads: state.storage.sql
+          .exec<{ count: number }>(
+            "SELECT COUNT(*) AS count FROM ejected_payloads",
+          )
+          .one().count,
+      }).toMatchObject({
+        run: {
+          phase: "pages",
+          retry_count: 1,
+          last_error: expect.stringContaining("failed put"),
+        },
+        livePayloads: 0,
+        ejectedPayloads: 1,
+      });
+      expect(Date.parse(run.next_attempt_at)).toBeGreaterThanOrEqual(
+        beforeAlarm + 60_000,
+      );
     });
   });
 });

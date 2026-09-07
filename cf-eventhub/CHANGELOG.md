@@ -1,5 +1,11 @@
 # cf-eventhub
 
+## Unreleased
+
+### Minor Changes
+
+- Add optional automatic eviction using Durable Object Alarms, with bounded direct deletion or retry-safe R2 archival through `configureEviction()`.
+
 ## 0.3.5
 
 ### Patch Changes

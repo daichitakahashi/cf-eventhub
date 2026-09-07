@@ -2,13 +2,18 @@ import { env } from "cloudflare:workers";
 import { EventHub } from ".";
 import { QueueMock, R2BucketMock } from "./core/mock";
 import { routeByConfig, routeFunc } from "./core/routing";
-import { configureDelivery } from "./eventhub";
+import {
+  type EvictionConfig,
+  configureDelivery,
+  configureEviction,
+} from "./eventhub";
 
 type Env = {
   OKAYAMA: Queue;
   HOKKAIDO: Queue;
   OKINAWA: Queue;
   ARCHIVE: R2Bucket;
+  EVICTION_ARCHIVE: R2Bucket;
 };
 
 export const testRouting = routeByConfig<Env>(env as unknown as Env, {
@@ -46,6 +51,45 @@ export const testRouting = routeByConfig<Env>(env as unknown as Env, {
 
 export class TestEventHub extends EventHub<Env> {
   deliveryConfig = configureDelivery({});
+  routing = testRouting;
+}
+
+export class TestEventHubWithDeleteEviction extends EventHub<Env> {
+  deliveryConfig = configureDelivery({});
+  eviction: EvictionConfig | undefined = configureEviction({
+    afterMs: 1_000,
+    action: { type: "delete" },
+    batchSize: 2,
+  });
+  routing = testRouting;
+}
+
+export class TestEventHubWithArchiveEviction extends EventHub<Env> {
+  deliveryConfig = configureDelivery({});
+  eviction: EvictionConfig | undefined = configureEviction({
+    afterMs: 1_000,
+    action: {
+      type: "archive",
+      bucket: (env as unknown as Env).EVICTION_ARCHIVE,
+      prefix: "automatic",
+    },
+    batchSize: 2,
+  });
+  routing = testRouting;
+}
+
+export class TestEventHubWithFailingArchiveEviction extends EventHub<Env> {
+  bucket = new R2BucketMock([], true);
+  deliveryConfig = configureDelivery({});
+  eviction: EvictionConfig | undefined = configureEviction({
+    afterMs: 1_000,
+    action: {
+      type: "archive",
+      bucket: this.bucket as unknown as R2Bucket,
+      prefix: "automatic-failure",
+    },
+    batchSize: 2,
+  });
   routing = testRouting;
 }
 
