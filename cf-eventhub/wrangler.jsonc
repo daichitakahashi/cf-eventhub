@@ -12,6 +12,14 @@
       "new_sqlite_classes": ["TestEventHub", "TestEventHubWithJobId"],
       "tag": "v1",
     },
+    {
+      "new_sqlite_classes": [
+        "TestEventHubWithDeleteEviction",
+        "TestEventHubWithArchiveEviction",
+        "TestEventHubWithFailingArchiveEviction",
+      ],
+      "tag": "v2",
+    },
   ],
   "durable_objects": {
     "bindings": [
@@ -23,8 +31,26 @@
         "class_name": "TestEventHubWithJobId",
         "name": "EVENT_HUB_WITH_JOB_ID",
       },
+      {
+        "class_name": "TestEventHubWithDeleteEviction",
+        "name": "EVENT_HUB_WITH_DELETE_EVICTION",
+      },
+      {
+        "class_name": "TestEventHubWithArchiveEviction",
+        "name": "EVENT_HUB_WITH_ARCHIVE_EVICTION",
+      },
+      {
+        "class_name": "TestEventHubWithFailingArchiveEviction",
+        "name": "EVENT_HUB_WITH_FAILING_ARCHIVE_EVICTION",
+      },
     ],
   },
+  "r2_buckets": [
+    {
+      "binding": "EVICTION_ARCHIVE",
+      "bucket_name": "cf-eventhub-eviction-test",
+    },
+  ],
   "observability": {
     "enabled": true,
   },

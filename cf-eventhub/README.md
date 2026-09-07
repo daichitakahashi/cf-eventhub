@@ -9,6 +9,7 @@ Delivery is attempted immediately, and failed jobs are retried via Durable Objec
 - [What It Does](#what-it-does)
 - [Public API](#public-api)
 - [Delivery Configuration](#delivery-configuration)
+- [Automatic Eviction](#automatic-eviction)
 - [Routing](#routing)
 - [Wrangler Configuration Example](#wrangler-configuration-example)
 - [Publishing from a Worker](#publishing-from-a-worker)
@@ -24,6 +25,7 @@ Delivery is attempted immediately, and failed jobs are retried via Durable Objec
 - Route events with JSONPath-based conditions
 - Retry failed deliveries to Queue or R2 automatically
 - Archive finalized events gradually with `eject -> listEjected -> evict`
+- Automatically delete or archive finalized events after a retention period
 
 ## Public API
 
@@ -59,6 +61,59 @@ export class MyEventHub extends EventHub<Env> {
 ```
 
 When `includeDeliveryJobId` is `true`, EventHub injects the delivery job ID into each payload at `__eventhub__.deliveryJobId` before sending it to Queue or R2 destinations. This ID can be used with `reportFailure()` to record downstream processing failures for that delivery job.
+
+## Automatic Eviction
+
+Automatic eviction is disabled unless a subclass explicitly defines `eviction` with `configureEviction()`. Retention is specified in milliseconds. `batchSize` defaults to 50 and accepts values from 1 through 100.
+
+To delete finalized events directly from SQLite in bounded, atomic batches:
+
+```ts
+import { EventHub, configureEviction } from "cf-eventhub";
+
+export class MyEventHub extends EventHub<Env> {
+  eviction = configureEviction({
+    afterMs: 30 * 24 * 60 * 60 * 1000,
+    action: { type: "delete" },
+    batchSize: 100,
+  });
+
+  routing = /* ... */;
+}
+```
+
+To archive each batch to R2 before deleting it:
+
+```ts
+import { env } from "cloudflare:workers";
+
+export class MyArchivedEventHub extends EventHub<Env> {
+  eviction = configureEviction({
+    afterMs: 30 * 24 * 60 * 60 * 1000,
+    action: {
+      type: "archive",
+      bucket: env.EVENT_ARCHIVE,
+      prefix: "production/member-events",
+    },
+    batchSize: 100,
+  });
+
+  routing = /* ... */;
+}
+```
+
+The archive binding must be an `R2Bucket`, and `prefix` must be non-empty with no leading, trailing, or repeated slash. Objects use deterministic keys:
+
+```text
+<prefix>/objects/<durableObjectId>/ejections/<ejectKey>/pages/000000.json
+<prefix>/objects/<durableObjectId>/ejections/<ejectKey>/manifest.json
+```
+
+Each alarm performs at most one archive `put`: pages contain up to 100 payloads and 256 KiB of serialized payload bodies, and the completion manifest is written by a later alarm. A successful manifest write is the completion marker. EventHub deletes the SQLite snapshot only after that write succeeds. Failed R2 writes preserve the snapshot and cursor and retry with persistent exponential backoff from one minute up to one hour. At-least-once alarm execution may rewrite a page, but its key and body remain deterministic.
+
+Manual `eject()`, `listEjected()`, and `evict()` remain available for custom policies. A manual snapshot takes priority and pauses automatic eviction until it is manually evicted. Disabling eviction or changing its action or archive prefix while an automatic archive is active preserves and pauses that snapshot; restoring the original archive action and prefix resumes it. Changing the bucket behind the same binding while a run is active is unsupported.
+
+Delivery retries and eviction share the Durable Object's single alarm, with delivery processed first and one bounded eviction unit processed afterward. Adding eviction configuration does not wake idle Durable Objects: scheduling begins on that object's next RPC, publish, or existing alarm.
 
 ## Routing
 

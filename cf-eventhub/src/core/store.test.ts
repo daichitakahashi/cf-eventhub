@@ -4,9 +4,16 @@ import { assert, describe, expect, test, vi } from "vitest";
 
 import { routeByConfig } from "./routing";
 import {
+  advanceEvictionPage,
+  completeAutomaticEviction,
+  createAutomaticEjection,
   createPendingDeliveryJobs,
+  deleteEvictionCandidates,
   ejectPayloads,
   evictEjection,
+  getActiveEjection,
+  getEvictionRun,
+  getNextEvictionBaseline,
   getNextRetryAt,
   list,
   listDeliverableJobs,
@@ -16,6 +23,7 @@ import {
   markDeliveryJobsFailed,
   persistDeliveryJobs,
   recordDeliveryJobFailure,
+  recordEvictionFailure,
   redriveDeliveryJob,
 } from "./store";
 
@@ -2328,6 +2336,441 @@ describe("eject and evict with delivery job failures", () => {
         .toArray();
 
       expect(ejectedFailures).toStrictEqual([]);
+    });
+  });
+});
+
+describe("automatic eviction store operations", () => {
+  test("getNextEvictionBaseline uses created_at for a payload without jobs", async () => {
+    const stub = getStub("eviction-baseline-jobless");
+    await runInDurableObject(stub, async (_instance, state) => {
+      const createdAt = new Date("2026-05-04T00:00:00.000Z");
+      state.storage.transactionSync(() => {
+        persistDeliveryJobs(
+          state.storage.sql,
+          createPendingDeliveryJobs(routing, [{ kind: "other" }]),
+          () => "01BASELINEJOBLESS000000000",
+          createdAt,
+        );
+      });
+
+      expect(getNextEvictionBaseline(state.storage.sql)).toBe(
+        createdAt.toISOString(),
+      );
+    });
+  });
+
+  test("getNextEvictionBaseline uses the latest finalization and excludes pending jobs", async () => {
+    // 1. Seed a two-destination payload and a separate pending payload.
+    // 2. Finalize both jobs at different times.
+    // 3. Verify the finalized payload uses its latest finalized_at timestamp.
+    const stub = getStub("eviction-baseline-finalized");
+    await runInDurableObject(stub, async (_instance, state) => {
+      let sequence = 0;
+      const finalizedJobs = state.storage.transactionSync(() =>
+        persistDeliveryJobs(
+          state.storage.sql,
+          createPendingDeliveryJobs(routing, [{ kind: "nature" }]),
+          () => `01BASELINEFINAL${String(sequence++).padStart(10, "0")}`,
+          new Date("2026-05-01T00:00:00.000Z"),
+        ),
+      );
+      state.storage.transactionSync(() => {
+        persistDeliveryJobs(
+          state.storage.sql,
+          createPendingDeliveryJobs(routing, [{ kind: "culture" }]),
+          () => `01BASELINEPEND${String(sequence++).padStart(11, "0")}`,
+          new Date("2026-04-01T00:00:00.000Z"),
+        );
+        markDeliveryJobsCompleted(
+          state.storage.sql,
+          [finalizedJobs[0]?.id ?? ""],
+          new Date("2026-05-02T00:00:00.000Z"),
+        );
+        markDeliveryJobsCompleted(
+          state.storage.sql,
+          [finalizedJobs[1]?.id ?? ""],
+          new Date("2026-05-03T00:00:00.000Z"),
+        );
+      });
+
+      expect(getNextEvictionBaseline(state.storage.sql)).toBe(
+        "2026-05-03T00:00:00.000Z",
+      );
+    });
+  });
+
+  test("deleteEvictionCandidates deletes a stable bounded batch and related rows", async () => {
+    // 1. Seed an old jobless payload, an old finalized payload with a failure,
+    //    an old pending payload, and a new jobless payload.
+    // 2. Delete one candidate and verify the oldest baseline wins.
+    // 3. Delete the remaining eligible candidate and verify related rows only.
+    const stub = getStub("delete-eviction-candidates");
+    await runInDurableObject(stub, async (_instance, state) => {
+      let sequence = 0;
+      state.storage.transactionSync(() => {
+        persistDeliveryJobs(
+          state.storage.sql,
+          createPendingDeliveryJobs(routing, [
+            { kind: "other", marker: "old-jobless" },
+          ]),
+          () => `01DELETESTORE${String(sequence++).padStart(12, "0")}`,
+          new Date("2026-05-01T00:00:00.000Z"),
+        );
+      });
+      const finalizedJobs = state.storage.transactionSync(() =>
+        persistDeliveryJobs(
+          state.storage.sql,
+          createPendingDeliveryJobs(routing, [
+            { kind: "culture", marker: "finalized" },
+          ]),
+          () => `01DELETESTORE${String(sequence++).padStart(12, "0")}`,
+          new Date("2026-05-01T01:00:00.000Z"),
+        ),
+      );
+      state.storage.transactionSync(() => {
+        markDeliveryJobsCompleted(
+          state.storage.sql,
+          finalizedJobs.map(({ id }) => id),
+          new Date("2026-05-01T02:00:00.000Z"),
+        );
+        recordDeliveryJobFailure(
+          state.storage.sql,
+          finalizedJobs[0]?.id ?? "",
+          new Date("2026-05-01T03:00:00.000Z"),
+        );
+        persistDeliveryJobs(
+          state.storage.sql,
+          createPendingDeliveryJobs(routing, [
+            { kind: "culture", marker: "pending" },
+          ]),
+          () => `01DELETESTORE${String(sequence++).padStart(12, "0")}`,
+          new Date("2026-04-01T00:00:00.000Z"),
+        );
+        persistDeliveryJobs(
+          state.storage.sql,
+          createPendingDeliveryJobs(routing, [
+            { kind: "other", marker: "new-jobless" },
+          ]),
+          () => `01DELETESTORE${String(sequence++).padStart(12, "0")}`,
+          new Date("2026-05-06T00:00:00.000Z"),
+        );
+      });
+
+      const firstDeleted = state.storage.transactionSync(() =>
+        deleteEvictionCandidates(
+          state.storage.sql,
+          new Date("2026-05-05T00:00:00.000Z").getTime(),
+          1,
+        ),
+      );
+      expect({
+        firstDeleted,
+        markers: state.storage.sql
+          .exec<{ body: string }>("SELECT body FROM payloads ORDER BY id")
+          .toArray()
+          .map(({ body }) => JSON.parse(body).marker),
+      }).toStrictEqual({
+        firstDeleted: 1,
+        markers: ["finalized", "pending", "new-jobless"],
+      });
+
+      const secondDeleted = state.storage.transactionSync(() =>
+        deleteEvictionCandidates(
+          state.storage.sql,
+          new Date("2026-05-05T00:00:00.000Z").getTime(),
+          10,
+        ),
+      );
+      expect({
+        secondDeleted,
+        markers: state.storage.sql
+          .exec<{ body: string }>("SELECT body FROM payloads ORDER BY id")
+          .toArray()
+          .map(({ body }) => JSON.parse(body).marker),
+        failures: state.storage.sql
+          .exec<{ count: number }>(
+            "SELECT COUNT(*) AS count FROM delivery_job_failures",
+          )
+          .one().count,
+        candidates: state.storage.sql
+          .exec<{ count: number }>(
+            "SELECT COUNT(*) AS count FROM automatic_eviction_candidates",
+          )
+          .one().count,
+        snapshots: state.storage.sql
+          .exec<{ count: number }>("SELECT COUNT(*) AS count FROM ejections")
+          .one().count,
+      }).toStrictEqual({
+        secondDeleted: 1,
+        markers: ["pending", "new-jobless"],
+        failures: 0,
+        candidates: 0,
+        snapshots: 0,
+      });
+    });
+  });
+
+  test("createAutomaticEjection registers ownership and immutable archive metadata", async () => {
+    // 1. Seed one eligible payload and create an automatic ejection atomically.
+    // 2. Verify run mapping, ownership, prefix, object identity, and timestamps.
+    const stub = getStub("create-automatic-ejection");
+    await runInDurableObject(stub, async (_instance, state) => {
+      state.storage.transactionSync(() => {
+        persistDeliveryJobs(
+          state.storage.sql,
+          createPendingDeliveryJobs(routing, [{ kind: "other" }]),
+          () => "01AUTOMATICPAYLOAD00000000",
+          new Date("2026-05-01T00:00:00.000Z"),
+        );
+      });
+      const now = new Date("2026-05-06T00:00:00.000Z");
+      const cutoff = new Date("2026-05-05T00:00:00.000Z");
+      const run = state.storage.transactionSync(() =>
+        createAutomaticEjection(
+          state.storage.sql,
+          cutoff.getTime(),
+          50,
+          "01AUTOMATICEJECTION0000000",
+          "production/events",
+          "object-id",
+          "object-name",
+          now,
+        ),
+      );
+
+      expect({
+        run,
+        loaded: getEvictionRun(state.storage.sql),
+        active: getActiveEjection(state.storage.sql),
+      }).toMatchObject({
+        run: {
+          ejectionKey: "01AUTOMATICEJECTION0000000",
+          phase: "pages",
+          cursor: null,
+          pageIndex: 0,
+          payloadCount: 0,
+          archivePrefix: "production/events",
+          objectId: "object-id",
+          objectName: "object-name",
+          cutoff: cutoff.toISOString(),
+          createdAt: now.toISOString(),
+          nextAttemptAt: now.toISOString(),
+          retryCount: 0,
+        },
+        loaded: { ejectionKey: "01AUTOMATICEJECTION0000000" },
+        active: {
+          ejectKey: "01AUTOMATICEJECTION0000000",
+          automatic: true,
+        },
+      });
+    });
+  });
+
+  test("getActiveEjection distinguishes a manual snapshot from automatic ownership", async () => {
+    // 1. Create a manual snapshot.
+    // 2. Verify it is not marked automatic and an automatic run cannot claim it.
+    const stub = getStub("manual-ejection-ownership");
+    await runInDurableObject(stub, async (_instance, state) => {
+      state.storage.transactionSync(() => {
+        persistDeliveryJobs(
+          state.storage.sql,
+          createPendingDeliveryJobs(routing, [{ kind: "other" }]),
+          () => "01MANUALOWNERSHIP000000000",
+          new Date("2026-05-01T00:00:00.000Z"),
+        );
+        ejectPayloads(
+          state.storage.sql,
+          new Date("2026-05-05T00:00:00.000Z").getTime(),
+          50,
+          "01MANUALOWNERSHIPEJECTION00",
+          new Date("2026-05-06T00:00:00.000Z"),
+        );
+      });
+
+      const automatic = state.storage.transactionSync(() =>
+        createAutomaticEjection(
+          state.storage.sql,
+          new Date("2026-05-05T00:00:00.000Z").getTime(),
+          50,
+          "01SHOULDNOTCLAIMMANUAL00000",
+          "archive",
+          "object-id",
+          undefined,
+          new Date("2026-05-06T00:01:00.000Z"),
+        ),
+      );
+      expect({
+        active: getActiveEjection(state.storage.sql),
+        automatic,
+        run: getEvictionRun(state.storage.sql),
+      }).toStrictEqual({
+        active: {
+          ejectKey: "01MANUALOWNERSHIPEJECTION00",
+          automatic: false,
+        },
+        automatic: null,
+        run: null,
+      });
+    });
+  });
+
+  test("advanceEvictionPage persists cursor progress and stable completion time", async () => {
+    // 1. Create an automatic run and advance a non-final page.
+    // 2. Advance its final page and verify the manifest phase and completed_at.
+    const stub = getStub("advance-eviction-page");
+    await runInDurableObject(stub, async (_instance, state) => {
+      state.storage.transactionSync(() => {
+        persistDeliveryJobs(
+          state.storage.sql,
+          createPendingDeliveryJobs(routing, [{ kind: "other" }]),
+          () => "01ADVANCEPAYLOAD0000000000",
+          new Date("2026-05-01T00:00:00.000Z"),
+        );
+        createAutomaticEjection(
+          state.storage.sql,
+          new Date("2026-05-05T00:00:00.000Z").getTime(),
+          50,
+          "01ADVANCEEJECTION000000000",
+          "archive",
+          "object-id",
+          undefined,
+          new Date("2026-05-06T00:00:00.000Z"),
+        );
+        advanceEvictionPage(
+          state.storage.sql,
+          "01ADVANCEEJECTION000000000",
+          "next-cursor",
+          3,
+          new Date("2026-05-06T00:01:00.000Z"),
+        );
+      });
+      expect(getEvictionRun(state.storage.sql)).toMatchObject({
+        phase: "pages",
+        cursor: "next-cursor",
+        pageIndex: 1,
+        payloadCount: 3,
+        completedAt: null,
+      });
+
+      state.storage.transactionSync(() => {
+        advanceEvictionPage(
+          state.storage.sql,
+          "01ADVANCEEJECTION000000000",
+          undefined,
+          2,
+          new Date("2026-05-06T00:02:00.000Z"),
+        );
+      });
+      expect(getEvictionRun(state.storage.sql)).toMatchObject({
+        phase: "manifest",
+        cursor: null,
+        pageIndex: 2,
+        payloadCount: 5,
+        completedAt: "2026-05-06T00:02:00.000Z",
+        retryCount: 0,
+        lastError: null,
+      });
+    });
+  });
+
+  test("recordEvictionFailure increments retries and caps exponential backoff", async () => {
+    // 1. Create an automatic run.
+    // 2. Record seven failures at the same time to reach the one-hour cap.
+    // 3. Verify retry metadata reflects the latest failure and capped schedule.
+    const stub = getStub("record-eviction-failure");
+    await runInDurableObject(stub, async (_instance, state) => {
+      const failedAt = new Date("2026-05-06T00:00:00.000Z");
+      state.storage.transactionSync(() => {
+        persistDeliveryJobs(
+          state.storage.sql,
+          createPendingDeliveryJobs(routing, [{ kind: "other" }]),
+          () => "01FAILRUNPAYLOAD0000000000",
+          new Date("2026-05-01T00:00:00.000Z"),
+        );
+        createAutomaticEjection(
+          state.storage.sql,
+          new Date("2026-05-05T00:00:00.000Z").getTime(),
+          50,
+          "01FAILRUNEJECTION000000000",
+          "archive",
+          "object-id",
+          undefined,
+          failedAt,
+        );
+        for (let retry = 1; retry <= 7; retry += 1) {
+          recordEvictionFailure(
+            state.storage.sql,
+            "01FAILRUNEJECTION000000000",
+            new Error(`failure-${retry}`),
+            failedAt,
+          );
+        }
+      });
+
+      expect(getEvictionRun(state.storage.sql)).toMatchObject({
+        retryCount: 7,
+        lastError: "failure-7",
+        nextAttemptAt: "2026-05-06T01:00:00.000Z",
+        updatedAt: failedAt.toISOString(),
+      });
+    });
+  });
+
+  test("completeAutomaticEviction removes the run and its entire snapshot", async () => {
+    // 1. Create an automatic run containing a payload and delivery job.
+    // 2. Complete it and verify all automatic snapshot tables are empty.
+    const stub = getStub("complete-automatic-eviction");
+    await runInDurableObject(stub, async (_instance, state) => {
+      let sequence = 0;
+      const jobs = state.storage.transactionSync(() =>
+        persistDeliveryJobs(
+          state.storage.sql,
+          createPendingDeliveryJobs(routing, [{ kind: "culture" }]),
+          () => `01COMPLETEAUTO${String(sequence++).padStart(11, "0")}`,
+          new Date("2026-05-01T00:00:00.000Z"),
+        ),
+      );
+      state.storage.transactionSync(() => {
+        markDeliveryJobsCompleted(
+          state.storage.sql,
+          jobs.map(({ id }) => id),
+          new Date("2026-05-02T00:00:00.000Z"),
+        );
+        createAutomaticEjection(
+          state.storage.sql,
+          new Date("2026-05-05T00:00:00.000Z").getTime(),
+          50,
+          "01COMPLETEEJECTION00000000",
+          "archive",
+          "object-id",
+          undefined,
+          new Date("2026-05-06T00:00:00.000Z"),
+        );
+        completeAutomaticEviction(
+          state.storage.sql,
+          "01COMPLETEEJECTION00000000",
+        );
+      });
+
+      const counts = state.storage.sql
+        .exec<{ table_name: string; row_count: number }>(`
+			SELECT 'eviction_runs' AS table_name, COUNT(*) AS row_count FROM eviction_runs
+			UNION ALL SELECT 'ejections', COUNT(*) FROM ejections
+			UNION ALL SELECT 'ejected_payloads', COUNT(*) FROM ejected_payloads
+			UNION ALL SELECT 'ejected_delivery_jobs', COUNT(*) FROM ejected_delivery_jobs
+			UNION ALL SELECT 'ejected_delivery_job_failures', COUNT(*) FROM ejected_delivery_job_failures
+		`)
+        .toArray();
+      expect(counts).toStrictEqual([
+        { table_name: "eviction_runs", row_count: 0 },
+        { table_name: "ejections", row_count: 0 },
+        { table_name: "ejected_payloads", row_count: 0 },
+        { table_name: "ejected_delivery_jobs", row_count: 0 },
+        { table_name: "ejected_delivery_job_failures", row_count: 0 },
+      ]);
+      expect(getActiveEjection(state.storage.sql)).toBeNull();
+      expect(getEvictionRun(state.storage.sql)).toBeNull();
     });
   });
 });

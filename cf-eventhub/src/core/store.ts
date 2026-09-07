@@ -76,6 +76,26 @@ export type EjectedDeliveryJob = ListedDeliveryJob;
 export type EjectedPayload = ListedPayload;
 export type ListEjectedResult = ListResult;
 
+export type EvictionRunPhase = "pages" | "manifest";
+
+export type EvictionRun = {
+  ejectionKey: string;
+  phase: EvictionRunPhase;
+  cursor: string | null;
+  pageIndex: number;
+  payloadCount: number;
+  archivePrefix: string;
+  objectId: string;
+  objectName: string | null;
+  cutoff: string;
+  createdAt: string;
+  completedAt: string | null;
+  nextAttemptAt: string;
+  retryCount: number;
+  lastError: string | null;
+  updatedAt: string;
+};
+
 // Inserts a payload row once before creating per-destination jobs.
 const insertPayload = (
   sql: SqlStorage,
@@ -225,6 +245,35 @@ export const initializeSchema = (sql: SqlStorage): void => {
 			PRIMARY KEY (ejection_key, delivery_job_id),
 			FOREIGN KEY (ejection_key) REFERENCES ejections(key)
 		)
+	`);
+  sql.exec(`
+		CREATE TABLE IF NOT EXISTS eviction_runs (
+			ejection_key TEXT PRIMARY KEY,
+			phase TEXT NOT NULL CHECK (phase IN ('pages', 'manifest')),
+			cursor TEXT,
+			page_index INTEGER NOT NULL,
+			payload_count INTEGER NOT NULL,
+			archive_prefix TEXT NOT NULL,
+			object_id TEXT NOT NULL,
+			object_name TEXT,
+			cutoff TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			completed_at TEXT,
+			next_attempt_at TEXT NOT NULL,
+			retry_count INTEGER NOT NULL,
+			last_error TEXT,
+			updated_at TEXT NOT NULL,
+			FOREIGN KEY (ejection_key) REFERENCES ejections(key)
+		)
+	`);
+  sql.exec(`
+		CREATE INDEX IF NOT EXISTS idx_eviction_runs_next_attempt
+		ON eviction_runs (next_attempt_at)
+	`);
+  sql.exec(`
+		CREATE TABLE IF NOT EXISTS automatic_eviction_candidates (
+			payload_id TEXT PRIMARY KEY
+		) WITHOUT ROWID
 	`);
 };
 
@@ -774,7 +823,6 @@ export const list = (
   }
 
   const payloadIds = payloadRows.map(({ payload_id }) => payload_id);
-  const placeholders = payloadIds.map(() => "?").join(", ");
   const deliveryJobs = sql
     .exec<{
       id: string;
@@ -805,10 +853,10 @@ export const list = (
 				FROM delivery_jobs dj
 				LEFT JOIN delivery_job_failures djf
 					ON djf.delivery_job_id = dj.id
-				WHERE dj.payload_id IN (${placeholders})
+				WHERE dj.payload_id IN (SELECT value FROM json_each(?))
 				ORDER BY dj.created_at ASC, dj.id ASC
 			`,
-      ...payloadIds,
+      JSON.stringify(payloadIds),
     )
     .toArray()
     .map(
@@ -1051,7 +1099,6 @@ export const listEjected = (
   }
 
   const payloadIds = payloadRows.map(({ payload_id }) => payload_id);
-  const placeholders = payloadIds.map(() => "?").join(", ");
   const deliveryJobs = sql
     .exec<{
       id: string;
@@ -1084,11 +1131,11 @@ export const listEjected = (
 					ON edjf.ejection_key = edj.ejection_key
 					AND edjf.delivery_job_id = edj.id
 				WHERE edj.ejection_key = ?
-					AND edj.payload_id IN (${placeholders})
+					AND edj.payload_id IN (SELECT value FROM json_each(?))
 				ORDER BY edj.created_at ASC, edj.id ASC
 			`,
       ejectionKey,
-      ...payloadIds,
+      JSON.stringify(payloadIds),
     )
     .toArray()
     .map(
@@ -1162,43 +1209,6 @@ export const ejectPayloads = (
   }
 
   const beforeIso = new Date(before).toISOString();
-  const payloadRows = sql
-    .exec<{ id: string }>(
-      `
-				SELECT p.id
-				FROM payloads p
-				LEFT JOIN delivery_jobs dj ON dj.payload_id = p.id
-				GROUP BY p.id, p.created_at
-				HAVING
-					(
-						COUNT(dj.id) = 0
-						AND p.created_at < ?
-					)
-					OR (
-						COUNT(dj.id) > 0
-						AND SUM(CASE WHEN dj.final_status IS NULL THEN 1 ELSE 0 END) = 0
-						AND MAX(dj.finalized_at) < ?
-					)
-				ORDER BY
-					CASE
-						WHEN COUNT(dj.id) = 0 THEN p.created_at
-						ELSE MAX(dj.finalized_at)
-					END ASC,
-					p.id ASC
-				LIMIT ?
-			`,
-      beforeIso,
-      beforeIso,
-      max,
-    )
-    .toArray();
-
-  if (payloadRows.length === 0) {
-    return { ejectKey: null };
-  }
-
-  const payloadIds = payloadRows.map(({ id }) => id);
-  const placeholders = payloadIds.map(() => "?").join(", ");
   sql.exec(
     `
 			INSERT INTO ejections (key, created_at, before_at)
@@ -1211,13 +1221,41 @@ export const ejectPayloads = (
   sql.exec(
     `
 			INSERT INTO ejected_payloads (ejection_key, payload_id, body, created_at)
-			SELECT ?, id, body, created_at
-			FROM payloads
-			WHERE id IN (${placeholders})
+			SELECT ?, p.id, p.body, p.created_at
+			FROM (
+				SELECT p.id
+				FROM payloads p
+				LEFT JOIN delivery_jobs dj ON dj.payload_id = p.id
+				GROUP BY p.id
+				HAVING (COUNT(dj.id) = 0 AND p.created_at < ?)
+					OR (
+						COUNT(dj.id) > 0
+						AND SUM(CASE WHEN dj.final_status IS NULL THEN 1 ELSE 0 END) = 0
+						AND MAX(dj.finalized_at) < ?
+					)
+				ORDER BY CASE
+					WHEN COUNT(dj.id) = 0 THEN p.created_at
+					ELSE MAX(dj.finalized_at)
+				END ASC, p.id ASC
+				LIMIT ?
+			) candidates
+			INNER JOIN payloads p ON p.id = candidates.id
 		`,
     ejectKey,
-    ...payloadIds,
+    beforeIso,
+    beforeIso,
+    max,
   );
+  const candidateCount = sql
+    .exec<{ count: number }>(
+      "SELECT COUNT(*) AS count FROM ejected_payloads WHERE ejection_key = ?",
+      ejectKey,
+    )
+    .one().count;
+  if (candidateCount === 0) {
+    sql.exec("DELETE FROM ejections WHERE key = ?", ejectKey);
+    return { ejectKey: null };
+  }
   sql.exec(
     `
 			INSERT INTO ejected_delivery_jobs (
@@ -1246,10 +1284,12 @@ export const ejectPayloads = (
 				last_error,
 				next_retry_at
 			FROM delivery_jobs
-			WHERE payload_id IN (${placeholders})
+			WHERE payload_id IN (
+				SELECT payload_id FROM ejected_payloads WHERE ejection_key = ?
+			)
 		`,
     ejectKey,
-    ...payloadIds,
+    ejectKey,
   );
   sql.exec(
     `
@@ -1264,26 +1304,44 @@ export const ejectPayloads = (
 				djf.reported_at
 			FROM delivery_job_failures djf
 			INNER JOIN delivery_jobs dj ON dj.id = djf.delivery_job_id
-			WHERE dj.payload_id IN (${placeholders})
+			WHERE dj.payload_id IN (
+				SELECT payload_id FROM ejected_payloads WHERE ejection_key = ?
+			)
 		`,
     ejectKey,
-    ...payloadIds,
+    ejectKey,
   );
 
   sql.exec(
     `
 			DELETE FROM delivery_job_failures
 			WHERE delivery_job_id IN (
-				SELECT id FROM delivery_jobs WHERE payload_id IN (${placeholders})
+				SELECT id FROM delivery_jobs
+				WHERE payload_id IN (
+					SELECT payload_id FROM ejected_payloads WHERE ejection_key = ?
+				)
 			)
 		`,
-    ...payloadIds,
+    ejectKey,
   );
   sql.exec(
-    `DELETE FROM delivery_jobs WHERE payload_id IN (${placeholders})`,
-    ...payloadIds,
+    `
+      DELETE FROM delivery_jobs
+      WHERE payload_id IN (
+        SELECT payload_id FROM ejected_payloads WHERE ejection_key = ?
+      )
+    `,
+    ejectKey,
   );
-  sql.exec(`DELETE FROM payloads WHERE id IN (${placeholders})`, ...payloadIds);
+  sql.exec(
+    `
+      DELETE FROM payloads
+      WHERE id IN (
+        SELECT payload_id FROM ejected_payloads WHERE ejection_key = ?
+      )
+    `,
+    ejectKey,
+  );
 
   return {
     ejectKey,
@@ -1291,6 +1349,7 @@ export const ejectPayloads = (
 };
 
 export const evictEjection = (sql: SqlStorage, ejectKey: string): void => {
+  sql.exec("DELETE FROM eviction_runs WHERE ejection_key = ?", ejectKey);
   sql.exec(
     `
 			DELETE FROM ejected_delivery_job_failures
@@ -1320,6 +1379,233 @@ export const evictEjection = (sql: SqlStorage, ejectKey: string): void => {
     ejectKey,
   );
 };
+
+const mapEvictionRun = (row: {
+  ejection_key: string;
+  phase: EvictionRunPhase;
+  cursor: string | null;
+  page_index: number;
+  payload_count: number;
+  archive_prefix: string;
+  object_id: string;
+  object_name: string | null;
+  cutoff: string;
+  created_at: string;
+  completed_at: string | null;
+  next_attempt_at: string;
+  retry_count: number;
+  last_error: string | null;
+  updated_at: string;
+}): EvictionRun => ({
+  ejectionKey: row.ejection_key,
+  phase: row.phase,
+  cursor: row.cursor,
+  pageIndex: row.page_index,
+  payloadCount: row.payload_count,
+  archivePrefix: row.archive_prefix,
+  objectId: row.object_id,
+  objectName: row.object_name,
+  cutoff: row.cutoff,
+  createdAt: row.created_at,
+  completedAt: row.completed_at,
+  nextAttemptAt: row.next_attempt_at,
+  retryCount: row.retry_count,
+  lastError: row.last_error,
+  updatedAt: row.updated_at,
+});
+
+export const getEvictionRun = (sql: SqlStorage): EvictionRun | null => {
+  const row = sql
+    .exec<Parameters<typeof mapEvictionRun>[0]>(
+      "SELECT * FROM eviction_runs LIMIT 1",
+    )
+    .toArray()[0];
+  return row ? mapEvictionRun(row) : null;
+};
+
+export const getActiveEjection = (
+  sql: SqlStorage,
+): { ejectKey: string; automatic: boolean } | null => {
+  const row = sql
+    .exec<{ key: string; automatic: number }>(
+      `
+        SELECT e.key, CASE WHEN er.ejection_key IS NULL THEN 0 ELSE 1 END AS automatic
+        FROM ejections e
+        LEFT JOIN eviction_runs er ON er.ejection_key = e.key
+        LIMIT 1
+      `,
+    )
+    .toArray()[0];
+  return row ? { ejectKey: row.key, automatic: row.automatic === 1 } : null;
+};
+
+// Returns the timestamp used as the retention baseline for the oldest eligible
+// payload. EventHub adds afterMs and one millisecond for the strict cutoff.
+export const getNextEvictionBaseline = (sql: SqlStorage): string | null => {
+  const row = sql
+    .exec<{ baseline: string }>(
+      `
+        SELECT CASE
+          WHEN COUNT(dj.id) = 0 THEN p.created_at
+          ELSE MAX(dj.finalized_at)
+        END AS baseline
+        FROM payloads p
+        LEFT JOIN delivery_jobs dj ON dj.payload_id = p.id
+        GROUP BY p.id, p.created_at
+        HAVING COUNT(dj.id) = 0
+          OR SUM(CASE WHEN dj.final_status IS NULL THEN 1 ELSE 0 END) = 0
+        ORDER BY baseline ASC, p.id ASC
+        LIMIT 1
+      `,
+    )
+    .toArray()[0];
+  return row?.baseline ?? null;
+};
+
+export const deleteEvictionCandidates = (
+  sql: SqlStorage,
+  before: number,
+  limit: number,
+): number => {
+  const beforeIso = new Date(before).toISOString();
+  sql.exec("DELETE FROM automatic_eviction_candidates");
+  sql.exec(
+    `
+			INSERT INTO automatic_eviction_candidates (payload_id)
+			SELECT p.id
+			FROM payloads p
+			LEFT JOIN delivery_jobs dj ON dj.payload_id = p.id
+			GROUP BY p.id, p.created_at
+			HAVING (COUNT(dj.id) = 0 AND p.created_at < ?)
+				OR (
+					COUNT(dj.id) > 0
+					AND SUM(CASE WHEN dj.final_status IS NULL THEN 1 ELSE 0 END) = 0
+					AND MAX(dj.finalized_at) < ?
+				)
+			ORDER BY CASE
+				WHEN COUNT(dj.id) = 0 THEN p.created_at
+				ELSE MAX(dj.finalized_at)
+			END ASC, p.id ASC
+			LIMIT ?
+		`,
+    beforeIso,
+    beforeIso,
+    limit,
+  );
+  const count = sql
+    .exec<{ count: number }>(
+      "SELECT COUNT(*) AS count FROM automatic_eviction_candidates",
+    )
+    .one().count;
+  sql.exec(`
+		DELETE FROM delivery_job_failures
+		WHERE delivery_job_id IN (
+			SELECT id FROM delivery_jobs
+			WHERE payload_id IN (SELECT payload_id FROM automatic_eviction_candidates)
+		)
+	`);
+  sql.exec(`
+		DELETE FROM delivery_jobs
+		WHERE payload_id IN (SELECT payload_id FROM automatic_eviction_candidates)
+	`);
+  sql.exec(`
+		DELETE FROM payloads
+		WHERE id IN (SELECT payload_id FROM automatic_eviction_candidates)
+	`);
+  sql.exec("DELETE FROM automatic_eviction_candidates");
+  return count;
+};
+
+export const createAutomaticEjection = (
+  sql: SqlStorage,
+  before: number,
+  max: number,
+  ejectKey: string,
+  archivePrefix: string,
+  objectId: string,
+  objectName: string | undefined,
+  now = new Date(),
+): EvictionRun | null => {
+  if (getActiveEjection(sql)) return null;
+  const result = ejectPayloads(sql, before, max, ejectKey, now);
+  if (!result.ejectKey) return null;
+
+  const timestamp = now.toISOString();
+  sql.exec(
+    `
+			INSERT INTO eviction_runs (
+				ejection_key, phase, cursor, page_index, payload_count,
+				archive_prefix, object_id, object_name, cutoff, created_at,
+				completed_at, next_attempt_at, retry_count, last_error, updated_at
+			) VALUES (?, 'pages', NULL, 0, 0, ?, ?, ?, ?, ?, NULL, ?, 0, NULL, ?)
+		`,
+    result.ejectKey,
+    archivePrefix,
+    objectId,
+    objectName ?? null,
+    new Date(before).toISOString(),
+    timestamp,
+    timestamp,
+    timestamp,
+  );
+  return getEvictionRun(sql);
+};
+
+export const advanceEvictionPage = (
+  sql: SqlStorage,
+  ejectionKey: string,
+  cursor: string | undefined,
+  payloadCount: number,
+  now = new Date(),
+): void => {
+  const timestamp = now.toISOString();
+  sql.exec(
+    `
+			UPDATE eviction_runs
+			SET phase = ?, cursor = ?, page_index = page_index + 1,
+				payload_count = payload_count + ?, completed_at = ?,
+				next_attempt_at = ?, retry_count = 0, last_error = NULL,
+				updated_at = ?
+			WHERE ejection_key = ?
+		`,
+    cursor === undefined ? "manifest" : "pages",
+    cursor ?? null,
+    payloadCount,
+    cursor === undefined ? timestamp : null,
+    timestamp,
+    timestamp,
+    ejectionKey,
+  );
+};
+
+export const recordEvictionFailure = (
+  sql: SqlStorage,
+  ejectionKey: string,
+  error: unknown,
+  now = new Date(),
+): void => {
+  const run = getEvictionRun(sql);
+  if (!run || run.ejectionKey !== ejectionKey) return;
+  const retryCount = run.retryCount + 1;
+  const delayMs = Math.min(60_000 * 2 ** (retryCount - 1), 3_600_000);
+  sql.exec(
+    `
+			UPDATE eviction_runs
+			SET retry_count = ?, last_error = ?, next_attempt_at = ?, updated_at = ?
+			WHERE ejection_key = ?
+		`,
+    retryCount,
+    toErrorMessage(error),
+    new Date(now.getTime() + delayMs).toISOString(),
+    now.toISOString(),
+    ejectionKey,
+  );
+};
+
+export const completeAutomaticEviction = (
+  sql: SqlStorage,
+  ejectionKey: string,
+): void => evictEjection(sql, ejectionKey);
 
 // Records a failure report for a delivery job. Idempotent: first write wins.
 // No-op if the delivery job does not exist (e.g., already ejected or evicted).
