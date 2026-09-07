@@ -1,256 +1,278 @@
-# Issue #133 Automatic eviction 対応計画
+# Issue #135 EventHubRegistry 対応計画
 
 ## 目的
 
-`EventHub` に任意設定の automatic eviction 機能を追加し、一定期間を過ぎた finalized event を Durable Object Alarm から自動削除する。`archive` action が明示されている場合だけ、削除前に R2 へアーカイブする。
+名前付き `EventHub` を自動検出する `EventHubRegistry` Durable Object を追加し、Web Console を単一の静的 instance 前提から Registry ベースの複数 instance 選択へ移行する。
 
-既存の `eject()`、`listEjected()`、`evict()` は公開 API として維持し、独自の Workflow を必要とする利用者にも引き続き低レベル操作を提供する。
+Registry は discoverability のための control plane に限定し、event と delivery job を保持する各 `EventHub` は独立した data plane のままとする。Registry の消失・遅延・一時障害によって、publish、永続化、配信、redrive などの EventHub 操作を失敗させない。
 
 ## 初期リリースの設計判断
 
-- 実行基盤には Cloudflare Workflows ではなく Durable Object Alarm を使う。
-  - 追加の Workflow class、binding、起動処理を利用者に要求せず、`EventHub` 単体で完結できるため。
-  - Durable Object が保持できる alarm は1件だけなので、配信リトライと eviction の次回実行時刻を単一のスケジューラで調停する。
-- 削除方法は `action` で明示させる。
-  - `{ type: "delete" }` は対象 event を transaction 内で直接削除する。
-  - `{ type: "archive", bucket, prefix }` は R2 への保存成功後に削除する。初期リリースのアーカイブ先は R2 のみに限定する。
-  - archive 設定の省略や binding の取得失敗を誤って直接削除として扱わない。
-- 期間は既存 API の命名規則に合わせ、曖昧さのないミリ秒指定 `afterMs` とする。文字列 duration の解釈は初期スコープに含めない。
-- 1回の alarm で処理する R2 put は、1ページまたはmanifestの1回だけに限定する。未完了なら直後の alarm に継続を予約し、CPU・メモリ・外部 I/O を有界にする。
-- ejection ごとに決定的な object key を使い、同じページの再試行は同じ key への同一内容の再書き込みとする。全ページの保存後に completion manifest を書き、manifest の保存成功後だけ `evict()` する。
-- automatic eviction が作成した ejection と手動 `eject()` の snapshot を区別する。手動 snapshot が存在するときは自動取得せず、手動ライフサイクルを優先する。
-- アーカイブ処理中に eviction 設定を無効化、または action を変更した場合は snapshot を削除せず保持する。元の archive 設定で再開でき、低レベル API からも回収できる状態にする。
+- `EventHubRegistry` は SQLite-backed Durable Object とし、その namespace 内の固定名 `default` の1 instance を Registry として使う。
+  - 1件の Registry が保持するのは instance 名と lifecycle timestamp のみであり、event 本体や集計値は保持しない。
+  - 一覧 API は pagination し、EventHub 側の refresh を間引いて単一 object への集中を抑える。
+- EventHub subclass は Registry namespace を明示的に渡す。
+  - `protected registry?: DurableObjectNamespace<EventHubRegistry>` を `EventHub` に追加し、利用者は `registry = env.EVENT_HUB_REGISTRY` と設定する。
+  - Worker 環境の任意の binding 名を基底 class が安全に推測できないため、binding の接続だけは明示させる。
+  - 呼び出し側は EventHub 名を再指定しない。`getByName()` / `idFromName()` で呼ばれた object が `this.ctx.id.name` から論理名を取得して自己登録する。
+  - Registry 未設定の既存利用者と `newUniqueId()` / `idFromString()` で利用する unnamed instance の挙動は変えない。Web Console による自動検出を使う場合は Registry 設定を必須とする。
+- Registry の同期は best-effort かつ eventual consistency とする。
+  - EventHub のローカル SQLite に最後の成功時刻を保存し、成功から24時間以内は Registry RPC を省略する。
+  - 同一 isolate 内では in-flight Promise を共有し、同時 activity による重複 RPC も抑える。
+  - EventHub の本来の処理を完了した後にバックグラウンド同期を開始し、同期 Promise は必ず内部で例外を捕捉・構造化ログ出力する。
+  - 成功時だけローカル同期時刻を更新する。失敗時は次の EventHub activity で再試行し、初期実装では専用 alarm を追加しない。
+- stale threshold は Registry 内の定数として30日とし、status 判定も Registry API 内に集約する。Web Console 側で独自計算しない。
+- `lastSeenAt` は「最後に Registry 同期に成功した概算時刻」であり、最新 event の発生時刻ではない。24時間の refresh 間隔があることを API と README に明記する。
+- Registry の delete は discoverability の tombstone 更新だけを行い、EventHub の SQLite storage、alarm、R2 archive を削除しない。
+- Web Console の選択状態は `instance=<name>` query parameter に保持する。
+  - Durable Object 名に `:` などが含まれても `URLSearchParams` によって安全に扱える。
+  - pagination、refresh、create、redrive、error redirect の全 URL で instance を引き継ぎ、リンク共有と page refresh の双方で選択を維持する。
 
 ## 公開 API
 
-`cf-eventhub/src/eventhub.ts` に設定型と factory を追加し、`cf-eventhub/src/index.ts` から export する。
+### Registry の型と RPC
+
+`cf-eventhub/src/registry.ts` に以下を追加し、`cf-eventhub/src/index.ts` から export する。
 
 ```ts
-export type EvictionAction =
-  | { type: "delete" }
-  | {
-      type: "archive";
-      bucket: R2Bucket;
-      prefix: string;
-    };
+export type EventHubInstanceStatus = "active" | "stale" | "deleted";
 
-export type EvictionConfig = {
-  afterMs: number;
-  action: EvictionAction;
-  batchSize: number;
+export type EventHubInstance = {
+  name: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  deletedAt: string | null;
+  status: EventHubInstanceStatus;
 };
 
-export const configureEviction = (
-  config: Pick<EvictionConfig, "afterMs" | "action"> &
-    Partial<Pick<EvictionConfig, "batchSize">>,
-): EvictionConfig => { /* validation and defaults */ };
+export type ListEventHubInstancesOptions = {
+  status?: EventHubInstanceStatus;
+  cursor?: string;
+  max?: number;
+};
 
+export type ListEventHubInstancesResult = {
+  instances: EventHubInstance[];
+  cursor?: string;
+};
+
+export class EventHubRegistry extends DurableObject {
+  async register(name: string): Promise<EventHubInstance>;
+  async list(
+    options?: ListEventHubInstancesOptions,
+  ): Promise<ListEventHubInstancesResult>;
+  async delete(name: string): Promise<boolean>;
+}
+```
+
+- `register(name)` は Registry 自身の clock を使って atomic upsert する。
+  - 新規名: `firstSeenAt = lastSeenAt = now`, `deletedAt = null`
+  - 既存名: `firstSeenAt` を維持し、`lastSeenAt = now`, `deletedAt = null`
+  - deleted 名の再登録: tombstone を解除し active に復帰
+- `list()` の既定 filter は `active` とし、`status` の指定により stale / deleted を取得できるようにする。
+- `max` は既定50、範囲 `1..100` とする。`name` 昇順と opaque cursor により安定して page を進める。
+- lifecycle の優先順位と境界を次のように固定する。
+  1. `deletedAt !== null` なら `deleted`
+  2. `deletedAt === null` かつ `lastSeenAt < now - 30 days` なら `stale`
+  3. それ以外は `active`
+- `delete(name)` は既存 entry の `deletedAt` を設定し、既に deleted なら同じ tombstone を維持する。未登録名は新しい実体の存在を示す情報がないため tombstone を作らず `false` を返す。
+- name は空文字を拒否する。Registry は byte-for-byte、case-sensitive な名前を保持し、表示名と解決名を分離しない。
+- timestamp は SQLite では Unix milliseconds として比較し、RPC 境界では ISO 8601 string に変換する。
+
+### EventHub の Registry 接続
+
+`cf-eventhub/src/eventhub.ts` に optional な protected property と内部同期処理を追加する。
+
+```ts
 export class MyEventHub extends EventHub<Env> {
-  eviction = configureEviction({
-    afterMs: 30 * 24 * 60 * 60 * 1000,
-    action: { type: "delete" },
-    batchSize: 100,
-  });
-}
-
-export class MyArchivedEventHub extends EventHub<Env> {
-  eviction = configureEviction({
-    afterMs: 30 * 24 * 60 * 60 * 1000,
-    action: {
-      type: "archive",
-      bucket: env.EVENT_ARCHIVE,
-      prefix: "production/member-events",
-    },
-    batchSize: 100,
-  });
+  registry = env.EVENT_HUB_REGISTRY;
+  routing = routeByConfig(env, { /* ... */ });
 }
 ```
 
-- `EventHub` 側は `protected eviction?: EvictionConfig` とし、未指定時は現行挙動を変えない。
-- `afterMs` は正の有限整数、`batchSize` は `1..100` の整数として検証する。既定の `batchSize` は50とする。
-- `action.type` は `delete` または `archive` のみ受け入れる。`archive` の `bucket` と空でない `prefix` は必須とし、`prefix` の先頭・末尾 `/` と `//` を拒否して key の正規化差異を防ぐ。
-- R2 binding は Worker の環境から直接渡せるようにする。
+- `this.ctx.id.name` が取得でき、かつ `registry` が設定されている instance だけを同期対象にする。
+- `publish()`、`redrive()`、`list()`、`eject()`、`listEjected()`、`evict()`、`reportFailure()` と `alarm()` の activity から共通の `scheduleRegistrySync()` を呼ぶ。
+- publish の成功条件は既存どおり EventHub 内の永続化と alarm 調停までとし、Registry RPC を await しない。
+- Registry 同期の失敗を caller や delivery の `waitUntil()` chain に伝播させない。ログには instance 名と error を含め、payload は含めない。
+- Registry 成功後のローカル時刻更新は `registry_sync_state` の singleton row に保存し、isolate eviction 後も refresh 間隔を維持する。
+- `ctx.id.name` が `undefined` の場合は ID 文字列を代替名として登録しない。Registry は名前付き EventHub の discoverability に限定する。
 
-### R2 object key とフォーマット
+## Registry の永続化
 
-application/deployment ごとの分離を利用者指定の必須 `prefix` で担保し、その配下はライブラリが決定的に生成する。payload 値や時刻文字列は key に使用しない。
+`cf-eventhub/src/core/registry-store.ts` を新設し、SQL と lifecycle 判定を `EventHubRegistry` から分離する。
 
-```text
-<prefix>/objects/<durableObjectId>/ejections/<ejectKey>/pages/000000.json
-<prefix>/objects/<durableObjectId>/ejections/<ejectKey>/manifest.json
+```sql
+CREATE TABLE IF NOT EXISTS eventhub_instances (
+  name TEXT PRIMARY KEY,
+  first_seen_at INTEGER NOT NULL,
+  last_seen_at INTEGER NOT NULL,
+  deleted_at INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_eventhub_instances_last_seen
+  ON eventhub_instances(last_seen_at);
+
+CREATE INDEX IF NOT EXISTS idx_eventhub_instances_deleted
+  ON eventhub_instances(deleted_at);
 ```
 
-- `<durableObjectId>` は常に安定して取得できる `this.ctx.id.toString()` を使用し、object 単位の prefix listing を可能にする。
-- Durable Object の名前は key に使わない。`this.ctx.id.name` は `idFromName()` / `getByName()` では取得できるが、`newUniqueId()`、`idFromString()`、長い名前、一部の古い alarm では `undefined` になり得るためである。
-- object 名を取得できた場合だけ、page と manifest の `object.name` に任意メタデータとして格納する。canonical identity は常に `object.id` とする。
-- `<ejectKey>` は snapshot の ULID を使用する。同じ object の `ejections/` 配下では辞書順がおおむね ejection 作成時刻順になるが、正式な時刻は manifest の `createdAt` と `cutoff` を参照する。
-- page 番号は0始まりの6桁固定とし、辞書順と処理順を一致させる。
-- page object は `formatVersion`、`object: { id, name? }`、ejection key、page index、payloads を持つ JSON envelope とし、`Content-Type: application/json` を付与する。
-- manifest は `formatVersion`、`object: { id, name? }`、ejection key、cutoff、作成・完了日時、page count、payload count を持つ。
-- format version は object body 内で管理し、key に `cf-eventhub/v1` のような固定 segment は加えない。
-- page と manifest は再試行時にも同じ key・同じ内容を使う。manifest の存在を archive 完了の marker とする。
+- constructor で idempotent に schema を初期化する。既存 `EventHub` storage とは別 namespace / database なので既存 event schema は変更しない。
+- upsert、tombstone、status filter、pagination を pure store operation として実装し、時刻を引数で渡して境界を unit test 可能にする。
+- active / stale の絞り込みは SQL 内で同じ cutoff を使い、返却後に Web Console が再分類しないようにする。
+- Registry が失われた場合は、各 EventHub の次回同期で entry が再作成される。ただし EventHub 側に保存済みの成功時刻が残るため、復旧直後の再構築は最大24時間遅れ得る。この eventual consistency を仕様として文書化する。
 
-## 永続化と状態遷移
+`EventHub` 側の既存 schema には次を `CREATE TABLE IF NOT EXISTS` で追加する。
 
-### Store の追加
+```sql
+CREATE TABLE IF NOT EXISTS registry_sync_state (
+  singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+  synced_at INTEGER NOT NULL
+);
+```
 
-`cf-eventhub/src/core/store.ts` に、既存データを変更せず `CREATE TABLE IF NOT EXISTS` で導入できる `eviction_runs` table と query helper を追加する。この table は `archive` action の進捗だけに使用し、`delete` action では snapshot や run を作成しない。
+## Web Console の移行
 
-保持する状態:
+### 設定と request context
 
-- automatic eviction が所有する `ejection_key`
-- `pages` / `manifest` の処理 phase
-- 次に読む `cursor` と次の `page_index`
-- 保存済み `payload_count`
-- snapshot 作成時の `archive_prefix`
-- snapshot 作成時の `object_id` と任意の `object_name`（再試行中は再取得せず、archive 内容を固定する）
-- 再試行しても manifest 内容を変えないための `completed_at`
-- `next_attempt_at`、`retry_count`、`last_error`
-- 作成・更新日時
+`createWebConsole()` の設定を Registry 対応へ変更する。
 
-併せて以下の pure store operation を用意する。
+```ts
+createWebConsole({
+  eventHub: { binding: "EVENT_HUB" },
+  registry: { binding: "EVENT_HUB_REGISTRY" },
+  environment: "production",
+});
+```
 
-- finalized event または delivery job を持たない event のうち、最も早い次回 eviction 対象時刻を求める。
-- active ejection の有無と automatic eviction の所有権を判定する。
-- `delete` action で、対象 payload、delivery job、failure record を `batchSize` 件まで同一 transaction で直接削除する。
-- `archive` action で、ejection 作成と eviction run 登録を同一 `transactionSync()` で行う。
-- R2 put 成功後に cursor、page index、件数を進める。
-- 失敗情報と指数 backoff 後の再試行時刻を保存する。
-- manifest 成功後に ejected rows、ejection、eviction run を同一 transaction で削除する。
+- `eventHub.instance` の静的設定を廃止し、`registry.binding` を必須設定として追加する。両 binding 名には分かりやすい既定値を用意する。
+- `web-console/src/factory.ts` の context に Registry namespace/stub、取得済み instance 一覧、選択名、instance を保持した URL builder を追加する。
+- request middleware で Registry の active 一覧を取得する。`showStale=1` の場合は stale 一覧も取得し、ページが続く間は必要な全 page を bounded call の繰り返しで取得する。
+- `instance` が未指定なら active 一覧の先頭を選ぶ。active がなく stale だけの場合は明示選択を促し、Registry が空なら binding/setup と初回 EventHub activity を案内する empty state を表示する。
+- query の `instance` は取得した active/stale entry に存在する場合だけ `eventHubBinding.getByName()` へ渡す。unknown / deleted の名前は直接解決せず、通常 selector からも除外する。
 
-候補 ID を列挙して大量の bind parameter を渡さず、CTE、subquery、または一時的な候補 table を使って Cloudflare SQLite の statement parameter 上限内で処理する。
+### UI と navigation
 
-ejection 対象判定は既存 `ejectPayloads()` と同じ契約を維持する。
+- header に EventHub selector を追加し、active instance を既定表示する。
+- `Show stale` toggle で stale entry の表示を切り替え、stale option には status と `lastSeenAt` を明示する。stale は unavailable / deleted と表現しない。
+- stale instance を選択した場合も既存の event list、create、delivery detail、redrive をそのまま利用できるようにする。
+- deleted instance の管理画面と delete button は初期スコープ外とする。Registry RPC では deleted filter を提供するが、通常 UI には出さない。
+- `URLSearchParams` を使う共通 helper で以下に `instance` と必要な `showStale` を伝播する。
+  - top / pagination link
+  - new-event notification の poll URL と reload URL
+  - create event form action と validation error redirect
+  - redrive form action と not-found redirect
+- cursor は instance 切替時に破棄する。異なる EventHub の cursor を誤って渡さない。
+- API handler は query から検証済みの選択 instance を解決し、`getEventHub()` が request ごとに正しい stub を返すようにする。
+- 既存の `eventTitle`、formatter、page size、refresh、Access による保護方針は維持する。
 
-- delivery job がある payload は、全 job が finalized かつ最も遅い `finalized_at` が cutoff より前の場合だけ対象とする。
-- delivery job がない payload は `created_at` を基準にする。
-- pending retry が残る payload は対象外とする。
+## Wrangler、demo、型生成
 
-### Alarm の統合
-
-`cf-eventhub/src/eventhub.ts` の `scheduleNextAlarmFromStorage()` を `reconcileAlarm()` に整理し、以下の候補の最小時刻を設定する統合スケジューラにする。SQL の永続状態を唯一の正とし、alarm 自体には処理状態を持たせない。
-
-1. 未完了 delivery job の最も早い `next_retry_at`
-2. eviction run の `next_attempt_at`
-3. 次に eviction 対象となる時刻（既存の厳密な `< cutoff` 条件を満たす `基準時刻 + afterMs + 1ms`）
-
-`reconcileAlarm()` は外部 I/O を行わず、最新の SQL 状態から候補を計算した直後に `setAlarm()` または `deleteAlarm()` を呼ぶ。alarm 実行中の `getAlarm()` は次回 alarm をまだ設定していない場合 `null` を返すため、その値をスケジュールの正として使用しない。R2 I/O や任意の `await` を候補計算と alarm 更新の間に置かない。
-
-alarm handler は delivery を先、eviction を後の順で、それぞれ最大1 batch/page だけ処理する。これにより eviction backlog が delivery retry を飢餓させず、1回の処理量を有界にする。通常完了および捕捉済みの一時エラーでは最後に `reconcileAlarm()` を実行する。
-
-R2 の一時エラーは delivery retry を阻害しないよう個別に捕捉し、`eviction_runs` に error と指数 backoff 後の `next_attempt_at` を保存して、新しい alarm を予約したうえで正常終了する。Cloudflare の alarm 自動再試行は最大6回のため、永続的な外部障害の再試行には依存しない。予期しない例外と `reconcileAlarm()` 自体の失敗は捕捉せず、次の alarm を設定してから throw することも避け、Cloudflare の at-least-once retry に任せる。
-
-`blockConcurrencyWhile()` や独自 lock を R2 I/O 中に保持しない。archive の排他と再開位置は `eviction_runs` の状態機械で保証し、R2 完了後は最新状態から alarm を再計算する。
-
-新規 publish は保存直後と配信完了後に `reconcileAlarm()` を呼ぶ。これにより、配信完了時刻を基準に eviction alarm が更新される。`redrive()`、手動 `eject()`、`evict()` など他の公開 RPC でも再計算し、既存 object への設定追加や手動 snapshot の解放後に自動処理を開始できるようにする。手動 snapshot が active の間は eviction の候補時刻を alarm 計算から外し、過去時刻への即時再予約ループを防ぐ。
-
-subclass の `eviction` field は `super()` の後に初期化されるため、base constructor では eviction alarm を設定しない。また、デプロイだけでは既存の idle Durable Object を起動できないため、設定追加後は次回 RPC、publish、または既存 alarm から有効になる制約を公開ドキュメントに明記する。
-
-## Eviction 処理
-
-alarm で eviction が due の場合、明示された `action.type` で処理を分岐する。
-
-### `delete` action
-
-1. `Date.now() - afterMs` を cutoff に、対象 payload を `batchSize` 件まで選択する。
-2. 関連する failure record、delivery job、payload を同一 SQLite transaction で直接削除する。
-3. 追加対象があれば直近の alarm、なければ次の eligibility 時刻を設定する。
-
-この経路では ejection snapshot、`eviction_runs`、R2 object を作成しない。削除は `action: { type: "delete" }` を明示した場合だけ有効になり、処理途中に外部 I/O がないため batch 単位で原子的に完了する。
-
-### `archive` action
-
-1. automatic eviction 所有の snapshot がなければ、`Date.now() - afterMs` を cutoff に `batchSize` 件まで ejection し、run を登録する。
-2. `listEjected()` 相当の store helper で現在 cursor から最大100件・payload body 合計256 KiBの1ページを読む。
-3. 決定的な page key に JSON を `R2Bucket.put()` する。
-4. put 成功後だけ進捗を保存する。最終ページでは安定した `completed_at` とともに phase を `manifest` に進め、直後の alarm を予約して終了する。失敗時は snapshot と cursor/phase を保持し、指数 backoff（初期1分、最大1時間）で再試行する。
-5. 次の alarm が `manifest` phase なら `manifest.json` だけを保存する。manifest の再試行では page を再読込・再保存せず、保存済み `completed_at` を使用する。
-6. manifest の put 成功後だけ snapshot と run を削除する。
-7. 続きまたは別 batch がある場合は直近の alarm を設定し、それ以外は次の eligibility 時刻を設定する。
-
-alarm は at-least-once なので、R2 put と SQLite 更新の間で中断した場合は同じ page を上書きする。snapshot は不変かつ query order も固定されているため内容は同一となり、重複 key は生成しない。最終 page の成功後は phase を `manifest` に永続化するため、manifest の再試行で page 0 に戻らない。R2 の Worker API は write 後に strong consistency を提供するため、成功した put を前提に次の状態へ進める。
-
-## 設定変更時の扱い
-
-- `afterMs` と `batchSize` の変更は、次の batch/ejection から反映する。進行中 snapshot の選択済み event は変更しない。
-- eviction を無効化した状態では、新規削除、ejection、R2 put、eviction を行わない。自動 snapshot と進捗は残す。
-- archive 用の run が存在する状態で action を `delete` に変えても、未アーカイブ event を直接削除しない。run を停止してエラーを構造化ログへ出し、元の archive action の再設定後に再開する。
-- eviction を再有効化した場合、archive 用の保存済み run があれば現在の R2 binding で再開する。保存済み `archive_prefix` と現在値が一致しない場合は停止する。
-- R2 binding の同一性は runtime から比較できないため、進行中に bucket binding の参照先を変更する操作はサポート外とする。prefix/bucket の切り替えは active run がない状態で行う。
-- 既存の idle Durable Object はデプロイだけでは起動できない。eviction 設定追加後は、その object の次回 RPC/publish/alarm からスケジュールが有効になる制約を記載する。
+- `cf-eventhub/src/test.ts` から test 用 Registry class と Registry 対応 EventHub class を export する。
+- `cf-eventhub/wrangler.jsonc` に `EventHubRegistry` test class 用の新しい SQLite migration tag と `EVENT_HUB_REGISTRY` binding を追加する。
+- `demo/src/index.ts` で `EventHubRegistry` を export し、`DevEventHub.registry` と Web Console の Registry binding を設定する。
+- `demo/wrangler.jsonc` に Registry class の SQLite migration と binding を追加する。
+- binding 変更後に各 package の `wrangler types` を実行し、`worker-configuration.d.ts` を更新する。
+- Console を EventHub Worker と分離する例では、EventHub と Registry の両 binding に同じ所有 Worker の `script_name` / environment を設定することを README に記載する。
 
 ## 実装手順
 
-1. `eventhub.ts` に `EvictionAction`、`EvictionConfig`、`configureEviction()`、validation、既定値を追加する。
-2. `store.ts` に `delete` action 用 helper を追加する。schema には archive 用の `eviction_runs` を追加し、eligibility、所有権、進捗、backoff、完了 cleanup の helper を実装する。
-3. ejection の内部 helper を再利用可能に整理し、自動 ejection と run 登録を単一 transaction にする。既存の公開 ejection API の結果と singleton semantics は維持する。
-4. `EventHub` に直接削除と1ページ分の archive 処理を追加し、delivery/eviction 共用の `reconcileAlarm()`、公平な alarm handler、error isolation を実装する。
-5. `index.ts` から新しい factory と型を export する。
-6. test Durable Object と Wrangler 設定に `delete` / `archive` action の eviction 用 class、および R2 binding を追加し、`pnpm --filter cf-eventhub cf-typegen` で binding 型を更新する。
-7. README の EventHub Configuration に両 action の設定例、archive layout、再試行保証、手動 API との競合、設定変更・既存 object 起動時の制約を追記する。既存 Workflow 例は custom policy 向けの低レベル例として残す。
-8. CHANGELOG（およびリポジトリのリリース運用で必要なら changeset）に追加 API と動作を記録する。
+1. `core/registry-store.ts` に schema、upsert、list/filter/pagination、tombstone、timestamp 変換を実装する。
+2. `registry.ts` に `EventHubRegistry` と公開型、入力 validation、30日 stale 判定を追加し、`index.ts` から export する。
+3. EventHub の store schema に `registry_sync_state` と読み書き helper を追加する。
+4. `eventhub.ts` に optional Registry binding、24時間 throttle、in-flight deduplication、例外隔離した `scheduleRegistrySync()` を追加し、全 activity path へ接続する。
+5. library の test class、Wrangler migration / binding、generated types を更新し、Registry 単体と自己登録の unit / integration test を追加する。
+6. Web Console の options と request context を Registry binding ベースへ変更し、instance 解決と URL state helper を実装する。
+7. active/stale selector、filter、empty/error state を UI に追加し、既存の list/create/redrive/poll/pagination を選択 instance 対応にする。
+8. Web Console に handler test を追加し、instance state の伝播と lifecycle 表示を検証する。style を変更後に埋め込み CSS を再生成する。
+9. demo を複数 instance と Registry の利用例へ更新し、`default`、tenant、domain partitioning の例を library / Console README に追加する。
+10. 両 package の CHANGELOG と changeset に、新 API、Console 設定変更、Registry の eventual consistency / lifecycle semantics を記録する。
 
 ## テスト計画
 
-### Unit tests (`core/store.test.ts`)
+### Unit tests (`cf-eventhub/src/core/registry-store.test.ts`)
 
-- `afterMs` 境界の直前・一致・直後で対象時刻を正しく計算する。
-- 複数 destination のうち1件でも pending なら対象外にし、全件 finalized なら最も遅い `finalized_at` を使う。
-- delivery job のない payload は `created_at` を使う。
-- batch size と安定した順序で ejection する。
-- `delete` action で関連 row を batch 単位で直接削除し、snapshot/run を作らないことを検証する。
-- eviction run の cursor/page/count 更新、失敗 backoff、完了 cleanup を検証する。
-- archive prefix の保存と設定不一致時の停止を検証する。
-- archive key が `<prefix>/objects/<objectId>/ejections/<ejectKey>/...` となり、eject key と page が辞書順になることを検証する。
-- object 名の有無にかかわらず key が同じ ID 基準になり、取得できた名前は再試行中も同じ任意メタデータとして使われることを検証する。
-- 手動 ejection を automatic eviction が所有しないことを検証する。
+- 初回 register が3 timestamp field を正しく作成する。
+- 同名の再 register が `firstSeenAt` を維持して `lastSeenAt` だけを更新する。
+- deleted entry の再 register が `deletedAt` を clear して復活させる。
+- stale cutoff の直前・一致・直後を active / stale に一意に分類する。
+- stale entry が時間経過だけで deleted にならない。
+- delete が tombstone を作成し、再実行しても既存 `deletedAt` を変更しない。
+- 未登録名の delete が `false` を返し、entry を作らない。
+- active / stale / deleted filter が混同せず、name 順 pagination で重複・欠落しない。
+- max、cursor、空 name の validation error を検証する。
 
-### Integration tests (`eventhub.test.ts`)
+### Integration tests (`cf-eventhub/src/registry.test.ts`, `eventhub.test.ts`)
 
-- 設定なしでは既存 delivery alarm と ejection API の挙動が変わらない。
-- publish/delivery 完了後、`finalized_at + afterMs` に alarm が予約される。
-- delivery retry と eviction のうち早い時刻が1件の alarm に設定される。
-- `delete` action は対象 event を R2 へ書き込まず削除する。
-- alarm ごとに1ページずつ R2 に保存し、最後に manifest を作ってから SQLite から削除する。
-- R2 put 失敗時は event を削除せず、進捗と再試行 alarm を保持する。
-- put 成功後・進捗保存前を模した再実行でも同じ key だけが使われ、最終結果が重複しない。
-- 途中ページから再開し、完了済みページを別 key として増殖させない。
-- 最終 page と manifest を別 alarm で処理し、1回の alarm で R2 put が最大1回であることを検証する。
-- manifest の再試行で key、`completed_at`、内容が変化しないことを検証する。
-- 手動 ejection が active の間は automatic eviction が待機し、手動 `evict()` 後に再開する。
-- eviction 無効化・再有効化で active snapshot が失われない。
-- archive 処理中に action を `delete`、異なる prefix、または無効へ変更しても snapshot を直接削除しない。
-- alarm 実行中の `getAlarm() === null` に依存せず、処理後に正しい次回 alarm を設定する。
-- delivery と eviction の両方が due の場合に、それぞれ1 batchだけ進めて再予約する。
-- R2 の一時エラーは永続 backoff で再予約し、予期しない例外は alarm handler から reject する。
-- `configureEviction()` が不正な `afterMs`、`batchSize`、action、archive prefix を拒否する。
+- `getByName("tenant:acme")` の EventHub activity により同名 entry が作成される。
+- Registry 同期完了を test runtime で待ち、`firstSeenAt` / `lastSeenAt` / status を Registry RPC 経由で確認する。
+- 24時間以内の複数 activity は register RPC を増やさず、期限後の activity は refresh する。
+- Registry register が reject しても publish の永続化、delivery、list の結果が成功する。
+- 失敗時に synced timestamp を更新せず、次回 activity で再試行する。
+- 同時 activity が in-flight register を共有する。
+- deleted 名への EventHub activity が entry を active に戻す。
+- `idFromString()` / `newUniqueId()` と Registry 未設定の EventHub は登録を試みない。
+- alarm 起点の activity でも name が得られる場合は同期し、同期失敗は alarm の成功条件に影響しない。
+- 既存の delivery / eviction test が Registry 未設定時にもそのまま通る。
+
+### Web Console tests (`web-console/src/*.test.tsx`)
+
+- instance 未指定時に先頭の active instance を選択する。
+- active selector は deleted を含まず、stale は toggle 有効時だけ区別して表示する。
+- stale instance を選択して通常の event list を取得できる。
+- unknown / deleted の query 値を EventHub namespace へ渡さない。
+- instance 切替で cursor を破棄する。
+- pagination、poll、reload、create、redrive、成功・失敗 redirect が instance を保持する。
+- 別 instance を選ぶと `list()`、`publish()`、`redrive()` が対応する stub にだけ送られる。
+- Registry が空、Registry RPC が失敗、選択 instance の RPC が失敗した場合に判別可能な画面または response を返す。
 
 ### 検証コマンド
 
 ```sh
 pnpm --filter cf-eventhub cf-typegen
 pnpm --filter cf-eventhub test
-pnpm exec biome check cf-eventhub/src cf-eventhub/README.md cf-eventhub/CHANGELOG.md
+pnpm --filter @cf-eventhub/web-console test
+pnpm --filter @cf-eventhub/web-console build:styles
+pnpm exec tsc --noEmit -p cf-eventhub/tsconfig.json
+pnpm exec tsc --noEmit -p web-console/tsconfig.json
+pnpm exec tsc --noEmit -p demo/tsconfig.json
+pnpm exec biome check cf-eventhub/src web-console/src demo/src \
+  cf-eventhub/README.md web-console/README.md
 ```
+
+Web Console に test script がない現状では、実装時に Vitest の script / devDependency と Hono handler 用 mock を追加してから上記を実行する。
 
 ## 完了条件
 
-- 利用者が `delete` または `archive` action を明示した場合だけ automatic eviction が有効になる。
-- `delete` action では対象 event が bounded batch で直接削除され、R2 object や不要な ejection snapshot は作られない。
-- R2 書き込みまたは alarm の再実行が失敗しても、未アーカイブ event は eviction されない。
-- archive の page key は再試行で増殖せず、manifest から snapshot の完全性を判定できる。
-- archive key は必須 prefix、Durable Object ID、ejection key で衝突を避け、再試行でも安定する。format version は page と manifest の body から判定できる。
-- 1 alarm あたりの event 件数、読み込み byte 数、R2 put 数が有界である。
-- delivery retry と automatic eviction が同じ alarm を安全に共有する。
-- 一時的な外部障害は永続 backoff で6回を超えて再試行でき、予期しない障害は Cloudflare の at-least-once retry に委ねる。
-- eviction 未設定の既存利用者と低レベル ejection API に破壊的変更がない。
+- `EventHubRegistry` が SQLite-backed Durable Object として提供され、register / list / delete が idempotent に動作する。
+- Registry が `firstSeenAt`、`lastSeenAt`、`deletedAt` と中央集約された active / stale / deleted status を返す。
+- stale は非活動から導出されるだけで、自動的に tombstone または storage deletion へ移行しない。
+- delete は明示的 tombstone であり、EventHub の物理 storage deletion を意味しない。
+- deleted 名の自己登録によって entry が復活する。
+- 名前付き EventHub は呼び出し側から名前を再入力せず自己登録し、24時間以内の不要な refresh を省く。
+- Registry の障害が EventHub の永続化、配信、管理 RPC、alarm を失敗させない。
+- Web Console の instance discovery は Registry のみに基づき、active を既定表示、stale を明示的に filter、deleted を通常選択から除外する。
+- 選択 instance が pagination、poll、create、redrive、redirect、page refresh、共有 URL を通じて維持される。
+- 選択した active / stale instance に対して既存の inspection と management 機能が動作する。
+- README が小規模用途の `default`、tenant 単位、domain 単位の partitioning と、Registry の eventual consistency / 非 authoritative 性を説明する。
+- test、typecheck、formatter、style build がすべて成功する。
+
+## 非目標
+
+- Registry を経由した publish / delivery routing
+- instance 横断の event、delivery、件数、metric の集約
+- Registry entry の不在や stale status を物理的な Durable Object 不在とみなすこと
+- stale entry の自動 delete
+- Registry delete に連動した EventHub storage / alarm / archive の破壊的削除
+- deleted instance の Console 管理画面
+- Registry 再構築を即時に全 EventHub へ broadcast する仕組み
 
 ## 参照
 
-- [GitHub Issue #133: Automatic eviction](https://github.com/daichitakahashi/cf-eventhub/issues/133)
-- [Cloudflare Durable Objects: Alarms](https://developers.cloudflare.com/durable-objects/api/alarms/)
-- [Cloudflare Durable Objects: Durable Object ID](https://developers.cloudflare.com/durable-objects/api/id/)
+- [GitHub Issue #135: EventHubRegistry](https://github.com/daichitakahashi/cf-eventhub/issues/135)
 - [Cloudflare Durable Objects: Rules and best practices](https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/)
+- [Cloudflare Durable Objects: Durable Object ID](https://developers.cloudflare.com/durable-objects/api/id/)
+- [Cloudflare Durable Objects: Invoke methods](https://developers.cloudflare.com/durable-objects/best-practices/create-durable-object-stubs-and-send-requests/)
+- [Cloudflare Durable Objects: SQLite storage](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/)
 - [Cloudflare Durable Objects: Limits](https://developers.cloudflare.com/durable-objects/platform/limits/)
-- [Cloudflare R2: Workers API reference](https://developers.cloudflare.com/r2/api/workers/workers-api-reference/)
-- [Cloudflare R2: Consistency model](https://developers.cloudflare.com/r2/reference/consistency/)
+- [Cloudflare Workers: Context / `waitUntil()`](https://developers.cloudflare.com/workers/runtime-apis/context/)
+- [Cloudflare Wrangler: Durable Object bindings](https://developers.cloudflare.com/workers/wrangler/configuration/#durable-objects)
