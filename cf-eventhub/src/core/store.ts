@@ -1221,12 +1221,12 @@ export const ejectPayloads = (
   sql.exec(
     `
 			INSERT INTO ejected_payloads (ejection_key, payload_id, body, created_at)
-			SELECT ?, candidates.id, candidates.body, candidates.created_at
+			SELECT ?, p.id, p.body, p.created_at
 			FROM (
-				SELECT p.id, p.body, p.created_at
+				SELECT p.id
 				FROM payloads p
 				LEFT JOIN delivery_jobs dj ON dj.payload_id = p.id
-				GROUP BY p.id, p.body, p.created_at
+				GROUP BY p.id
 				HAVING (COUNT(dj.id) = 0 AND p.created_at < ?)
 					OR (
 						COUNT(dj.id) > 0
@@ -1239,6 +1239,7 @@ export const ejectPayloads = (
 				END ASC, p.id ASC
 				LIMIT ?
 			) candidates
+			INNER JOIN payloads p ON p.id = candidates.id
 		`,
     ejectKey,
     beforeIso,

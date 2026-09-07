@@ -362,7 +362,10 @@ export abstract class EventHub<
         return;
       }
     } else {
-      if (getActiveEjection(this.ctx.storage.sql)) return;
+      const activeEjection = this.ctx.storage.transactionSync(() =>
+        getActiveEjection(this.ctx.storage.sql),
+      );
+      if (activeEjection) return;
       const cutoff = now.getTime() - eviction.afterMs;
       if (eviction.action.type === "delete") {
         this.ctx.storage.transactionSync(() => {
