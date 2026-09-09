@@ -9,12 +9,20 @@
       "new_sqlite_classes": ["DevEventHub"],
       "tag": "v1",
     },
+    {
+      "new_sqlite_classes": ["EventHubRegistry"],
+      "tag": "v2",
+    },
   ],
   "durable_objects": {
     "bindings": [
       {
         "class_name": "DevEventHub",
         "name": "EVENT_HUB",
+      },
+      {
+        "class_name": "EventHubRegistry",
+        "name": "EVENT_HUB_REGISTRY",
       },
     ],
   },

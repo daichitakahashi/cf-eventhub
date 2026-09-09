@@ -1,8 +1,16 @@
 import { env } from "cloudflare:workers";
 import { createWebConsole } from "@cf-eventhub/web-console";
-import { EventHub, configureDelivery, routeByConfig } from "cf-eventhub";
+import {
+  EventHub,
+  EventHubRegistry,
+  configureDelivery,
+  routeByConfig,
+} from "cf-eventhub";
+
+export { EventHubRegistry };
 
 export class DevEventHub extends EventHub<Env> {
+  registry = env.EVENT_HUB_REGISTRY;
   routing = routeByConfig(env, {
     routes: [
       {
@@ -32,7 +40,8 @@ export class DevEventHub extends EventHub<Env> {
   });
 }
 
-const eventHubName = "hub";
+const eventHubName = "default";
+const exampleEventHubNames = [eventHubName, "tenant:acme", "orders"] as const;
 const placeholder = `// example payload for this demo
 {
   "eventName": "", // this will be used as a title of the event
@@ -41,6 +50,17 @@ const placeholder = `// example payload for this demo
 
 export default {
   fetch: async (request, env) => {
+    if (new URL(request.url).pathname === "/setup") {
+      await Promise.all(
+        exampleEventHubNames.map((name) =>
+          env.EVENT_HUB.getByName(name).list(),
+        ),
+      );
+      return new Response(
+        "Initialized default, tenant:acme, and orders. Reload the console after Registry synchronization completes.",
+      );
+    }
+
     const handler = createWebConsole({
       pageSize: 10,
       refreshIntervalSeconds: 10,
@@ -52,8 +72,8 @@ export default {
         e.payload.eventName ? String(e.payload.eventName) : e.id,
       eventHub: {
         binding: "EVENT_HUB",
-        instance: eventHubName,
       },
+      registry: { binding: "EVENT_HUB_REGISTRY" },
       createEventPlaceholder: placeholder,
     });
     return handler.fetch(request, env);

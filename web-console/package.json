@@ -6,7 +6,8 @@
     "url": "https://github.com/daichitakahashi/cf-eventhub"
   },
   "scripts": {
-    "build:styles": "tailwindcss -i ./src/app/tailwind.css -o ./src/app/styles.css --minify && node ./scripts/embed-styles.mjs"
+    "build:styles": "tailwindcss -i ./src/app/tailwind.css -o ./src/app/styles.css --minify && node ./scripts/embed-styles.mjs",
+    "test": "vitest run"
   },
   "dependencies": {
     "@hono/valibot-validator": "^0.5.3",
@@ -18,6 +19,7 @@
     "@tailwindcss/cli": "^4.3.1",
     "cf-eventhub": "workspace:../cf-eventhub",
     "typescript": "catalog:",
+    "vitest": "catalog:",
     "wrangler": "catalog:"
   },
   "exports": {

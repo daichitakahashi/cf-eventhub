@@ -19,15 +19,19 @@ import { createWebConsole } from "@cf-eventhub/web-console";
 export default createWebConsole({
   eventHub: {
     binding: "EVENT_HUB",
-    instance: "default",
+  },
+  registry: {
+    binding: "EVENT_HUB_REGISTRY",
   },
   environment: "production",
 });
 ```
 
-By default, the console targets the Durable Object named `default` through the
-`EVENT_HUB` binding. Use `eventHub.instance` when you operate multiple EventHub
-instances.
+The console discovers named EventHub instances through the Registry and stores
+the current selection in the `instance` query parameter. Active instances are
+shown by default. Operators can explicitly show and select stale instances;
+deleted entries are excluded. The binding names default to `EVENT_HUB` and
+`EVENT_HUB_REGISTRY`.
 
 The console periodically checks for newer events or delivery-job updates. If the
 current page is stale, it shows a reload prompt. Pages with ongoing deliveries
@@ -35,9 +39,9 @@ reload automatically on the refresh interval.
 
 ## Wrangler Configuration
 
-Bind the console Worker to the EventHub Durable Object class. If the console is
-deployed as a separate Worker, set `script_name` to the Worker that owns the
-EventHub Durable Object class.
+Bind the console Worker to both Durable Object classes. If the console is
+deployed as a separate Worker, both bindings must use the same owning Worker's
+`script_name` and, when applicable, the same environment.
 
 ```jsonc
 {
@@ -51,6 +55,11 @@ EventHub Durable Object class.
         "name": "EVENT_HUB",
         "class_name": "MyEventHub",
         // If the console and EventHub Durable Object are deployed from the same Worker, omit `script_name`.
+        "script_name": "eventhub-app"
+      },
+      {
+        "name": "EVENT_HUB_REGISTRY",
+        "class_name": "EventHubRegistry",
         "script_name": "eventhub-app"
       }
     ]
@@ -70,7 +79,8 @@ npm run deploy
 `createWebConsole()` accepts the following commonly used options:
 
 - `eventHub.binding`: Durable Object binding name. Defaults to `EVENT_HUB`.
-- `eventHub.instance`: Durable Object name. Defaults to `default`.
+- `registry.binding`: Registry Durable Object binding name. Defaults to
+  `EVENT_HUB_REGISTRY`.
 - `environment`: Label shown in the page title and header.
 - `pageSize`: Number of events shown per page. Defaults to `5`.
 - `refreshIntervalSeconds`: Polling interval for update detection. Defaults to
@@ -78,6 +88,12 @@ npm run deploy
 - `dateFormatter`: `Intl.DateTimeFormat` used for timestamps.
 - `eventTitle`: Function for rendering a custom event title.
 - `createEventPlaceholder`: Placeholder text for the create-event form.
+
+Registry discovery is eventually consistent. EventHub refreshes its entry at
+most once per 24 hours, so `lastSeenAt` is an approximate synchronization time.
+An instance becomes stale after 30 days without a refresh, but remains fully
+selectable when **Show stale** is enabled. Registry failure does not affect the
+EventHub data plane; the console displays a distinct Registry error state.
 
 ## Protecting with Cloudflare Access
 

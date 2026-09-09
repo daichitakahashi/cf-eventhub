@@ -7,6 +7,7 @@ import {
   configureDelivery,
   configureEviction,
 } from "./eventhub";
+export { EventHubRegistry } from "./registry";
 
 type Env = {
   OKAYAMA: Queue;
@@ -14,6 +15,9 @@ type Env = {
   OKINAWA: Queue;
   ARCHIVE: R2Bucket;
   EVICTION_ARCHIVE: R2Bucket;
+  EVENT_HUB_REGISTRY: DurableObjectNamespace<
+    import("./registry").EventHubRegistry
+  >;
 };
 
 export const testRouting = routeByConfig<Env>(env as unknown as Env, {
@@ -50,6 +54,26 @@ export const testRouting = routeByConfig<Env>(env as unknown as Env, {
 });
 
 export class TestEventHub extends EventHub<Env> {
+  deliveryConfig = configureDelivery({});
+  routing = testRouting;
+}
+
+export class TestRegisteredEventHub extends EventHub<Env> {
+  registry = (env as unknown as Env).EVENT_HUB_REGISTRY;
+  deliveryConfig = configureDelivery({});
+  routing = testRouting;
+}
+
+export class TestEventHubWithFailingRegistry extends EventHub<Env> {
+  registryAttempts = 0;
+  registry = {
+    getByName: () => ({
+      register: async () => {
+        this.registryAttempts += 1;
+        throw new Error("registry unavailable");
+      },
+    }),
+  } as unknown as DurableObjectNamespace<import("./registry").EventHubRegistry>;
   deliveryConfig = configureDelivery({});
   routing = testRouting;
 }

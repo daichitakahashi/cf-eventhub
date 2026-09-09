@@ -5,6 +5,12 @@
     "indentStyle": "space",
     "indentWidth": 2
   },
+  "files": {
+    "ignore": [
+      "web-console/src/app/styles.css",
+      "web-console/src/app/styles.ts"
+    ]
+  },
   "organizeImports": {
     "enabled": true
   },

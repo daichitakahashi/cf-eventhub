@@ -8,6 +8,7 @@ Delivery is attempted immediately, and failed jobs are retried via Durable Objec
 
 - [What It Does](#what-it-does)
 - [Public API](#public-api)
+- [EventHub Registry](#eventhub-registry)
 - [Delivery Configuration](#delivery-configuration)
 - [Automatic Eviction](#automatic-eviction)
 - [Routing](#routing)
@@ -26,6 +27,7 @@ Delivery is attempted immediately, and failed jobs are retried via Durable Objec
 - Retry failed deliveries to Queue or R2 automatically
 - Archive finalized events gradually with `eject -> listEjected -> evict`
 - Automatically delete or archive finalized events after a retention period
+- Discover named EventHub instances through an optional registry
 
 ## Public API
 
@@ -40,6 +42,53 @@ The `EventHub` Durable Object exposes the following RPC methods:
 - `evict(ejectKey)`
 
 `payload` must be a JSON object.
+
+`EventHubRegistry` exposes `register(name)`, `list(options?)`, and
+`delete(name)`. `list()` returns active instances by default and can filter
+`active`, `stale`, or `deleted` entries with name-ordered cursor pagination.
+
+## EventHub Registry
+
+The registry is an optional discoverability control plane for named EventHub
+instances. Bind its SQLite-backed Durable Object namespace and expose that
+binding from your EventHub subclass:
+
+```ts
+import { env } from "cloudflare:workers";
+import { EventHub, EventHubRegistry, routeByConfig } from "cf-eventhub";
+
+export { EventHubRegistry };
+
+export class MyEventHub extends EventHub<Env> {
+  registry = env.EVENT_HUB_REGISTRY;
+  routing = routeByConfig(env, { routes: [] });
+}
+```
+
+Activity on an EventHub created with `getByName()` or `idFromName()` registers
+its Durable Object name automatically. No name needs to be passed to
+`publish()`, `list()`, or the other EventHub methods. Unnamed objects created
+with `newUniqueId()` or `idFromString()`, and EventHub subclasses without a
+`registry`, retain their previous behavior.
+
+Registration is best-effort and eventually consistent. Each EventHub stores the
+last successful synchronization time and refreshes at most once per 24 hours.
+`lastSeenAt` is therefore an approximate Registry synchronization time, not the
+time of the latest event. A Registry outage never makes publishing, delivery,
+inspection, redrive, eviction, or alarms fail. After Registry data loss,
+reconstruction can take up to 24 hours as EventHub instances become active.
+
+Entries become `stale` when `lastSeenAt` is more than 30 days old. Staleness is
+derived at query time and never deletes data. `EventHubRegistry.delete(name)`
+only writes a discoverability tombstone; it does not delete EventHub SQLite
+storage, alarms, or R2 archives. Later activity revives a tombstoned name when
+the EventHub next synchronizes.
+
+Naming can stay as simple or become as granular as the application requires:
+
+- Use `default` for a small application with one EventHub.
+- Use names such as `tenant:acme` for tenant-level isolation.
+- Use names such as `orders` and `billing` for domain-level partitioning.
 
 ## Delivery Configuration
 
@@ -173,6 +222,10 @@ This is a minimal `wrangler.jsonc` example. If you change bindings, run `npx wra
       {
         "name": "EVENT_HUB",
         "class_name": "MyEventHub"
+      },
+      {
+        "name": "EVENT_HUB_REGISTRY",
+        "class_name": "EventHubRegistry"
       }
     ]
   },
@@ -180,6 +233,10 @@ This is a minimal `wrangler.jsonc` example. If you change bindings, run `npx wra
     {
       "tag": "v1",
       "new_sqlite_classes": ["MyEventHub"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["EventHubRegistry"]
     }
   ],
   "queues": {

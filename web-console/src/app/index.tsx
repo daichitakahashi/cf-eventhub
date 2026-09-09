@@ -2,7 +2,12 @@ import { vValidator } from "@hono/valibot-validator";
 import { jsxRenderer } from "hono/jsx-renderer";
 import * as v from "valibot";
 
-import type { EventHub } from "cf-eventhub";
+import type {
+  EventHub,
+  EventHubInstance,
+  EventHubRegistry,
+  ListResult,
+} from "cf-eventhub";
 import { Button } from "../components/Button";
 import { Event } from "../components/Event";
 import { SunMedium } from "../components/Icon";
@@ -10,7 +15,7 @@ import { Pagination } from "../components/Pagination";
 import { Textarea } from "../components/Textarea";
 import { getEventsLastUpdatedAt, normalizeEvents } from "../eventhub";
 import type { DateTime } from "../factory";
-import { factory } from "../factory";
+import { factory, listAllInstances } from "../factory";
 import { styles } from "./styles";
 
 const maxPayloadRows = 10;
@@ -19,6 +24,8 @@ const pageScript = (
   refreshIntervalSeconds: number,
   lastUpdatedAt: number,
   hasOngoingDelivery: boolean,
+  pollUrl: string,
+  reloadUrl: string,
 ) => `
 (() => {
   const createModal = document.getElementById("create-event-modal");
@@ -94,7 +101,7 @@ const pageScript = (
 
   const checkLatestEvent = async () => {
     if (!notification || notification.dataset.dismissed === "true") return;
-    const res = await fetch("/api/events/latest", { credentials: "same-origin" });
+    const res = await fetch(${JSON.stringify(pollUrl)}, { credentials: "same-origin" });
     if (!res.ok) return;
     const data = await res.json();
     if (typeof data.lastUpdatedAt !== "number") return;
@@ -106,7 +113,7 @@ const pageScript = (
   window.setInterval(() => {
     if (document.visibilityState === "visible") {
       void checkLatestEvent();
-      ${hasOngoingDelivery ? "window.location.reload();" : ""}
+      ${hasOngoingDelivery ? `window.location.href = ${JSON.stringify(reloadUrl)};` : ""}
     }
   }, ${refreshIntervalSeconds * 1000});
 })();
@@ -138,6 +145,105 @@ const defaultPlaceholder = `{
     }
 }`;
 
+const ConsoleState = ({ title, detail }: { title: string; detail: string }) => (
+  <div class="my-16 py-32 px-6 grid place-items-center text-center">
+    <div>
+      <div class="text-2xl font-bold">{title}</div>
+      <p class="mt-3 max-w-2xl text-gray-600">{detail}</p>
+    </div>
+  </div>
+);
+
+const ConsoleHeader = ({
+  environment,
+  color,
+  instances,
+  selectedName,
+  showStale,
+  buildUrl,
+  showCreate = false,
+}: {
+  environment?: string;
+  color?: `#${string}`;
+  instances: EventHubInstance[];
+  selectedName?: string;
+  showStale: boolean;
+  buildUrl: (
+    path: string,
+    values?: Record<string, string | boolean | null | undefined>,
+  ) => string;
+  showCreate?: boolean;
+}) => (
+  <>
+    <div
+      class="h-2 bg-blue-300"
+      style={color ? `background-color: ${color};` : undefined}
+    />
+    <div class="md:mx-16 mx-6 my-12 flex justify-between flex-wrap gap-4">
+      <div>
+        <h1 class="text-3xl font-semibold pt-1">
+          eventhub:
+          <span class="ml-2 text-gray-500">console</span>
+          {environment && <span class="ml-2 uppercase">[{environment}]</span>}
+        </h1>
+        <div class="mt-4 flex items-center gap-3 flex-wrap">
+          <form method="get" action="/">
+            <label for="eventhub-instance" class="mr-2 font-medium">
+              Instance
+            </label>
+            <select
+              id="eventhub-instance"
+              name="instance"
+              class="rounded-md border border-gray-300 bg-white px-3 py-2"
+              onchange="this.form.submit()"
+            >
+              {!selectedName && <option value="">Select an instance</option>}
+              {instances.map((instance) => (
+                <option
+                  key={instance.name}
+                  value={instance.name}
+                  selected={instance.name === selectedName}
+                >
+                  {instance.name}
+                  {instance.status === "stale"
+                    ? ` (stale; last seen ${instance.lastSeenAt})`
+                    : ""}
+                </option>
+              ))}
+            </select>
+            {showStale && <input type="hidden" name="showStale" value="1" />}
+          </form>
+          <a
+            class="text-sm underline text-gray-600 hover:text-black"
+            href={
+              showStale
+                ? buildUrl("/", {
+                    showStale: null,
+                    instance:
+                      instances.find((item) => item.name === selectedName)
+                        ?.status === "stale"
+                        ? null
+                        : selectedName,
+                  })
+                : buildUrl("/", { showStale: true })
+            }
+          >
+            {showStale ? "Hide stale" : "Show stale"}
+          </a>
+        </div>
+      </div>
+      {showCreate && (
+        <Button type="button" data-open-create-modal>
+          <div class="flex gap-2 py-1 text-nowrap">
+            <SunMedium title="Create event" />
+            Create event
+          </div>
+        </Button>
+      )}
+    </div>
+  </>
+);
+
 /**
  * Creates a handler for the web console.
  * @returns Hono handler.
@@ -148,7 +254,8 @@ export const createHandler = ({
   refreshIntervalSeconds = 5,
   color,
   environment,
-  eventHub = { binding: "EVENT_HUB", instance: "default" },
+  eventHub = { binding: "EVENT_HUB" },
+  registry = { binding: "EVENT_HUB_REGISTRY" },
   eventTitle,
   createEventPlaceholder,
 }: {
@@ -158,15 +265,17 @@ export const createHandler = ({
   color?: `#${string}`;
   environment?: string;
   eventHub?: {
-    binding: string;
-    instance: string;
+    binding?: string;
+  };
+  registry?: {
+    binding?: string;
   };
   eventTitle?: (e: ReturnType<typeof normalizeEvents>[number]) => string;
   createEventPlaceholder?: string;
 }) =>
   factory
     .createApp()
-    .use((c, next) => {
+    .use(async (c, next) => {
       c.set("dateFormatter", (d: DateTime) => {
         return dateFormatter.format(typeof d === "string" ? new Date(d) : d);
       });
@@ -176,14 +285,86 @@ export const createHandler = ({
           typeof d2 === "string" ? new Date(d2) : d2,
         );
       });
+      const eventHubBindingName = eventHub.binding ?? "EVENT_HUB";
       const binding = c.env[
-        eventHub.binding
+        eventHubBindingName
       ] as DurableObjectNamespace<EventHub>;
-      if (!binding) throw new Error("EventHub binding not found");
+      if (!binding) {
+        throw new Error(`EventHub binding not found: ${eventHubBindingName}`);
+      }
+
+      const registryBindingName = registry.binding ?? "EVENT_HUB_REGISTRY";
+      const registryBinding = c.env[
+        registryBindingName
+      ] as DurableObjectNamespace<EventHubRegistry>;
+      if (!registryBinding) {
+        throw new Error(
+          `EventHub Registry binding not found: ${registryBindingName}`,
+        );
+      }
+
+      const registryStub = registryBinding.getByName("default");
+      const search = new URL(c.req.url).searchParams;
+      const requestedInstance = search.get("instance") ?? undefined;
+      const showStale = search.get("showStale") === "1";
+      let instances: Awaited<ReturnType<typeof listAllInstances>> = [];
+      let selectedInstance: (typeof instances)[number] | undefined;
+      let registryError: string | undefined;
+
+      try {
+        const active = await listAllInstances(registryStub, "active");
+        const requestedIsActive = active.some(
+          (instance) => instance.name === requestedInstance,
+        );
+        const stale =
+          showStale ||
+          active.length === 0 ||
+          (requestedInstance && !requestedIsActive)
+            ? await listAllInstances(registryStub, "stale")
+            : [];
+        instances = [...active, ...stale];
+        selectedInstance = requestedInstance
+          ? instances.find((instance) => instance.name === requestedInstance)
+          : active[0];
+      } catch (error) {
+        registryError = error instanceof Error ? error.message : String(error);
+      }
+
+      const buildUrl = (
+        path: string,
+        values: Record<
+          string,
+          string | number | boolean | null | undefined
+        > = {},
+      ): string => {
+        const query = new URLSearchParams();
+        if (selectedInstance) query.set("instance", selectedInstance.name);
+        if (showStale || selectedInstance?.status === "stale") {
+          query.set("showStale", "1");
+        }
+        for (const [key, value] of Object.entries(values)) {
+          if (value === undefined || value === null || value === false) {
+            query.delete(key);
+          } else {
+            query.set(key, value === true ? "1" : String(value));
+          }
+        }
+        const encoded = query.toString();
+        return encoded ? `${path}?${encoded}` : path;
+      };
 
       c.set("eventHubBinding", binding);
-      c.set("eventHubInstance", eventHub.instance);
-      c.set("getEventHub", () => binding.getByName(eventHub.instance));
+      c.set("registryBinding", registryBinding);
+      c.set("registry", registryStub);
+      c.set("instances", instances);
+      c.set("selectedInstance", selectedInstance);
+      c.set("requestedInstance", requestedInstance);
+      c.set("showStale", showStale);
+      c.set("registryError", registryError);
+      c.set("getEventHub", () =>
+        selectedInstance ? binding.getByName(selectedInstance.name) : undefined,
+      );
+      c.set("buildUrl", buildUrl);
       return next();
     })
     .get(
@@ -205,12 +386,73 @@ export const createHandler = ({
         const max = c.req.valid("query").pageSize;
         const hub = c.var.getEventHub();
 
-        const listed = await hub.list({
-          max,
-          cursor: cursor ?? undefined,
-          order: "desc",
-        });
-        const latest = await hub.list({ max: 10, order: "desc" });
+        if (c.var.registryError) {
+          c.status(503);
+          return c.render(
+            <ConsoleState
+              title="Registry unavailable"
+              detail="The EventHub Registry could not be read. EventHub data-plane operations are unaffected. Check the Registry binding and try again."
+            />,
+          );
+        }
+
+        if (!hub) {
+          const hasInstances = c.var.instances.length > 0;
+          if (c.var.requestedInstance) c.status(404);
+          return c.render(
+            <div>
+              <ConsoleHeader
+                environment={environment}
+                color={color}
+                instances={c.var.instances}
+                selectedName={undefined}
+                showStale={c.var.showStale}
+                buildUrl={c.var.buildUrl}
+              />
+              <ConsoleState
+                title={
+                  hasInstances
+                    ? "Select an EventHub instance"
+                    : "No EventHub instances found"
+                }
+                detail={
+                  hasInstances
+                    ? "Choose an available instance above. Stale instances remain usable and are labeled with their last-seen time."
+                    : "Configure the EventHub and Registry bindings, then perform the first activity on a named EventHub instance. Registration is asynchronous."
+                }
+              />
+            </div>,
+          );
+        }
+
+        let listed: ListResult;
+        let latest: ListResult;
+        try {
+          listed = await hub.list({
+            max,
+            cursor: cursor ?? undefined,
+            order: "desc",
+          });
+          latest = await hub.list({ max: 10, order: "desc" });
+        } catch {
+          c.status(502);
+          return c.render(
+            <div>
+              <ConsoleHeader
+                environment={environment}
+                color={color}
+                instances={c.var.instances}
+                selectedName={c.var.selectedInstance?.name}
+                showStale={c.var.showStale}
+                buildUrl={c.var.buildUrl}
+              />
+              <ConsoleState
+                title="EventHub instance unavailable"
+                detail={`The selected instance (${c.var.selectedInstance?.name}) could not be read. Try again or select another instance.`}
+              />
+            </div>,
+          );
+        }
         const events = normalizeEvents(listed);
         const latestEvents = normalizeEvents(latest);
         const hasOngoingDelivery = events.some((event) =>
@@ -219,14 +461,10 @@ export const createHandler = ({
         const lastUpdatedAt = getEventsLastUpdatedAt(latestEvents);
 
         const nextUrl = listed.cursor
-          ? (() => {
-              const query = new URLSearchParams();
-              query.set("cursor", listed.cursor);
-              if (max !== pageSize) {
-                query.set("pageSize", max.toString());
-              }
-              return `/?${query.toString()}`;
-            })()
+          ? c.var.buildUrl("/", {
+              cursor: listed.cursor,
+              pageSize: max !== pageSize ? max : undefined,
+            })
           : undefined;
 
         const range = (() => {
@@ -255,7 +493,7 @@ export const createHandler = ({
                 <div class="text-white px-2 py-1">
                   <a
                     class="hover:underline"
-                    href="/"
+                    href={c.var.buildUrl("/")}
                     title="Go to the latest events"
                   >
                     Events or delivery statuses have been updated
@@ -270,27 +508,16 @@ export const createHandler = ({
                 </button>
               </div>
             </div>
-            <div
-              class="h-2 bg-blue-300"
-              style={color ? `background-color: ${color};` : undefined}
+            <ConsoleHeader
+              environment={environment}
+              color={color}
+              instances={c.var.instances}
+              selectedName={c.var.selectedInstance?.name}
+              showStale={c.var.showStale}
+              buildUrl={c.var.buildUrl}
+              showCreate
             />
             <div class="pb-6">
-              <div class="md:mx-16 mx-6 my-12 flex justify-between flex-wrap gap-2">
-                <h1 class="text-3xl font-semibold pt-1">
-                  eventhub:
-                  <span class="ml-2 text-gray-500">console</span>
-                  {environment && (
-                    <span class="ml-2 uppercase">[{environment}]</span>
-                  )}
-                </h1>
-                <Button type="button" data-open-create-modal>
-                  <div class="flex gap-2 py-1 text-nowrap">
-                    <SunMedium title="Create event" />
-                    Create event
-                  </div>
-                </Button>
-              </div>
-
               <dialog
                 id="create-event-modal"
                 class="outline-1 outline-gray-900/20 rounded-xl backdrop:bg-gray-100/30 backdrop:backdrop-blur-[2px]"
@@ -301,7 +528,7 @@ export const createHandler = ({
                       <SunMedium title="" /> Create event
                     </span>
                   </h2>
-                  <form method="post" action="/api/events">
+                  <form method="post" action={c.var.buildUrl("/api/events")}>
                     <div class="my-6">
                       <div class="mb-1">Enter your payload here:</div>
                       <Textarea
@@ -361,6 +588,7 @@ export const createHandler = ({
                       event={event}
                       formatDate={c.var.dateFormatter}
                       eventTitle={eventTitle}
+                      buildUrl={c.var.buildUrl}
                     />
                   ))
                 ) : (
@@ -369,7 +597,7 @@ export const createHandler = ({
                   </div>
                 )}
                 <Pagination
-                  topUrl={cursor ? "/" : undefined}
+                  topUrl={cursor ? c.var.buildUrl("/") : undefined}
                   nextUrl={nextUrl}
                   range={range}
                   formatDateRange={c.var.dateRangeFormatter}
@@ -383,6 +611,8 @@ export const createHandler = ({
                   refreshIntervalSeconds,
                   lastUpdatedAt,
                   hasOngoingDelivery,
+                  c.var.buildUrl("/api/events/latest"),
+                  c.var.buildUrl("/"),
                 ),
               }}
             />

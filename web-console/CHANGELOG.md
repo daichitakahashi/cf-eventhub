@@ -1,5 +1,11 @@
 # @cf-eventhub/web-console
 
+## Unreleased
+
+### Minor Changes
+
+- Replace the static EventHub instance setting with Registry-based active and stale instance discovery, selection, and URL state propagation.
+
 ## 0.0.17
 
 ### Patch Changes
