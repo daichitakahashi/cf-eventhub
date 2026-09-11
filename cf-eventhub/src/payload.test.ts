@@ -18,6 +18,7 @@ test.each([
   { __eventhub__: { instanceId: 1 } },
   { __eventhub__: { instanceId: "" } },
   { __eventhub__: { instanceId: "invalid" } },
+  { __eventhub__: { instanceId: "invalid", instanceName: "name" } },
 ])("returns undefined for invalid payload %j", (payload) => {
   expect(getEventHubFromPayload(env.EVENT_HUB, payload)).toBeUndefined();
 });
@@ -41,6 +42,29 @@ test("resolves an unnamed instance without requiring a delivery job ID", () => {
   >();
   expect(hub?.id.toString()).toBe(id.toString());
 });
+
+test("resolves a valid named instance by name", () => {
+  const name = "payload-named";
+  const id = env.EVENT_HUB_WITH_JOB_ID.idFromName(name);
+  const hub = getEventHubFromPayload(env.EVENT_HUB_WITH_JOB_ID, {
+    __eventhub__: { instanceId: id.toString(), instanceName: name },
+  });
+
+  expect(hub?.id.toString()).toBe(id.toString());
+  expect(hub?.id.name).toBe(name);
+});
+
+test.each(["", 123, "another-name"])(
+  "returns undefined for an invalid or mismatched instance name: %j",
+  (instanceName) => {
+    const id = env.EVENT_HUB_WITH_JOB_ID.idFromName("payload-named");
+    expect(
+      getEventHubFromPayload(env.EVENT_HUB_WITH_JOB_ID, {
+        __eventhub__: { instanceId: id.toString(), instanceName },
+      }),
+    ).toBeUndefined();
+  },
+);
 
 test("reports shared-queue failures to their originating instances", async () => {
   // 1. Publish from two instances into the same destination.

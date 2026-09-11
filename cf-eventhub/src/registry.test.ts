@@ -1,9 +1,13 @@
 import { runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
-import { describe, expect, test, vi } from "vitest";
+import { assert, describe, expect, test, vi } from "vitest";
 
+import { getEventHubFromPayload } from "./payload";
 import { EVENT_HUB_STALE_AFTER_MS, type EventHubRegistry } from "./registry";
-import type { TestEventHubWithFailingRegistry } from "./test";
+import type {
+  TestEventHubWithFailingRegistry,
+  TestRegisteredEventHub,
+} from "./test";
 
 const registry = (name = "default") => env.EVENT_HUB_REGISTRY.getByName(name);
 
@@ -164,6 +168,74 @@ describe("EventHub registry synchronization", () => {
     });
   });
 
+  test("refreshes registration after the 24-hour throttle expires", async () => {
+    // 1. Register a named EventHub and tombstone its Registry entry.
+    // 2. Move the persisted synchronization time back by 24 hours.
+    // 3. Trigger another activity and verify it revives the entry.
+    await clearDefaultRegistry();
+    const name = "tenant:refresh-due";
+    const hub = env.REGISTERED_EVENT_HUB.getByName(name);
+    await hub.list();
+
+    await vi.waitFor(async () => {
+      expect(
+        (await registry().list()).instances.some(
+          (instance) => instance.name === name,
+        ),
+      ).toBe(true);
+    });
+    await registry().delete(name);
+    await runInDurableObject(hub, async (_instance, state) => {
+      state.storage.sql.exec(
+        "UPDATE registry_sync_state SET synced_at = ? WHERE singleton = 1",
+        Date.now() - 24 * 60 * 60 * 1_000,
+      );
+    });
+
+    await hub.list();
+
+    await vi.waitFor(async () => {
+      expect(
+        (await registry().list()).instances.some(
+          (instance) => instance.name === name && instance.status === "active",
+        ),
+      ).toBe(true);
+    });
+  });
+
+  test("shares an in-flight registration between concurrent activities", async () => {
+    // 1. Hold the first Registry registration open.
+    // 2. Run another activity while that registration is in flight.
+    // 3. Verify both activities result in only one Registry call.
+    const hub = env.REGISTERED_EVENT_HUB.getByName("tenant:concurrent");
+
+    await runInDurableObject(hub, async (instance, state) => {
+      const eventHub = instance as TestRegisteredEventHub;
+      state.storage.sql.exec("DELETE FROM registry_sync_state");
+      const registration = Promise.withResolvers<void>();
+      const register = vi.fn(() => registration.promise);
+      (
+        eventHub as TestRegisteredEventHub & {
+          registry: DurableObjectNamespace<EventHubRegistry>;
+        }
+      ).registry = {
+        getByName: () => ({ register }),
+      } as unknown as DurableObjectNamespace<EventHubRegistry>;
+
+      await Promise.all([eventHub.list(), eventHub.list()]);
+
+      expect(register).toHaveBeenCalledTimes(1);
+      registration.resolve();
+      await vi.waitFor(() => {
+        expect(
+          state.storage.sql
+            .exec("SELECT synced_at FROM registry_sync_state")
+            .toArray(),
+        ).toHaveLength(1);
+      });
+    });
+  });
+
   test("revives a deleted entry on the next due synchronization", async () => {
     await clearDefaultRegistry();
     const hub = env.REGISTERED_EVENT_HUB.getByName("tenant:revived");
@@ -198,6 +270,62 @@ describe("EventHub registry synchronization", () => {
     );
     await hub.list();
     expect((await registry().list()).instances).toStrictEqual([]);
+  });
+
+  test("registers through reportFailure resolved from named payload metadata", async () => {
+    // 1. Create a delivery job, then remove its successful Registry sync state.
+    // 2. Resolve the EventHub from matching instance name and ID metadata.
+    // 3. Report the failure and verify the named instance registers again.
+    await clearDefaultRegistry();
+    const name = "tenant:reported-failure";
+    const source = env.REGISTERED_EVENT_HUB.getByName(name);
+    await source.publish({ kind: "culture" });
+
+    await vi.waitFor(async () => {
+      await runInDurableObject(source, async (instance, state) => {
+        expect({
+          registrationInFlight: (
+            instance as unknown as {
+              registrySyncInFlight?: Promise<void>;
+            }
+          ).registrySyncInFlight,
+          syncRows: state.storage.sql
+            .exec("SELECT synced_at FROM registry_sync_state")
+            .toArray(),
+        }).toStrictEqual({
+          registrationInFlight: undefined,
+          syncRows: [{ synced_at: expect.any(Number) }],
+        });
+      });
+    });
+
+    let deliveryJobId = "";
+    await runInDurableObject(source, async (_instance, state) => {
+      deliveryJobId = state.storage.sql
+        .exec<{ id: string }>("SELECT id FROM delivery_jobs LIMIT 1")
+        .one().id;
+      state.storage.sql.exec("DELETE FROM registry_sync_state");
+    });
+    await clearDefaultRegistry();
+
+    const payload = {
+      __eventhub__: {
+        instanceId: source.id.toString(),
+        instanceName: name,
+        deliveryJobId,
+      },
+    };
+    const resolved = getEventHubFromPayload(env.REGISTERED_EVENT_HUB, payload);
+    assert(resolved);
+    expect(await resolved.reportFailure(payload)).toBe(true);
+
+    await vi.waitFor(async () => {
+      expect(
+        (await registry().list()).instances.some(
+          (instance) => instance.name === name && instance.status === "active",
+        ),
+      ).toBe(true);
+    });
   });
 
   test("isolates Registry failures and retries on the next activity", async () => {

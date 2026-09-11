@@ -99,7 +99,7 @@ import { EventHub, configureDelivery } from "cf-eventhub";
 
 export class MyEventHub extends EventHub<Env> {
   deliveryConfig = configureDelivery({
-    includeDeliveryMetadata: true, // Include instance and job IDs in delivered payloads (default: false)
+    includeDeliveryMetadata: true, // Include instance identity and job ID (default: false)
     initialRetryDelayMs: 5000,  // Initial retry delay (default: 10000)
     maxRetryDelayMs: 300000,    // Maximum retry delay (default: 900000)
     alarmBatchSize: 100,        // Jobs per alarm batch (default: 50)
@@ -109,7 +109,11 @@ export class MyEventHub extends EventHub<Env> {
 }
 ```
 
-When `includeDeliveryMetadata` is `true`, EventHub injects `__eventhub__: { instanceId, deliveryJobId }` into each payload before sending it to Queue or R2 destinations. The delivered payload can be used with `reportFailure()` to record downstream processing failures for that delivery job.
+When `includeDeliveryMetadata` is `true`, EventHub injects `instanceId`,
+`deliveryJobId`, and, for named instances, `instanceName` under `__eventhub__`
+before sending each payload to Queue or R2 destinations. The delivered payload
+can be used with `reportFailure()` to record downstream processing failures for
+that delivery job.
 
 ## Automatic Eviction
 
@@ -382,11 +386,14 @@ export class MyEventHub extends EventHub<Env> {
 
 `getEventHubFromPayload(namespace, payload)` synchronously returns a typed
 `DurableObjectStub<T> | undefined`, with `T` inferred from the namespace.
-It reads only `__eventhub__.instanceId` and returns `undefined` for missing or
-invalid metadata, including IDs from another namespace. It does not make an RPC
-call or check whether the instance already exists. Errors from obtaining the stub
-are propagated. `reportFailure(payload)` separately validates the job ID and
-requires the instance ID to match the receiving instance.
+It validates `__eventhub__.instanceId` and returns `undefined` for missing or
+invalid metadata, including IDs from another namespace. When `instanceName` is
+present, it must resolve to the same ID; the helper then uses `getByName()` so
+the originating EventHub retains its name for Registry synchronization. Unnamed
+instances are resolved by ID. Resolving the stub does not make an RPC call or
+check whether the instance already exists. Invalid namespace operations also
+return `undefined`. `reportFailure(payload)` separately
+validates the job ID and requires the instance ID to match the receiving instance.
 
 ### DLQ Consumer Implementation
 
@@ -422,7 +429,7 @@ export default {
 ### How It Works
 
 1. EventHub publishes events to `MEMBER_EVENTS` and `PAYMENT_EVENTS` queues
-2. Each payload includes `__eventhub__: { instanceId, deliveryJobId }`
+2. Each payload includes `__eventhub__: { instanceId, instanceName, deliveryJobId }` for a named EventHub
 3. If a consumer fails to process a message after `max_retries`, the message moves to `eventhub-dlq`
 4. The DLQ consumer calls `reportFailure()` with the failed payload
 5. EventHub records a consumer-reported failure for the extracted job ID, but the job's `finalStatus` remains unchanged.

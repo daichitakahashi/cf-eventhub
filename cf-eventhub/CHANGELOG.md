@@ -6,6 +6,7 @@
 
 - Add optional automatic eviction using Durable Object Alarms, with bounded direct deletion or retry-safe R2 archival through `configureEviction()`.
 - Add the SQLite-backed `EventHubRegistry` API and best-effort self-registration for named EventHub instances.
+- Add delivery instance metadata and `getEventHubFromPayload()` for resolving the originating EventHub from shared destination payloads.
 
 ## 0.3.5
 

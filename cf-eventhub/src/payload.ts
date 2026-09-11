@@ -1,7 +1,8 @@
 /**
  * Resolves the originating stub without making an RPC call.
  * Returns undefined for missing metadata or an invalid ID for this namespace.
- * Only instanceId is required; deliveryJobId is validated by reportFailure().
+ * A valid instanceName is preferred so named instances retain their name when
+ * invoked. Only instanceId is required; deliveryJobId is validated separately.
  */
 export function getEventHubFromPayload<T extends Rpc.DurableObjectBranded>(
   namespace: DurableObjectNamespace<T>,
@@ -23,7 +24,13 @@ export function getEventHubFromPayload<T extends Rpc.DurableObjectBranded>(
 
   try {
     const id = namespace.idFromString(instanceId);
-    return namespace.get(id);
+    const instanceName = (metadata as Record<string, unknown>).instanceName;
+    if (instanceName === undefined) return namespace.get(id);
+    if (typeof instanceName !== "string" || instanceName.length === 0)
+      return undefined;
+    if (namespace.idFromName(instanceName).toString() !== instanceId)
+      return undefined;
+    return namespace.getByName(instanceName);
   } catch {
     return undefined;
   }

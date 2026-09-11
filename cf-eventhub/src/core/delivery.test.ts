@@ -547,9 +547,9 @@ describe("deliverPersistedJobs", () => {
     expect(archive.objects.size).toBe(0);
   });
 
-  test("injects delivery job ID when includeDeliveryMetadata is true for Queue", async () => {
+  test("injects delivery metadata when includeDeliveryMetadata is true for Queue", async () => {
     // 1. Deliver jobs to a Queue with includeDeliveryMetadata enabled.
-    // 2. Verify the sent payloads include __eventhub__.deliveryJobId.
+    // 2. Verify the sent payload includes the instance identity and job ID.
     const env = createEnv();
     const routing = createRouting(env);
     const payload = { kind: "culture", avoidUrban: true };
@@ -568,7 +568,7 @@ describe("deliverPersistedJobs", () => {
         onDelivered: noopOnDelivered,
         onFailed: noopOnFailed,
       },
-      "test-instance",
+      { instanceId: "test-instance", instanceName: "test-name" },
     );
 
     expect(env.OKAYAMA.sentBatches).toStrictEqual([
@@ -578,6 +578,7 @@ describe("deliverPersistedJobs", () => {
             ...payload,
             __eventhub__: {
               instanceId: "test-instance",
+              instanceName: "test-name",
               deliveryJobId: "01TEST00000000000000000001",
             },
           },
@@ -587,9 +588,9 @@ describe("deliverPersistedJobs", () => {
     ]);
   });
 
-  test("injects delivery job ID when includeDeliveryMetadata is true for R2", async () => {
+  test("injects delivery metadata when includeDeliveryMetadata is true for R2", async () => {
     // 1. Deliver jobs to an R2 bucket with includeDeliveryMetadata enabled.
-    // 2. Verify the stored payload includes __eventhub__.deliveryJobId.
+    // 2. Verify the stored payload includes the instance identity and job ID.
     const env = createEnv();
     const routing = routeByConfig(env, {
       routes: [
@@ -618,7 +619,7 @@ describe("deliverPersistedJobs", () => {
         onDelivered: noopOnDelivered,
         onFailed: noopOnFailed,
       },
-      "test-instance",
+      { instanceId: "test-instance", instanceName: "test-name" },
     );
 
     const archive = env.ARCHIVE as unknown as R2BucketMock;
@@ -630,14 +631,15 @@ describe("deliverPersistedJobs", () => {
       ...payload,
       __eventhub__: {
         instanceId: "test-instance",
+        instanceName: "test-name",
         deliveryJobId: "01TEST00000000000000000011",
       },
     });
   });
 
-  test("merges delivery job ID with existing __eventhub__ object", async () => {
+  test("merges delivery metadata with an existing __eventhub__ object", async () => {
     // 1. Deliver a payload that already has an __eventhub__ object.
-    // 2. Verify the delivery job ID is merged, preserving existing fields.
+    // 2. Verify authoritative metadata replaces reserved fields and preserves others.
     const env = createEnv();
     const routing = createRouting(env);
     const payload = {
@@ -645,6 +647,7 @@ describe("deliverPersistedJobs", () => {
       __eventhub__: {
         customField: "value",
         instanceId: "untrusted",
+        instanceName: "untrusted",
         deliveryJobId: "untrusted",
       },
     };
@@ -663,7 +666,7 @@ describe("deliverPersistedJobs", () => {
         onDelivered: noopOnDelivered,
         onFailed: noopOnFailed,
       },
-      "test-instance",
+      { instanceId: "test-instance" },
     );
 
     expect(env.OKAYAMA.sentBatches).toStrictEqual([
@@ -683,9 +686,9 @@ describe("deliverPersistedJobs", () => {
     ]);
   });
 
-  test("replaces non-object __eventhub__ with delivery job ID", async () => {
+  test("replaces non-object __eventhub__ with delivery metadata", async () => {
     // 1. Deliver a payload with __eventhub__ set to a non-object value.
-    // 2. Verify the value is replaced with an object containing the delivery job ID.
+    // 2. Verify it is replaced with the instance identity and job ID.
     const env = createEnv();
     const routing = createRouting(env);
     const payloadWithArray = {
@@ -707,7 +710,7 @@ describe("deliverPersistedJobs", () => {
         onDelivered: noopOnDelivered,
         onFailed: noopOnFailed,
       },
-      "test-instance",
+      { instanceId: "test-instance", instanceName: "test-name" },
     );
 
     expect(env.OKAYAMA.sentBatches).toStrictEqual([
@@ -717,6 +720,7 @@ describe("deliverPersistedJobs", () => {
             kind: "culture",
             __eventhub__: {
               instanceId: "test-instance",
+              instanceName: "test-name",
               deliveryJobId: "01TEST00000000000000000003",
             },
           },
@@ -726,7 +730,7 @@ describe("deliverPersistedJobs", () => {
     ]);
   });
 
-  test("does not modify original payload when injecting job ID", async () => {
+  test("does not modify the original payload when injecting metadata", async () => {
     // 1. Deliver a payload with includeDeliveryMetadata enabled.
     // 2. Verify the original payload object is not mutated.
     const env = createEnv();
@@ -748,7 +752,7 @@ describe("deliverPersistedJobs", () => {
         onDelivered: noopOnDelivered,
         onFailed: noopOnFailed,
       },
-      "test-instance",
+      { instanceId: "test-instance", instanceName: "test-name" },
     );
 
     expect(payload).toStrictEqual(payloadCopy);

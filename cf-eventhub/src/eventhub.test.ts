@@ -1501,6 +1501,7 @@ describe("redrive", () => {
                 ...payload,
                 __eventhub__: {
                   instanceId: stub.id.toString(),
+                  instanceName: "redrive-completed-job",
                   deliveryJobId: originalJobId,
                 },
               },
@@ -1563,6 +1564,7 @@ describe("redrive", () => {
                   ...payload,
                   __eventhub__: {
                     instanceId: stub.id.toString(),
+                    instanceName: "redrive-completed-job",
                     deliveryJobId: originalJobId,
                   },
                 },
@@ -1575,6 +1577,7 @@ describe("redrive", () => {
                   ...payload,
                   __eventhub__: {
                     instanceId: stub.id.toString(),
+                    instanceName: "redrive-completed-job",
                     deliveryJobId: redrivenJobId,
                   },
                 },
@@ -1631,7 +1634,7 @@ describe("includeDeliveryMetadata configuration", () => {
 
   test("delivers successfully when includeDeliveryMetadata is true", async () => {
     // 1. Configure EventHub with includeDeliveryMetadata: true.
-    // 2. Publish a payload and verify delivery completes with the injected job ID.
+    // 2. Publish a payload and verify delivery completes with its metadata.
     const stub = getStubWithJobId(
       "with-job-id",
     ) as DurableObjectStub<TestEventHubWithJobId>;
@@ -1656,6 +1659,7 @@ describe("includeDeliveryMetadata configuration", () => {
                 ...payload,
                 __eventhub__: {
                   instanceId: stub.id.toString(),
+                  instanceName: "with-job-id",
                   deliveryJobId: jobs[0]?.id,
                 },
               },

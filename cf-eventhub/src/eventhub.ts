@@ -76,7 +76,8 @@ export type DeliveryConfig = {
 
   /**
    * Whether to include delivery metadata in the payload sent to destinations.
-   * When enabled, instanceId and deliveryJobId are added under `__eventhub__`.
+   * When enabled, instanceId, optional instanceName, and deliveryJobId are
+   * added under `__eventhub__`.
    * @default false
    */
   includeDeliveryMetadata: boolean;
@@ -370,7 +371,12 @@ export abstract class EventHub<
         },
       },
       this.deliveryConfig.includeDeliveryMetadata
-        ? this.ctx.id.toString()
+        ? {
+            instanceId: this.ctx.id.toString(),
+            ...(this.ctx.id.name === undefined || this.ctx.id.name.length === 0
+              ? {}
+              : { instanceName: this.ctx.id.name }),
+          }
         : false,
     );
   }
