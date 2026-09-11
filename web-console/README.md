@@ -30,7 +30,10 @@ export default createWebConsole({
 The console discovers named EventHub instances through the Registry and stores
 the current selection in the `instance` query parameter. Active instances are
 shown by default. Operators can explicitly show and select stale instances;
-deleted entries are excluded. The binding names default to `EVENT_HUB` and
+deleted entries are excluded. A selected stale instance can be removed from the
+Registry in the console; active instances cannot be removed there. This
+tombstones its Registry entry but does not delete its EventHub data. The binding
+names default to `EVENT_HUB` and
 `EVENT_HUB_REGISTRY`.
 
 The console periodically checks for newer events or delivery-job updates. If the

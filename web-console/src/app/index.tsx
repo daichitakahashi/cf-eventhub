@@ -159,6 +159,7 @@ const ConsoleHeader = ({
   color,
   instances,
   selectedName,
+  selectedStatus,
   showStale,
   buildUrl,
   showCreate = false,
@@ -167,6 +168,7 @@ const ConsoleHeader = ({
   color?: `#${string}`;
   instances: EventHubInstance[];
   selectedName?: string;
+  selectedStatus?: EventHubInstance["status"];
   showStale: boolean;
   buildUrl: (
     path: string,
@@ -186,7 +188,7 @@ const ConsoleHeader = ({
           <span class="ml-2 text-gray-500">console</span>
           {environment && <span class="ml-2 uppercase">[{environment}]</span>}
         </h1>
-        <div class="mt-4 flex items-center gap-3 flex-wrap">
+        <div class="mt-2 flex items-center gap-3 flex-wrap">
           <form method="get" action="/">
             <label for="eventhub-instance" class="mr-2 font-medium">
               Instance
@@ -213,32 +215,43 @@ const ConsoleHeader = ({
             </select>
             {showStale && <input type="hidden" name="showStale" value="1" />}
           </form>
-          <a
-            class="text-sm underline text-gray-600 hover:text-black"
-            href={
-              showStale
-                ? buildUrl("/", {
-                    showStale: null,
-                    instance:
-                      instances.find((item) => item.name === selectedName)
-                        ?.status === "stale"
-                        ? null
-                        : selectedName,
-                  })
-                : buildUrl("/", { showStale: true })
-            }
-          >
-            {showStale ? "Hide stale" : "Show stale"}
-          </a>
+          <form method="get" action="/">
+            {selectedName && selectedStatus !== "stale" && (
+              <input type="hidden" name="instance" value={selectedName} />
+            )}
+            <label class="flex items-center gap-1 text-sm text-gray-600 cursor-pointer">
+              <input
+                type="checkbox"
+                name="showStale"
+                value="1"
+                checked={showStale}
+                onchange="this.form.submit()"
+              />
+              Show stale
+            </label>
+          </form>
+          {selectedName && selectedStatus === "stale" && (
+            <form method="post" action={buildUrl("/api/instances/delete")}>
+              <button
+                type="submit"
+                class="text-sm underline text-red-700 hover:text-red-900 cursor-pointer"
+                data-confirm={`Delete ${selectedName} from the Registry? EventHub data will not be deleted.`}
+              >
+                Delete instance
+              </button>
+            </form>
+          )}
         </div>
       </div>
       {showCreate && (
-        <Button type="button" data-open-create-modal>
-          <div class="flex gap-2 py-1 text-nowrap">
-            <SunMedium title="Create event" />
-            Create event
-          </div>
-        </Button>
+        <div class="flex items-center">
+          <Button type="button" data-open-create-modal>
+            <div class="flex gap-2 py-1 text-nowrap">
+              <SunMedium title="Create event" />
+              Create event
+            </div>
+          </Button>
+        </div>
       )}
     </div>
   </>
@@ -406,6 +419,7 @@ export const createHandler = ({
                 color={color}
                 instances={c.var.instances}
                 selectedName={undefined}
+                selectedStatus={undefined}
                 showStale={c.var.showStale}
                 buildUrl={c.var.buildUrl}
               />
@@ -443,6 +457,7 @@ export const createHandler = ({
                 color={color}
                 instances={c.var.instances}
                 selectedName={c.var.selectedInstance?.name}
+                selectedStatus={c.var.selectedInstance?.status}
                 showStale={c.var.showStale}
                 buildUrl={c.var.buildUrl}
               />
@@ -513,6 +528,7 @@ export const createHandler = ({
               color={color}
               instances={c.var.instances}
               selectedName={c.var.selectedInstance?.name}
+              selectedStatus={c.var.selectedInstance?.status}
               showStale={c.var.showStale}
               buildUrl={c.var.buildUrl}
               showCreate

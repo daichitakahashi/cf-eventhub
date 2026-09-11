@@ -19,6 +19,17 @@ const redirectWithError = (c: Context<Env>) =>
 
 const handler = factory
   .createApp()
+  .post("/instances/delete", async (c) => {
+    const instance = c.var.selectedInstance;
+    if (!instance || c.var.requestedInstance !== instance.name) {
+      return c.json({ error: "EventHub instance not found" }, 404);
+    }
+    if (instance.status !== "stale") {
+      return c.json({ error: "Only stale instances can be deleted" }, 409);
+    }
+    await c.var.registry.delete(instance.name);
+    return c.redirect("/");
+  })
   .get("/events/latest", async (c) => {
     const hub = c.var.getEventHub();
     if (!hub) {

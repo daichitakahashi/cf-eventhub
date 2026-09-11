@@ -48,12 +48,16 @@ const setup = ({
         status === "stale" ? stale : status === "deleted" ? [] : active,
     }),
   );
+  const registryDelete = vi.fn(async () => true);
   const bindings = {
     EVENT_HUB: {
       getByName: eventHubGetByName,
     } as unknown as DurableObjectNamespace<EventHub>,
     EVENT_HUB_REGISTRY: {
-      getByName: vi.fn(() => ({ list: registryList })),
+      getByName: vi.fn(() => ({
+        list: registryList,
+        delete: registryDelete,
+      })),
     } as unknown as DurableObjectNamespace<EventHubRegistry>,
   };
   return {
@@ -62,6 +66,7 @@ const setup = ({
     hubs,
     eventHubGetByName,
     registryList,
+    registryDelete,
   };
 };
 
@@ -89,6 +94,26 @@ describe("EventHub instance discovery", () => {
     expect(response.status).toBe(200);
     expect(html).toContain('<option value="old" selected="">');
     expect(html).toContain("old (stale; last seen 2025-01-01T00:00:00.000Z)");
+    expect(html).toContain(
+      'type="checkbox" name="showStale" value="1" checked=""',
+    );
+    expect(html).not.toContain(
+      '<input type="hidden" name="instance" value="old"',
+    );
+  });
+
+  test("renders Show stale as an unchecked checkbox by default", async () => {
+    const { app, bindings } = setup();
+    const response = await app.request("http://localhost/", {}, bindings);
+    const html = await response.text();
+
+    expect(html).toContain('type="checkbox" name="showStale" value="1"');
+    expect(html).not.toContain(
+      'type="checkbox" name="showStale" value="1" checked=""',
+    );
+    expect(html).toContain(
+      '<input type="hidden" name="instance" value="alpha"',
+    );
   });
 
   test("does not resolve unknown or deleted query names", async () => {
@@ -224,5 +249,82 @@ describe("EventHub instance URL state", () => {
 
     expect(html).toContain('<form method="get" action="/">');
     expect(html).not.toContain('name="cursor"');
+  });
+
+  test("deletes the selected instance from the Registry", async () => {
+    const { app, bindings, registryDelete } = setup({
+      active: [],
+      stale: [instance("tenant:acme", "stale")],
+    });
+    const page = await app.request(
+      "http://localhost/?instance=tenant%3Aacme&showStale=1",
+      {},
+      bindings,
+    );
+    const html = await page.text();
+
+    expect(html).toContain(
+      'action="/api/instances/delete?instance=tenant%3Aacme&amp;showStale=1"',
+    );
+    expect(html).toContain("Delete instance");
+
+    const response = await app.request(
+      "http://localhost/api/instances/delete?instance=tenant%3Aacme",
+      { method: "POST" },
+      bindings,
+    );
+
+    expect(registryDelete).toHaveBeenCalledWith("tenant:acme");
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("/");
+  });
+
+  test("does not allow an active instance to be deleted", async () => {
+    const { app, bindings, registryDelete } = setup({
+      active: [instance("active")],
+    });
+    const page = await app.request(
+      "http://localhost/?instance=active",
+      {},
+      bindings,
+    );
+
+    expect(await page.text()).not.toContain("Delete instance");
+
+    const response = await app.request(
+      "http://localhost/api/instances/delete?instance=active",
+      { method: "POST" },
+      bindings,
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: "Only stale instances can be deleted",
+    });
+    expect(registryDelete).not.toHaveBeenCalled();
+  });
+
+  test("does not delete an unknown instance", async () => {
+    const { app, bindings, registryDelete } = setup();
+    const response = await app.request(
+      "http://localhost/api/instances/delete?instance=unknown",
+      { method: "POST" },
+      bindings,
+    );
+
+    expect(response.status).toBe(404);
+    expect(registryDelete).not.toHaveBeenCalled();
+  });
+
+  test("requires an explicit instance when deleting", async () => {
+    const { app, bindings, registryDelete } = setup();
+    const response = await app.request(
+      "http://localhost/api/instances/delete",
+      { method: "POST" },
+      bindings,
+    );
+
+    expect(response.status).toBe(404);
+    expect(registryDelete).not.toHaveBeenCalled();
   });
 });
