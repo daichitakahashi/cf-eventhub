@@ -20,6 +20,9 @@ const redirectWithError = (c: Context<Env>) =>
 const handler = factory
   .createApp()
   .post("/instances/delete", async (c) => {
+    if (c.var.registryError) {
+      return c.json({ error: "EventHub Registry unavailable" }, 503);
+    }
     const instance = c.var.selectedInstance;
     if (!instance || c.var.requestedInstance !== instance.name) {
       return c.json({ error: "EventHub instance not found" }, 404);
@@ -27,7 +30,11 @@ const handler = factory
     if (instance.status !== "stale") {
       return c.json({ error: "Only stale instances can be deleted" }, 409);
     }
-    await c.var.registry.delete(instance.name);
+    try {
+      await c.var.registry.delete(instance.name);
+    } catch {
+      return c.json({ error: "EventHub Registry unavailable" }, 503);
+    }
     return c.redirect("/");
   })
   .get("/events/latest", async (c) => {

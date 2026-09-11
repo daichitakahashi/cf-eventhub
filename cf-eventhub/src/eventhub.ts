@@ -271,7 +271,13 @@ export abstract class EventHub<
   private scheduleRegistrySync(): void {
     const registry = this.registry;
     const name = this.ctx.id.name;
-    if (!registry || name === undefined || this.registrySyncInFlight) return;
+    if (
+      !registry ||
+      name === undefined ||
+      name.length === 0 ||
+      this.registrySyncInFlight
+    )
+      return;
 
     const now = Date.now();
     const syncedAt = getRegistrySyncedAt(this.ctx.storage.sql);

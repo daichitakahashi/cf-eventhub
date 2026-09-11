@@ -327,4 +327,40 @@ describe("EventHub instance URL state", () => {
     expect(response.status).toBe(404);
     expect(registryDelete).not.toHaveBeenCalled();
   });
+
+  test("reports Registry unavailability when instance lookup fails", async () => {
+    const configured = setup();
+    configured.registryList.mockRejectedValue(new Error("registry offline"));
+
+    const response = await configured.app.request(
+      "http://localhost/api/instances/delete?instance=old",
+      { method: "POST" },
+      configured.bindings,
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toStrictEqual({
+      error: "EventHub Registry unavailable",
+    });
+    expect(configured.registryDelete).not.toHaveBeenCalled();
+  });
+
+  test("reports Registry unavailability when deletion fails", async () => {
+    const configured = setup({
+      active: [],
+      stale: [instance("old", "stale")],
+    });
+    configured.registryDelete.mockRejectedValue(new Error("registry offline"));
+
+    const response = await configured.app.request(
+      "http://localhost/api/instances/delete?instance=old",
+      { method: "POST" },
+      configured.bindings,
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toStrictEqual({
+      error: "EventHub Registry unavailable",
+    });
+  });
 });

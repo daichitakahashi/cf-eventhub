@@ -272,6 +272,18 @@ describe("EventHub registry synchronization", () => {
     expect((await registry().list()).instances).toStrictEqual([]);
   });
 
+  test("does not register an EventHub with an empty name", async () => {
+    const hub = env.EVENT_HUB_WITH_FAILING_REGISTRY.getByName("");
+
+    await hub.list();
+
+    await runInDurableObject(hub, async (instance) => {
+      expect(
+        (instance as TestEventHubWithFailingRegistry).registryAttempts,
+      ).toBe(0);
+    });
+  });
+
   test("registers through reportFailure resolved from named payload metadata", async () => {
     // 1. Create a delivery job, then remove its successful Registry sync state.
     // 2. Resolve the EventHub from matching instance name and ID metadata.
