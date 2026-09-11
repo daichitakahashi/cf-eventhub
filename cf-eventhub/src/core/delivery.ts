@@ -97,18 +97,19 @@ export const assertDestinationBindingsExist = <Env extends object>(
 const getR2ObjectKey = (job: PersistedDeliveryJob): string =>
   `${job.payloadId}/${job.id}.json`;
 
-// Merges the delivery job ID into the payload at $.__eventhub__.deliveryJobId
-const injectDeliveryJobId = (
+// Adds authoritative instance and job IDs while preserving other metadata.
+const injectDeliveryMetadata = (
   payload: EventPayload,
   jobId: string,
+  instanceId: string,
 ): EventPayload => {
   const existing = payload.__eventhub__;
   const eventhubMetadata =
     typeof existing === "object" &&
     existing !== null &&
     !Array.isArray(existing)
-      ? { ...existing, deliveryJobId: jobId }
-      : { deliveryJobId: jobId };
+      ? { ...existing, deliveryJobId: jobId, instanceId }
+      : { deliveryJobId: jobId, instanceId };
 
   return {
     ...payload,
@@ -120,7 +121,7 @@ const deliverQueueJobs = async <Env extends object>(
   jobs: readonly DeliveryJob<Env>[],
   queue: Queue<EventPayload>,
   handlers: DeliverJobsHandlers,
-  includeDeliveryJobId: boolean,
+  instanceId: string | false,
 ): Promise<void> => {
   for (let i = 0; i < jobs.length; i += MAX_SEND_BATCH_COUNT) {
     const chunk = jobs.slice(i, i + MAX_SEND_BATCH_COUNT);
@@ -128,8 +129,8 @@ const deliverQueueJobs = async <Env extends object>(
     try {
       await queue.sendBatch(
         chunk.map((job) => ({
-          body: includeDeliveryJobId
-            ? injectDeliveryJobId(job.payload, job.id)
+          body: instanceId
+            ? injectDeliveryMetadata(job.payload, job.id, instanceId)
             : job.payload,
           contentType: "json",
         })),
@@ -145,12 +146,12 @@ const deliverR2Jobs = async <Env extends object>(
   jobs: readonly DeliveryJob<Env>[],
   bucket: R2Bucket,
   handlers: DeliverJobsHandlers,
-  includeDeliveryJobId: boolean,
+  instanceId: string | false,
 ): Promise<void> => {
   for (const job of jobs) {
     try {
-      const payloadToStore = includeDeliveryJobId
-        ? injectDeliveryJobId(job.payload, job.id)
+      const payloadToStore = instanceId
+        ? injectDeliveryMetadata(job.payload, job.id, instanceId)
         : job.payload;
 
       await bucket.put(getR2ObjectKey(job), JSON.stringify(payloadToStore), {
@@ -169,7 +170,7 @@ const deliverR2Jobs = async <Env extends object>(
 export const deliverJobs = async <Env extends object>(
   jobs: readonly DeliveryJob<Env>[],
   handlers: DeliverJobsHandlers,
-  includeDeliveryJobId: boolean,
+  instanceId: string | false,
 ): Promise<void> => {
   for (const destinationJobs of groupJobsByDestination(jobs).values()) {
     const [{ target }] = destinationJobs;
@@ -178,16 +179,11 @@ export const deliverJobs = async <Env extends object>(
         destinationJobs,
         target.queue,
         handlers,
-        includeDeliveryJobId,
+        instanceId,
       );
       continue;
     }
-    await deliverR2Jobs(
-      destinationJobs,
-      target.bucket,
-      handlers,
-      includeDeliveryJobId,
-    );
+    await deliverR2Jobs(destinationJobs, target.bucket, handlers, instanceId);
   }
 };
 
@@ -196,14 +192,14 @@ export const deliverPersistedJobs = async <Env extends object>(
   routing: RoutingStrategy<Env>,
   jobs: readonly PersistedDeliveryJob[],
   handlers: DeliverJobsHandlers,
-  includeDeliveryJobId: boolean,
+  instanceId: string | false,
 ): Promise<void> => {
   for (const destinationJobs of groupJobsByDestination(jobs).values()) {
     try {
       await deliverJobs(
         resolveDeliveryJobs(routing, destinationJobs),
         handlers,
-        includeDeliveryJobId,
+        instanceId,
       );
     } catch (error) {
       await handlers.onFailed(

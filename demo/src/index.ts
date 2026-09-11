@@ -4,6 +4,7 @@ import {
   EventHub,
   EventHubRegistry,
   configureDelivery,
+  getEventHubFromPayload,
   routeByConfig,
 } from "cf-eventhub";
 
@@ -36,7 +37,7 @@ export class DevEventHub extends EventHub<Env> {
     ],
   });
   deliveryConfig = configureDelivery({
-    includeDeliveryJobId: true,
+    includeDeliveryMetadata: true,
   });
 }
 
@@ -80,8 +81,6 @@ export default {
   },
 
   queue: async (batch, env) => {
-    const eventHub = env.EVENT_HUB.getByName(eventHubName);
-
     switch (batch.queue) {
       case "stable-queue":
         batch.ackAll();
@@ -101,6 +100,12 @@ export default {
       case "dlq":
         console.log("reportFailure");
         for (const msg of batch.messages) {
+          const eventHub = getEventHubFromPayload(env.EVENT_HUB, msg.body);
+          if (!eventHub) {
+            console.error("Invalid EventHub metadata", msg.id);
+            msg.retry();
+            continue;
+          }
           await eventHub.reportFailure(msg.body);
           msg.ack();
         }

@@ -547,8 +547,8 @@ describe("deliverPersistedJobs", () => {
     expect(archive.objects.size).toBe(0);
   });
 
-  test("injects delivery job ID when includeDeliveryJobId is true for Queue", async () => {
-    // 1. Deliver jobs to a Queue with includeDeliveryJobId enabled.
+  test("injects delivery job ID when includeDeliveryMetadata is true for Queue", async () => {
+    // 1. Deliver jobs to a Queue with includeDeliveryMetadata enabled.
     // 2. Verify the sent payloads include __eventhub__.deliveryJobId.
     const env = createEnv();
     const routing = createRouting(env);
@@ -568,7 +568,7 @@ describe("deliverPersistedJobs", () => {
         onDelivered: noopOnDelivered,
         onFailed: noopOnFailed,
       },
-      true,
+      "test-instance",
     );
 
     expect(env.OKAYAMA.sentBatches).toStrictEqual([
@@ -576,7 +576,10 @@ describe("deliverPersistedJobs", () => {
         {
           body: {
             ...payload,
-            __eventhub__: { deliveryJobId: "01TEST00000000000000000001" },
+            __eventhub__: {
+              instanceId: "test-instance",
+              deliveryJobId: "01TEST00000000000000000001",
+            },
           },
           contentType: "json",
         },
@@ -584,8 +587,8 @@ describe("deliverPersistedJobs", () => {
     ]);
   });
 
-  test("injects delivery job ID when includeDeliveryJobId is true for R2", async () => {
-    // 1. Deliver jobs to an R2 bucket with includeDeliveryJobId enabled.
+  test("injects delivery job ID when includeDeliveryMetadata is true for R2", async () => {
+    // 1. Deliver jobs to an R2 bucket with includeDeliveryMetadata enabled.
     // 2. Verify the stored payload includes __eventhub__.deliveryJobId.
     const env = createEnv();
     const routing = routeByConfig(env, {
@@ -615,7 +618,7 @@ describe("deliverPersistedJobs", () => {
         onDelivered: noopOnDelivered,
         onFailed: noopOnFailed,
       },
-      true,
+      "test-instance",
     );
 
     const archive = env.ARCHIVE as unknown as R2BucketMock;
@@ -625,7 +628,10 @@ describe("deliverPersistedJobs", () => {
     expect(stored).toBeDefined();
     expect(JSON.parse(stored?.body ?? "{}")).toStrictEqual({
       ...payload,
-      __eventhub__: { deliveryJobId: "01TEST00000000000000000011" },
+      __eventhub__: {
+        instanceId: "test-instance",
+        deliveryJobId: "01TEST00000000000000000011",
+      },
     });
   });
 
@@ -636,7 +642,11 @@ describe("deliverPersistedJobs", () => {
     const routing = createRouting(env);
     const payload = {
       kind: "culture",
-      __eventhub__: { customField: "value" },
+      __eventhub__: {
+        customField: "value",
+        instanceId: "untrusted",
+        deliveryJobId: "untrusted",
+      },
     };
     const jobs = resolveDeliveryJobs(routing, [
       {
@@ -653,7 +663,7 @@ describe("deliverPersistedJobs", () => {
         onDelivered: noopOnDelivered,
         onFailed: noopOnFailed,
       },
-      true,
+      "test-instance",
     );
 
     expect(env.OKAYAMA.sentBatches).toStrictEqual([
@@ -662,6 +672,7 @@ describe("deliverPersistedJobs", () => {
           body: {
             kind: "culture",
             __eventhub__: {
+              instanceId: "test-instance",
               customField: "value",
               deliveryJobId: "01TEST00000000000000000002",
             },
@@ -696,7 +707,7 @@ describe("deliverPersistedJobs", () => {
         onDelivered: noopOnDelivered,
         onFailed: noopOnFailed,
       },
-      true,
+      "test-instance",
     );
 
     expect(env.OKAYAMA.sentBatches).toStrictEqual([
@@ -704,7 +715,10 @@ describe("deliverPersistedJobs", () => {
         {
           body: {
             kind: "culture",
-            __eventhub__: { deliveryJobId: "01TEST00000000000000000003" },
+            __eventhub__: {
+              instanceId: "test-instance",
+              deliveryJobId: "01TEST00000000000000000003",
+            },
           },
           contentType: "json",
         },
@@ -713,7 +727,7 @@ describe("deliverPersistedJobs", () => {
   });
 
   test("does not modify original payload when injecting job ID", async () => {
-    // 1. Deliver a payload with includeDeliveryJobId enabled.
+    // 1. Deliver a payload with includeDeliveryMetadata enabled.
     // 2. Verify the original payload object is not mutated.
     const env = createEnv();
     const routing = createRouting(env);
@@ -734,7 +748,7 @@ describe("deliverPersistedJobs", () => {
         onDelivered: noopOnDelivered,
         onFailed: noopOnFailed,
       },
-      true,
+      "test-instance",
     );
 
     expect(payload).toStrictEqual(payloadCopy);

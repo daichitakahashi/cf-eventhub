@@ -63,7 +63,8 @@
       "SqlStorageCursor",
       "WorkflowEvent",
       "WorkflowStep",
-      "DurableObjectNamespace"
+      "DurableObjectNamespace",
+      "DurableObjectId"
     ]
   }
 }

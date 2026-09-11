@@ -123,7 +123,7 @@ type EnvForTestEventHubWithJobId = {
 };
 
 export class TestEventHubWithJobId extends EventHub<EnvForTestEventHubWithJobId> {
-  deliveryConfig = configureDelivery({ includeDeliveryJobId: true });
+  deliveryConfig = configureDelivery({ includeDeliveryMetadata: true });
   queue = new QueueMock();
   bucket = new R2BucketMock();
   routing = routeFunc<EnvForTestEventHubWithJobId>(
