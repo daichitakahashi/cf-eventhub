@@ -16,16 +16,25 @@ jobs:
       - name: Setup pnpm with runtime
         uses: pnpm/setup@v1
 
+      - name: Audit production dependencies
+        run: pnpm audit --prod
+
       - name: Type check - cf-eventhub
         working-directory: cf-eventhub
-        run: pnpm tsc --noEmit
+        run: pnpm typecheck
       - name: Test - cf-eventhub
         working-directory: cf-eventhub
         run: pnpm test
 
+      - name: Check generated Web Console styles
+        working-directory: web-console
+        run: pnpm check:styles
       - name: Type check - web-console
         working-directory: web-console
-        run: pnpm tsc --noEmit
+        run: pnpm typecheck
+      - name: Test - web-console
+        working-directory: web-console
+        run: pnpm test
 
       - uses: changesets/action@v1
         with:

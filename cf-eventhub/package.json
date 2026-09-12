@@ -2,16 +2,27 @@
   "name": "cf-eventhub",
   "type": "module",
   "version": "0.3.5",
+  "description": "An event aggregation and delivery component built on Cloudflare Durable Objects.",
   "keywords": [
-    "cloudflare"
+    "cloudflare",
+    "durable-objects",
+    "event-driven"
   ],
+  "license": "MIT",
   "repository": {
-    "url": "https://github.com/daichitakahashi/cf-eventhub"
+    "type": "git",
+    "url": "git+https://github.com/daichitakahashi/cf-eventhub.git",
+    "directory": "cf-eventhub"
+  },
+  "homepage": "https://github.com/daichitakahashi/cf-eventhub#readme",
+  "bugs": {
+    "url": "https://github.com/daichitakahashi/cf-eventhub/issues"
   },
   "scripts": {
     "dev": "wrangler dev",
     "start": "wrangler dev",
     "cf-typegen": "wrangler types",
+    "typecheck": "wrangler types --check && tsc --noEmit",
     "test": "vitest run"
   },
   "devDependencies": {
@@ -22,12 +33,20 @@
     "wrangler": "catalog:"
   },
   "exports": {
-    "types": "./src/index.ts",
-    "default": "./src/index.ts"
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
   },
   "files": [
-    "src",
+    "src/**/*.ts",
+    "!src/**/*.test.ts",
+    "!src/core/mock.ts",
+    "!src/test.ts",
     "README.md",
     "CHANGELOG.md"
-  ]
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
 }

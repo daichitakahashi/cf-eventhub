@@ -11,11 +11,11 @@ allowBuilds:
   workerd: true
 
 catalog:
-  "@cloudflare/vitest-pool-workers": 0.16.16
-  "@cloudflare/workers-types": 4.20260617.1
-  wrangler: 4.101.0
+  "@cloudflare/vitest-pool-workers": 0.22.0
+  "@cloudflare/workers-types": 5.20260911.1
+  wrangler: 4.131.0
   typescript: 6.0.3
-  vitest: 4.1.9
+  vitest: 4.1.11
 
 minimumReleaseAge: 1440
 
