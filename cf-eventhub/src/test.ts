@@ -147,6 +147,21 @@ export class TestEventHubWithJobId extends EventHub<EnvForTestEventHubWithJobId>
         ];
       return [];
     },
+    {
+      r2: {
+        BUCKET: {
+          objectKey: ({
+            payload,
+            payloadId,
+            deliveryJobId,
+            destination,
+            instanceId,
+            instanceName,
+          }) =>
+            `custom/${instanceName ?? instanceId ?? "unknown"}/${destination}/${String(payload.type)}/${payloadId}/${deliveryJobId}.json`,
+        },
+      },
+    },
   );
 }
 

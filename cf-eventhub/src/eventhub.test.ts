@@ -1671,6 +1671,38 @@ describe("includeDeliveryMetadata configuration", () => {
     });
   });
 
+  test("provides EventHub identity to a customized direct R2 key", async () => {
+    // 1. Publish an R2-routed payload through an EventHub using routeFunc options.
+    // 2. Verify the custom key contains payload, destination, job, and instance context.
+    const stub = getStubWithJobId(
+      "custom-r2-key",
+    ) as DurableObjectStub<TestEventHubWithJobId>;
+    const payload = { type: "archive" };
+
+    await stub.publish(payload);
+
+    await vi.waitFor(async () => {
+      await runInDurableObject(stub, async (instance, state) => {
+        const job = state.storage.sql
+          .exec<Pick<DeliveryJobRow, "id" | "payload_id" | "finalized_at">>(
+            "SELECT id, payload_id, finalized_at FROM delivery_jobs",
+          )
+          .one();
+        const key = `custom/custom-r2-key/BUCKET/archive/${job.payload_id}/${job.id}.json`;
+
+        expect({
+          finalizedAt: job.finalized_at,
+          objects: [
+            ...(instance as TestEventHubWithJobId).bucket.objects.keys(),
+          ],
+        }).toStrictEqual({
+          finalizedAt: expect.any(String),
+          objects: [key],
+        });
+      });
+    });
+  });
+
   test("DB-stored payloads do not contain injected job ID", async () => {
     // 1. Configure EventHub with includeDeliveryMetadata: true.
     // 2. Publish a payload.

@@ -362,6 +362,51 @@ export class MyEventHub extends EventHub<Env> {
 }
 ```
 
+For direct delivery to R2, pass per-destination `objectKey` factories in the
+third argument to either `routeByConfig()` or `routeFunc()`:
+
+```ts
+export class MyEventHub extends EventHub<Env> {
+  routing = routeByConfig(
+    env,
+    {
+      routes: [
+        {
+          condition: { path: "$.archive", exact: true },
+          destination: "HIGH_SEVERITY_ARCHIVE",
+        },
+      ],
+    },
+    {
+      r2: {
+        HIGH_SEVERITY_ARCHIVE: {
+          objectKey: ({
+            payload,
+            payloadId,
+            deliveryJobId,
+            destination,
+            instanceName,
+          }) =>
+            `events/${instanceName ?? "unnamed"}/${destination}/${String(payload.type)}/${payloadId}/${deliveryJobId}.json`,
+        },
+      },
+    },
+  );
+}
+```
+
+The factory receives the original payload, payload ID, delivery job ID,
+destination binding name, Durable Object instance ID, and the instance name
+when the object was created by name. Include stable IDs in the result and keep
+the factory deterministic: retries of one delivery job evaluate it with the
+same context and overwrite the same object key. Each R2 destination can use an
+independent factory, so fan-out destinations can have different layouts. A
+generated key must be a non-empty string.
+
+Without a factory, direct R2 delivery keeps the backward-compatible
+`<payloadId>/<deliveryJobId>.json` key. This option does not affect automatic
+eviction archive keys.
+
 The `path` field uses JSONPath-like syntax to extract values from event payloads:
 - `$.property` - Root-level property
 - `$.nested.path` - Nested property

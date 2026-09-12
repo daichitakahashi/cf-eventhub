@@ -1,4 +1,12 @@
-export { routeByConfig, routeFunc, type Config } from "./core/routing";
+export {
+  routeByConfig,
+  routeFunc,
+  type Config,
+  type R2Destinations,
+  type R2ObjectKeyContext,
+  type R2ObjectKeyFactory,
+  type RoutingOptions,
+} from "./core/routing";
 export type {
   EjectedDeliveryJob,
   EjectedPayload,

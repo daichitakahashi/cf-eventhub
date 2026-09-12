@@ -53,6 +53,10 @@ const createSubsetRouting = <T extends object>(env: T) =>
 
 const noopOnDelivered = async (): Promise<void> => {};
 const noopOnFailed = async (): Promise<void> => {};
+const deliveryContext = {
+  instanceId: "test-instance",
+  includeDeliveryMetadata: false,
+} as const;
 
 describe("assertDestinationBindingsExist", () => {
   test("fails before persistence when a destination binding is missing", () => {
@@ -196,7 +200,7 @@ describe("deliverJobs", () => {
         onDelivered: noopOnDelivered,
         onFailed: noopOnFailed,
       },
-      false,
+      deliveryContext,
     );
 
     expect(env.OKAYAMA.sentBatches).toStrictEqual([
@@ -233,7 +237,7 @@ describe("deliverJobs", () => {
         onDelivered: noopOnDelivered,
         onFailed: noopOnFailed,
       },
-      false,
+      deliveryContext,
     );
 
     expect(env.OKAYAMA.sentBatches.map((batch) => batch.length)).toStrictEqual([
@@ -296,7 +300,7 @@ describe("deliverJobs", () => {
         onDelivered: noopOnDelivered,
         onFailed: noopOnFailed,
       },
-      false,
+      deliveryContext,
     );
 
     expect((env.ARCHIVE as unknown as R2BucketMock).objects).toStrictEqual(
@@ -310,6 +314,157 @@ describe("deliverJobs", () => {
         ],
       ]),
     );
+  });
+
+  test("writes R2 payloads with a customized object key", async () => {
+    const env = createEnv();
+    const payload = { kind: "archive", tenant: "acme" };
+    const objectKey = vi.fn(
+      ({ payloadId, deliveryJobId, destination, instanceName }) =>
+        `${instanceName}/${destination}/${payloadId}/${deliveryJobId}.json`,
+    );
+    const routing = routeByConfig(
+      env,
+      { routes: [] },
+      { r2: { ARCHIVE: { objectKey } } },
+    );
+    const jobs = resolveDeliveryJobs(routing, [
+      {
+        id: "01TEST00000000000000000011",
+        payloadId: "01TEST00000000000000000010",
+        destination: "ARCHIVE",
+        payload,
+      },
+    ]);
+
+    await deliverJobs(
+      jobs,
+      { onDelivered: noopOnDelivered, onFailed: noopOnFailed },
+      {
+        instanceId: "test-instance-id",
+        instanceName: "test-instance-name",
+        includeDeliveryMetadata: false,
+      },
+    );
+
+    expect(objectKey).toHaveBeenCalledWith({
+      payload,
+      payloadId: "01TEST00000000000000000010",
+      deliveryJobId: "01TEST00000000000000000011",
+      destination: "ARCHIVE",
+      instanceId: "test-instance-id",
+      instanceName: "test-instance-name",
+    });
+    expect((env.ARCHIVE as unknown as R2BucketMock).objects).toStrictEqual(
+      new Map([
+        [
+          "test-instance-name/ARCHIVE/01TEST00000000000000000010/01TEST00000000000000000011.json",
+          {
+            body: JSON.stringify(payload),
+            contentType: "application/json",
+          },
+        ],
+      ]),
+    );
+  });
+
+  test.each(["", 123])(
+    "reports an invalid customized R2 object key (%j)",
+    async (invalidKey) => {
+      const env = createEnv();
+      const routing = routeByConfig(
+        env,
+        { routes: [] },
+        {
+          r2: {
+            ARCHIVE: {
+              // @ts-expect-error exercise runtime validation
+              objectKey: () => invalidKey,
+            },
+          },
+        },
+      );
+      const jobs = resolveDeliveryJobs(routing, [
+        {
+          id: "01TEST00000000000000000011",
+          payloadId: "01TEST00000000000000000010",
+          destination: "ARCHIVE",
+          payload: { kind: "archive" },
+        },
+      ]);
+      const onFailed = vi.fn();
+
+      await deliverJobs(
+        jobs,
+        { onDelivered: noopOnDelivered, onFailed },
+        deliveryContext,
+      );
+
+      expect(onFailed).toHaveBeenCalledWith(
+        ["01TEST00000000000000000011"],
+        expect.objectContaining({
+          message: "eventhub: R2 object key must be a non-empty string",
+        }),
+      );
+    },
+  );
+
+  test("uses destination-specific keys when one payload fans out to R2 buckets", async () => {
+    const first = new R2BucketMock();
+    const second = new R2BucketMock();
+    const env = {
+      FIRST_ARCHIVE: first as unknown as R2Bucket,
+      SECOND_ARCHIVE: second as unknown as R2Bucket,
+    };
+    const routing = routeByConfig(
+      env,
+      { routes: [] },
+      {
+        r2: {
+          FIRST_ARCHIVE: {
+            objectKey: ({ payloadId, deliveryJobId }) =>
+              `primary/${payloadId}/${deliveryJobId}.json`,
+          },
+          SECOND_ARCHIVE: {
+            objectKey: ({ payloadId, deliveryJobId }) =>
+              `secondary/${payloadId}/${deliveryJobId}.json`,
+          },
+        },
+      },
+    );
+    const payload = { kind: "archive" };
+    const jobs = resolveDeliveryJobs(routing, [
+      {
+        id: "01TEST00000000000000000011",
+        payloadId: "01TEST00000000000000000010",
+        destination: "FIRST_ARCHIVE",
+        payload,
+      },
+      {
+        id: "01TEST00000000000000000012",
+        payloadId: "01TEST00000000000000000010",
+        destination: "SECOND_ARCHIVE",
+        payload,
+      },
+    ]);
+
+    await deliverJobs(
+      jobs,
+      { onDelivered: noopOnDelivered, onFailed: noopOnFailed },
+      deliveryContext,
+    );
+
+    expect({
+      first: [...first.objects.keys()],
+      second: [...second.objects.keys()],
+    }).toStrictEqual({
+      first: [
+        "primary/01TEST00000000000000000010/01TEST00000000000000000011.json",
+      ],
+      second: [
+        "secondary/01TEST00000000000000000010/01TEST00000000000000000012.json",
+      ],
+    });
   });
 
   test("reports delivered job ids after each successful batch", async () => {
@@ -339,7 +494,7 @@ describe("deliverJobs", () => {
         },
         onFailed: noopOnFailed,
       },
-      false,
+      deliveryContext,
     );
 
     expect(delivered).toMatchObject([
@@ -374,7 +529,7 @@ describe("deliverJobs", () => {
       },
     ]);
 
-    await deliverJobs(jobs, { onDelivered, onFailed }, false);
+    await deliverJobs(jobs, { onDelivered, onFailed }, deliveryContext);
 
     expect(onFailed).toHaveBeenCalledTimes(1);
     expect(onFailed.mock.calls[0]?.[0]).toStrictEqual([
@@ -425,7 +580,7 @@ describe("deliverJobs", () => {
       },
     ]);
 
-    await deliverJobs(jobs, { onDelivered, onFailed }, false);
+    await deliverJobs(jobs, { onDelivered, onFailed }, deliveryContext);
 
     expect(onFailed).toHaveBeenCalledTimes(1);
     expect(onFailed.mock.calls[0]?.[0]).toStrictEqual([
@@ -439,6 +594,56 @@ describe("deliverJobs", () => {
 });
 
 describe("deliverPersistedJobs", () => {
+  test("reuses the same customized R2 key when retrying a delivery job", async () => {
+    const archive = new R2BucketMock();
+    const keys: string[] = [];
+    const env = { ARCHIVE: archive as unknown as R2Bucket };
+    const routing = routeByConfig(
+      env,
+      { routes: [] },
+      {
+        r2: {
+          ARCHIVE: {
+            objectKey: (context) => {
+              const key = `retries/${context.payloadId}/${context.deliveryJobId}.json`;
+              keys.push(key);
+              return key;
+            },
+          },
+        },
+      },
+    );
+    const jobs: PersistedDeliveryJob[] = [
+      {
+        id: "01TEST00000000000000000011",
+        payloadId: "01TEST00000000000000000010",
+        destination: "ARCHIVE",
+        payload: { kind: "archive" },
+      },
+    ];
+
+    await deliverPersistedJobs(
+      routing,
+      jobs,
+      { onDelivered: noopOnDelivered, onFailed: noopOnFailed },
+      deliveryContext,
+    );
+    await deliverPersistedJobs(
+      routing,
+      jobs,
+      { onDelivered: noopOnDelivered, onFailed: noopOnFailed },
+      deliveryContext,
+    );
+
+    expect(keys).toStrictEqual([
+      "retries/01TEST00000000000000000010/01TEST00000000000000000011.json",
+      "retries/01TEST00000000000000000010/01TEST00000000000000000011.json",
+    ]);
+    expect([...archive.objects.keys()]).toStrictEqual([
+      "retries/01TEST00000000000000000010/01TEST00000000000000000011.json",
+    ]);
+  });
+
   test("continues delivering other destinations when one destination binding is missing", async () => {
     // 1. Deliver persisted jobs with one unresolved destination.
     // 2. Verify the remaining destination still succeeds.
@@ -466,7 +671,7 @@ describe("deliverPersistedJobs", () => {
         },
       ],
       { onDelivered, onFailed },
-      false,
+      deliveryContext,
     );
 
     expect(onFailed).toHaveBeenCalledTimes(1);
@@ -533,7 +738,7 @@ describe("deliverPersistedJobs", () => {
         },
       ],
       { onDelivered, onFailed },
-      false,
+      deliveryContext,
     );
 
     expect(onFailed).toHaveBeenCalledTimes(1);
@@ -568,7 +773,11 @@ describe("deliverPersistedJobs", () => {
         onDelivered: noopOnDelivered,
         onFailed: noopOnFailed,
       },
-      { instanceId: "test-instance", instanceName: "test-name" },
+      {
+        instanceId: "test-instance",
+        instanceName: "test-name",
+        includeDeliveryMetadata: true,
+      },
     );
 
     expect(env.OKAYAMA.sentBatches).toStrictEqual([
@@ -619,7 +828,11 @@ describe("deliverPersistedJobs", () => {
         onDelivered: noopOnDelivered,
         onFailed: noopOnFailed,
       },
-      { instanceId: "test-instance", instanceName: "test-name" },
+      {
+        instanceId: "test-instance",
+        instanceName: "test-name",
+        includeDeliveryMetadata: true,
+      },
     );
 
     const archive = env.ARCHIVE as unknown as R2BucketMock;
@@ -666,7 +879,7 @@ describe("deliverPersistedJobs", () => {
         onDelivered: noopOnDelivered,
         onFailed: noopOnFailed,
       },
-      { instanceId: "test-instance" },
+      { instanceId: "test-instance", includeDeliveryMetadata: true },
     );
 
     expect(env.OKAYAMA.sentBatches).toStrictEqual([
@@ -710,7 +923,11 @@ describe("deliverPersistedJobs", () => {
         onDelivered: noopOnDelivered,
         onFailed: noopOnFailed,
       },
-      { instanceId: "test-instance", instanceName: "test-name" },
+      {
+        instanceId: "test-instance",
+        instanceName: "test-name",
+        includeDeliveryMetadata: true,
+      },
     );
 
     expect(env.OKAYAMA.sentBatches).toStrictEqual([
@@ -752,7 +969,11 @@ describe("deliverPersistedJobs", () => {
         onDelivered: noopOnDelivered,
         onFailed: noopOnFailed,
       },
-      { instanceId: "test-instance", instanceName: "test-name" },
+      {
+        instanceId: "test-instance",
+        instanceName: "test-name",
+        includeDeliveryMetadata: true,
+      },
     );
 
     expect(payload).toStrictEqual(payloadCopy);
