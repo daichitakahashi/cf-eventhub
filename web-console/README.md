@@ -3,6 +3,12 @@
 @cf-eventhub/web-console is a web UI for inspecting EventHub payloads and delivery jobs.
 It lets operators view recent events, inspect delivery status and errors, create events, and redrive failed delivery jobs.
 
+> [!WARNING]
+> The console can display event payloads, create events, and redrive delivery
+> jobs. Do not deploy it as an unauthenticated public endpoint. Protect the
+> console with Cloudflare Access or equivalent authentication before production
+> use.
+
 ## Package Format
 
 This package ships untranspiled TypeScript and TSX source. It is intended for
@@ -12,7 +18,19 @@ without transpilation.
 
 ## Basic Usage
 
-Install the console package alongside your EventHub Worker application.
+The console requires an EventHub Worker with:
+
+- an exported `EventHub` subclass;
+- an exported `EventHubRegistry` class;
+- Durable Object bindings and migrations for both classes;
+- the Registry assigned to the EventHub subclass; and
+- at least one named EventHub accessed with `getByName()`.
+
+See the [`cf-eventhub` Quick Start](../cf-eventhub/README.md#quick-start) for a
+complete EventHub setup. Installing the console package alone does not create or
+register EventHub instances.
+
+Install the console package alongside the EventHub package.
 
 ```sh
 npm install @cf-eventhub/web-console cf-eventhub
@@ -42,6 +60,15 @@ Registry in the console; active instances cannot be removed there. This
 tombstones its Registry entry but does not delete its EventHub data. The binding
 names default to `EVENT_HUB` and
 `EVENT_HUB_REGISTRY`.
+
+If the instance selector is empty, first make an RPC call such as `list()` or
+`publish()` on a named instance. For example:
+
+```ts
+await env.EVENT_HUB.getByName("default").list();
+```
+
+Registration is asynchronous, so reload the console after the call completes.
 
 The console periodically checks for newer events or delivery-job updates. If the
 current page is stale, it shows a reload prompt. Pages with ongoing deliveries
@@ -80,9 +107,14 @@ deployed as a separate Worker, both bindings must use the same owning Worker's
 Run locally and deploy with Wrangler:
 
 ```sh
-npm run dev
-npm run deploy
+npx wrangler dev
+npx wrangler deploy
 ```
+
+When developing the console as a separate Worker, the owning EventHub Worker
+must also be available to Wrangler. For the simplest local setup, mount the
+console in the same Worker as shown in this repository's
+[`eventhub-demo`](../demo/src/index.ts).
 
 ## Configuration Options
 
@@ -92,12 +124,25 @@ npm run deploy
 - `registry.binding`: Registry Durable Object binding name. Defaults to
   `EVENT_HUB_REGISTRY`.
 - `environment`: Label shown in the page title and header.
+- `color`: Header color as a hex string such as `#1d4ed8`.
 - `pageSize`: Number of events shown per page. Defaults to `5`.
 - `refreshIntervalSeconds`: Polling interval for update detection. Defaults to
   `5`.
 - `dateFormatter`: `Intl.DateTimeFormat` used for timestamps.
 - `eventTitle`: Function for rendering a custom event title.
 - `createEventPlaceholder`: Placeholder text for the create-event form.
+
+For example, use a field from the stored payload as the event title and fall
+back to the EventHub event ID:
+
+```ts
+createWebConsole({
+  eventTitle: (event) =>
+    typeof event.payload.eventName === "string"
+      ? event.payload.eventName
+      : event.id,
+});
+```
 
 Registry discovery is eventually consistent. EventHub refreshes its entry at
 most once per 24 hours, so `lastSeenAt` is an approximate synchronization time.
@@ -111,13 +156,12 @@ The console is an operational interface. It can display event payloads, expose
 delivery errors, create test events, and redrive delivery jobs. Do not expose it
 as an unauthenticated public endpoint.
 
-The recommended deployment pattern is to protect the console hostname or path
-with Cloudflare Access:
+The recommended deployment pattern is to protect the console hostname with
+Cloudflare Access:
 
 1. Deploy the console on a dedicated hostname such as
-   `eventhub-console.example.com`, or under a dedicated path such as
-   `/eventhub-console`.
-2. Create a Cloudflare Access application for that hostname or path.
+   `eventhub-console.example.com`.
+2. Create a Cloudflare Access application for that hostname.
 3. Add policies that allow only the operators, groups, or service identities
    that need EventHub access.
 4. Keep the EventHub publishing endpoints separate from the console route so
@@ -126,3 +170,8 @@ with Cloudflare Access:
 For production, prefer a dedicated console hostname protected by Access. This
 keeps the operational UI isolated from application routes and makes the access
 policy easier to audit.
+
+The current handler uses root-relative routes such as `/` and `/api`; it cannot
+be mounted below a path such as `/eventhub-console` without rewriting those
+paths. Use a dedicated hostname unless the surrounding Worker performs that
+rewrite.

@@ -7,7 +7,8 @@ Delivery is attempted immediately, and failed jobs are retried via Durable Objec
 ## Table of Contents
 
 - [What It Does](#what-it-does)
-- [Package Format](#package-format)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
 - [Public API](#public-api)
 - [EventHub Registry](#eventhub-registry)
 - [Delivery Configuration](#delivery-configuration)
@@ -16,38 +17,145 @@ Delivery is attempted immediately, and failed jobs are retried via Durable Objec
 - [Wrangler Configuration Example](#wrangler-configuration-example)
 - [Publishing from a Worker](#publishing-from-a-worker)
 - [Failure Reporting with Dead-Letter Queues](#failure-reporting-with-dead-letter-queues)
-- [Workflow Example: eject -> R2.put -> evict](#workflow-example-eject---r2put---evict)
-- [Starting the Workflow](#starting-the-workflow)
-- [eject() and listEjected() Behavior](#eject-and-listejected-behavior)
+- [Manual Eviction Workflow Example: eject -> R2.put -> evict](#manual-eviction-workflow-example-eject---r2put---evict)
+  - [Starting the Workflow](#starting-the-workflow)
+- [Listing and Ejection Behavior](#listing-and-ejection-behavior)
 - [Local Development](#local-development)
 
 ## What It Does
 
 - Persist events published from a Worker with `publish()`
-- Route events with JSONPath-based conditions
+- Fan out a published event to multiple Queue or R2 destinations
+- Route events with JSONPath-based conditions or custom routing logic
 - Retry failed deliveries to Queue or R2 automatically
+- Record processing failures reported by Queue consumers with `reportFailure()`
+- Redrive a specific event delivery with `redrive(deliveryJobId)`
 - Archive finalized events gradually with `eject -> listEjected -> evict`
 - Automatically delete or archive finalized events after a retention period
 - Discover named EventHub instances through an optional registry
 
-## Package Format
+## Installation
+
+```sh
+npm install cf-eventhub
+```
+
+EventHub uses SQLite-backed Durable Objects. The Worker that defines your
+EventHub subclass must export the class and declare it in both
+`durable_objects.bindings` and `migrations`; see the complete Wrangler example
+below.
+
+### Package Format
 
 This package ships untranspiled TypeScript source. It is intended for
 Cloudflare Workers projects using Wrangler or another toolchain that can bundle
-TypeScript from dependencies. It is not directly executable by Node.js without
-transpilation.
+TypeScript from dependencies.
+
+## Quick Start
+
+The following example creates one named EventHub, routes every published event
+to a Queue, and exposes a `POST /publish` endpoint.
+
+Create `src/index.ts`:
+
+```ts
+import { env } from "cloudflare:workers";
+import { EventHub, EventHubRegistry, routeByConfig } from "cf-eventhub";
+
+export { EventHubRegistry };
+
+export interface Env {
+  EVENT_HUB: DurableObjectNamespace<MyEventHub>;
+  EVENT_HUB_REGISTRY: DurableObjectNamespace<EventHubRegistry>;
+  EVENTS: Queue;
+}
+
+export class MyEventHub extends EventHub<Env> {
+  registry = env.EVENT_HUB_REGISTRY;
+  routing = routeByConfig(env, {
+    routes: [
+      {
+        condition: { allOf: [] },
+        destination: "EVENTS",
+      },
+    ],
+  });
+}
+
+export default {
+  async fetch(request, env): Promise<Response> {
+    const url = new URL(request.url);
+    if (request.method !== "POST" || url.pathname !== "/publish") {
+      return new Response("Not found", { status: 404 });
+    }
+
+    const payload = (await request.json()) as Record<string, unknown>;
+    await env.EVENT_HUB.getByName("default").publish(payload);
+    return new Response(null, { status: 202 });
+  },
+} satisfies ExportedHandler<Env>;
+```
+
+Add `wrangler.jsonc`:
+
+```jsonc
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "eventhub-app",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-05-11",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      { "name": "EVENT_HUB", "class_name": "MyEventHub" },
+      {
+        "name": "EVENT_HUB_REGISTRY",
+        "class_name": "EventHubRegistry"
+      }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["MyEventHub"] },
+    { "tag": "v2", "new_sqlite_classes": ["EventHubRegistry"] }
+  ],
+  "queues": {
+    "producers": [{ "binding": "EVENTS", "queue": "events" }]
+  }
+}
+```
+
+Generate binding types and start the Worker:
+
+```sh
+npx wrangler types
+npx wrangler dev
+```
+
+Then publish an event to the URL printed by Wrangler:
+
+```sh
+curl -X POST http://localhost:8787/publish \
+  -H 'content-type: application/json' \
+  -d '{"type":"example.created","id":"example-1"}'
+```
+
+The first activity on `getByName("default")` also makes that name discoverable
+through the optional EventHub Registry used by
+[`@cf-eventhub/web-console`](../web-console/README.md).
 
 ## Public API
 
 The `EventHub` Durable Object exposes the following RPC methods:
 
-- `publish(payload, ...rest)`
-- `redrive(deliveryJobId)`
-- `reportFailure(payload)`
-- `list(options?)`
-- `eject(before, options?)`
-- `listEjected(ejectKey, options?)`
-- `evict(ejectKey)`
+| Method | Behavior |
+| --- | --- |
+| `publish(payload, ...rest)` | Persists one or more JSON objects, then starts delivery. |
+| `redrive(deliveryJobId)` | Creates and immediately delivers an independent copy of an existing job. Returns `false` when the source no longer exists. |
+| `reportFailure(payload)` | Idempotently records a downstream failure from EventHub delivery metadata. |
+| `list(options?)` | Lists live payloads and their delivery jobs with cursor pagination. |
+| `eject(before, options?)` | Moves finalized payloads older than a Unix-millisecond cutoff into a snapshot. |
+| `listEjected(ejectKey, options?)` | Pages through an ejection snapshot. |
+| `evict(ejectKey)` | Idempotently removes an ejection snapshot. |
 
 `payload` must be a JSON object.
 
@@ -108,9 +216,10 @@ import { EventHub, configureDelivery } from "cf-eventhub";
 export class MyEventHub extends EventHub<Env> {
   deliveryConfig = configureDelivery({
     includeDeliveryMetadata: true, // Include instance identity and job ID (default: false)
-    initialRetryDelayMs: 5000,  // Initial retry delay (default: 10000)
-    maxRetryDelayMs: 300000,    // Maximum retry delay (default: 900000)
-    alarmBatchSize: 100,        // Jobs per alarm batch (default: 50)
+    maxDeliveryRetries: 10,      // Maximum retry attempts (default: 10)
+    initialRetryDelayMs: 5000,   // Initial retry delay (default: 10000)
+    maxRetryDelayMs: 300000,     // Maximum retry delay (default: 900000)
+    alarmBatchSize: 100,         // Jobs per alarm batch (default: 50)
   });
 
   routing = /* ... */;
@@ -125,7 +234,17 @@ that delivery job.
 
 ## Automatic Eviction
 
-Automatic eviction is disabled unless a subclass explicitly defines `eviction` with `configureEviction()`. Retention is specified in milliseconds. `batchSize` defaults to 50 and accepts values from 1 through 100.
+Eviction is retention cleanup for finalized event data stored in the EventHub
+Durable Object's SQLite database. It removes payloads together with their
+delivery records after they are no longer needed, reducing retained Durable
+Object state. A payload is eligible only after every delivery job has reached a
+final status (or when the payload has no delivery jobs); pending and retryable
+deliveries are never evicted.
+
+Automatic eviction is disabled unless a subclass explicitly defines `eviction`
+with `configureEviction()`. `afterMs` is the retention period after the payload
+was created (when it has no delivery jobs) or after its last delivery job was
+finalized. `batchSize` defaults to 50 and accepts values from 1 through 100.
 
 To delete finalized events directly from SQLite in bounded, atomic batches:
 
@@ -143,7 +262,7 @@ export class MyEventHub extends EventHub<Env> {
 }
 ```
 
-To archive each batch to R2 before deleting it:
+To archive each batch to R2 before removing it from SQLite:
 
 ```ts
 import { env } from "cloudflare:workers";
@@ -163,6 +282,19 @@ export class MyArchivedEventHub extends EventHub<Env> {
 }
 ```
 
+Add the archive bucket to `wrangler.jsonc`:
+
+```jsonc
+{
+  "r2_buckets": [
+    {
+      "binding": "EVENT_ARCHIVE",
+      "bucket_name": "event-archive"
+    }
+  ]
+}
+```
+
 The archive binding must be an `R2Bucket`, and `prefix` must be non-empty with no leading, trailing, or repeated slash. Objects use deterministic keys:
 
 ```text
@@ -172,7 +304,14 @@ The archive binding must be an `R2Bucket`, and `prefix` must be non-empty with n
 
 Each alarm performs at most one archive `put`: pages contain up to 100 payloads and 256 KiB of serialized payload bodies, and the completion manifest is written by a later alarm. A successful manifest write is the completion marker. EventHub deletes the SQLite snapshot only after that write succeeds. Failed R2 writes preserve the snapshot and cursor and retry with persistent exponential backoff from one minute up to one hour. At-least-once alarm execution may rewrite a page, but its key and body remain deterministic.
 
-Manual `eject()`, `listEjected()`, and `evict()` remain available for custom policies. A manual snapshot takes priority and pauses automatic eviction until it is manually evicted. Disabling eviction or changing its action or archive prefix while an automatic archive is active preserves and pauses that snapshot; restoring the original archive action and prefix resumes it. Changing the bucket behind the same binding while a run is active is unsupported.
+Manual `eject()`, `listEjected()`, and `evict()` remain available for custom
+retention policies. `eject()` atomically moves eligible payloads and their
+delivery records out of the live tables into a SQLite snapshot,
+`listEjected()` reads that snapshot for export, and `evict()` permanently
+deletes the snapshot from SQLite after the caller has finished with it.
+`evict()` does not delete any archive objects previously written to R2.
+
+A manual snapshot takes priority and pauses automatic eviction until it is manually evicted. Disabling eviction or changing its action or archive prefix while an automatic archive is active preserves and pauses that snapshot; restoring the original archive action and prefix resumes it. Changing the bucket behind the same binding while a run is active is unsupported.
 
 Delivery retries and eviction share the Durable Object's single alarm, with delivery processed first and one bounded eviction unit processed afterward. Adding eviction configuration does not wake idle Durable Objects: scheduling begins on that object's next RPC, publish, or existing alarm.
 
@@ -208,6 +347,21 @@ export class MyEventHub extends EventHub<Env> {
 
 Supported operators are `exact`, `match`, `exists`, `lt`, `lte`, `gt`, `gte`, `allOf`, `anyOf`, and `not`.
 
+For routing rules that are easier to express in code, use `routeFunc()`:
+
+```ts
+import { env } from "cloudflare:workers";
+import { EventHub, routeFunc } from "cf-eventhub";
+
+export class MyEventHub extends EventHub<Env> {
+  routing = routeFunc(env, (event) =>
+    event.type === "member.created"
+      ? [{ destination: "MEMBER_EVENTS" }]
+      : [],
+  );
+}
+```
+
 The `path` field uses JSONPath-like syntax to extract values from event payloads:
 - `$.property` - Root-level property
 - `$.nested.path` - Nested property
@@ -220,7 +374,9 @@ The `path` field uses JSONPath-like syntax to extract values from event payloads
 
 ## Wrangler Configuration Example
 
-This is a minimal `wrangler.jsonc` example. If you change bindings, run `npx wrangler types`.
+This example adds the Queue and R2 destinations used by the routing examples
+above. The Durable Object bindings and migrations are the same as in
+[Quick Start](#quick-start). If you change bindings, run `npx wrangler types`.
 
 ```jsonc
 {
@@ -263,17 +419,6 @@ This is a minimal `wrangler.jsonc` example. If you change bindings, run `npx wra
     {
       "binding": "HIGH_SEVERITY_ARCHIVE",
       "bucket_name": "high-severity-archive"
-    },
-    {
-      "binding": "EVENT_ARCHIVE_EXPORT",
-      "bucket_name": "event-archive-export"
-    }
-  ],
-  "workflows": [
-    {
-      "name": "event-archive-workflow",
-      "binding": "EVENT_ARCHIVE_WORKFLOW",
-      "class_name": "EventArchiveWorkflow"
     }
   ]
 }
@@ -454,11 +599,43 @@ export default {
 
 While the DLQ pattern is recommended for most use cases, you can also call `reportFailure()` directly from primary queue consumers for custom failure handling, or from R2-triggered workflows if you store payloads in R2 and need to report processing failures.
 
-## Workflow Example: `eject -> R2.put -> evict`
+## Manual Eviction Workflow Example: `eject -> R2.put -> evict`
 
-This Workflow archives finalized events periodically. It creates an ejection snapshot with `eject()`, paginates through the snapshot with `listEjected()`, writes each page to R2, and finally removes the snapshot from EventHub with `evict()`.
+This example shows how to implement retention yourself with Cloudflare
+Workflows instead of configuring [Automatic Eviction](#automatic-eviction).
+Use this approach when the application needs to control the schedule, export
+format, or archive process. It is not required when the built-in automatic
+delete or R2 archive behavior meets the application's needs.
+
+The Workflow archives finalized events periodically. It creates a SQLite
+snapshot with `eject()`, paginates through the snapshot with `listEjected()`,
+writes each page to R2, and calls `evict()` only after the export completes to
+permanently remove that snapshot from EventHub storage. The R2 objects remain
+available after `evict()`.
 
 Cloudflare Workflows should keep side effects inside `step.do()`, so this example executes `eject`, `R2.put`, and `evict` only inside workflow steps.
+
+In addition to the EventHub binding and migrations from
+[Quick Start](#quick-start), add the archive bucket and Workflow bindings to
+`wrangler.jsonc`:
+
+```jsonc
+{
+  "r2_buckets": [
+    {
+      "binding": "EVENT_ARCHIVE_EXPORT",
+      "bucket_name": "event-archive-export"
+    }
+  ],
+  "workflows": [
+    {
+      "name": "event-archive-workflow",
+      "binding": "EVENT_ARCHIVE_WORKFLOW",
+      "class_name": "EventArchiveWorkflow"
+    }
+  ]
+}
+```
 
 ```ts
 import {
@@ -558,7 +735,7 @@ export class EventArchiveWorkflow extends WorkflowEntrypoint<
 }
 ```
 
-## Starting the Workflow
+### Starting the Workflow
 
 This example starts the archive workflow from another Worker.
 
@@ -590,17 +767,22 @@ export default {
 };
 ```
 
-## `eject()` and `listEjected()` Behavior
+## Listing and Ejection Behavior
 
-- `eject(before)` moves finalized payloads older than `before` into one snapshot
-- If an active snapshot already exists, `eject()` returns the existing `ejectKey`
-- `listEjected()` supports pagination with `cursor`, `max`, and `maxBytes`
-- `evict(ejectKey)` is idempotent
+- `list()` supports `cursor`, `max`, `maxBytes`, and `order` (`"asc"` by
+  default).
+- `eject(before)` moves finalized payloads older than `before` into one snapshot.
+- If an active snapshot already exists, `eject()` returns the existing
+  `ejectKey`.
+- `listEjected()` supports pagination with `cursor`, `max`, and `maxBytes`.
+- `max` defaults to 50 and is limited to 100. `maxBytes` defaults to 256 KiB;
+  the first payload is returned even when it alone exceeds that soft budget.
+- `evict(ejectKey)` is idempotent.
 
 ## Local Development
 
 ```sh
-npx wrangler dev
-npx wrangler types
-npm test
+pnpm --filter cf-eventhub dev
+pnpm --filter cf-eventhub cf-typegen
+pnpm --filter cf-eventhub test
 ```

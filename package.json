@@ -6,7 +6,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "pnpm --filter eventhub-demo dev",
-    "ci:publish": "pnpm publish -r --access public --no-git-checks"
+    "ci:publish": "node ./scripts/pin-readme-links.mjs && pnpm publish -r --access public --no-git-checks"
   },
   "keywords": [],
   "author": "",
