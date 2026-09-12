@@ -289,6 +289,7 @@ export default {
       return new Response("Not found", { status: 404 });
     }
 
+    const hub = env.EVENT_HUB.getByName("default");
     const body = (await request.json()) as EventPayload | EventPayload[];
     if (Array.isArray(body)) {
       if (body.length === 0) {
@@ -478,7 +479,9 @@ export class EventArchiveWorkflow extends WorkflowEntrypoint<
     event: WorkflowEvent<ArchivePayload>,
     step: WorkflowStep,
   ): Promise<{ ejectKey: string | null; archivedCount: number }> {
-    const hub = getHub(this.env, event.payload.hubName ?? "default");
+    const hub = this.env.EVENT_HUB.getByName(
+      event.payload.hubName ?? "default",
+    );
 
     const ejection = await step.do("create ejection", async () => {
       return await hub.eject(event.payload.before, {

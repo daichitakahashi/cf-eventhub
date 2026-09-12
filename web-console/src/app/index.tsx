@@ -2,11 +2,12 @@ import { vValidator } from "@hono/valibot-validator";
 import { jsxRenderer } from "hono/jsx-renderer";
 import * as v from "valibot";
 
-import type {
-  EventHub,
-  EventHubInstance,
-  EventHubRegistry,
-  ListResult,
+import {
+  EVENT_HUB_REGISTRY_NAME,
+  type EventHub,
+  type EventHubInstance,
+  type EventHubRegistry,
+  type ListResult,
 } from "cf-eventhub";
 import { Button } from "../components/Button";
 import { Event } from "../components/Event";
@@ -316,7 +317,7 @@ export const createHandler = ({
         );
       }
 
-      const registryStub = registryBinding.getByName("default");
+      const registryStub = registryBinding.getByName(EVENT_HUB_REGISTRY_NAME);
       const search = new URL(c.req.url).searchParams;
       const requestedInstance = search.get("instance") ?? undefined;
       const showStale = search.get("showStale") === "1";
