@@ -158,7 +158,7 @@ export class TestEventHubWithJobId extends EventHub<EnvForTestEventHubWithJobId>
             instanceId,
             instanceName,
           }) =>
-            `custom/${instanceName ?? instanceId ?? "unknown"}/${destination}/${String(payload.type)}/${payloadId}/${deliveryJobId}.json`,
+            `custom/${instanceName ?? instanceId}/${destination}/${String(payload.type)}/${payloadId}/${deliveryJobId}.json`,
         },
       },
     },

@@ -366,6 +366,9 @@ For direct delivery to R2, pass per-destination `objectKey` factories in the
 third argument to either `routeByConfig()` or `routeFunc()`:
 
 ```ts
+import { env } from "cloudflare:workers";
+import { EventHub, routeByConfig } from "cf-eventhub";
+
 export class MyEventHub extends EventHub<Env> {
   routing = routeByConfig(
     env,
