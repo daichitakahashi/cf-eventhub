@@ -7,6 +7,7 @@ Delivery is attempted immediately, and failed jobs are retried via Durable Objec
 ## Table of Contents
 
 - [What It Does](#what-it-does)
+- [Package Format](#package-format)
 - [Public API](#public-api)
 - [EventHub Registry](#eventhub-registry)
 - [Delivery Configuration](#delivery-configuration)
@@ -28,6 +29,13 @@ Delivery is attempted immediately, and failed jobs are retried via Durable Objec
 - Archive finalized events gradually with `eject -> listEjected -> evict`
 - Automatically delete or archive finalized events after a retention period
 - Discover named EventHub instances through an optional registry
+
+## Package Format
+
+This package ships untranspiled TypeScript source. It is intended for
+Cloudflare Workers projects using Wrangler or another toolchain that can bundle
+TypeScript from dependencies. It is not directly executable by Node.js without
+transpilation.
 
 ## Public API
 

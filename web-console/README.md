@@ -3,6 +3,13 @@
 @cf-eventhub/web-console is a web UI for inspecting EventHub payloads and delivery jobs.
 It lets operators view recent events, inspect delivery status and errors, create events, and redrive failed delivery jobs.
 
+## Package Format
+
+This package ships untranspiled TypeScript and TSX source. It is intended for
+Cloudflare Workers projects using Wrangler or another toolchain that can bundle
+TypeScript and TSX from dependencies. It is not directly executable by Node.js
+without transpilation.
+
 ## Basic Usage
 
 Install the console package alongside your EventHub Worker application.

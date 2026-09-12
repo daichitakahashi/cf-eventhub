@@ -9,8 +9,8 @@
     "cf-typegen": "wrangler types"
   },
   "dependencies": {
-    "cf-eventhub": "workspace:../cf-eventhub",
-    "@cf-eventhub/web-console": "workspace:../web-console"
+    "cf-eventhub": "workspace:*",
+    "@cf-eventhub/web-console": "workspace:*"
   },
   "devDependencies": {
     "typescript": "catalog:",

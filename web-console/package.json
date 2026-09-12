@@ -21,17 +21,20 @@
   },
   "scripts": {
     "build:styles": "tailwindcss -i ./src/app/tailwind.css -o ./src/app/styles.css --minify && node ./scripts/embed-styles.mjs",
+    "check:styles": "pnpm build:styles && git diff --exit-code -- src/app/styles.css src/app/styles.ts",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
-    "@hono/valibot-validator": "^0.5.3",
-    "hono": "^4.9.10",
-    "valibot": "^1.1.0"
+    "@hono/valibot-validator": "^0.6.1",
+    "hono": "^4.13.7",
+    "valibot": "^1.5.0"
   },
   "peerDependencies": {
     "cf-eventhub": "workspace:^"
   },
   "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "catalog:",
     "@cloudflare/workers-types": "catalog:",
     "@tailwindcss/cli": "^4.3.1",
     "cf-eventhub": "workspace:../cf-eventhub",
