@@ -78,9 +78,6 @@ importers:
       '@hono/valibot-validator':
         specifier: ^0.5.3
         version: 0.5.3(hono@4.12.25)(valibot@1.1.0(typescript@6.0.3))
-      cf-eventhub:
-        specifier: workspace:../cf-eventhub
-        version: link:../cf-eventhub
       hono:
         specifier: ^4.9.10
         version: 4.12.25
@@ -94,6 +91,9 @@ importers:
       '@tailwindcss/cli':
         specifier: ^4.3.1
         version: 4.3.1
+      cf-eventhub:
+        specifier: workspace:../cf-eventhub
+        version: link:../cf-eventhub
       typescript:
         specifier: 'catalog:'
         version: 6.0.3

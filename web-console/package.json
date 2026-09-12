@@ -2,8 +2,22 @@
   "name": "@cf-eventhub/web-console",
   "type": "module",
   "version": "0.0.17",
+  "description": "A web console for inspecting and operating cf-eventhub on Cloudflare Workers.",
+  "keywords": [
+    "cloudflare",
+    "durable-objects",
+    "eventhub",
+    "web-console"
+  ],
+  "license": "MIT",
   "repository": {
-    "url": "https://github.com/daichitakahashi/cf-eventhub"
+    "type": "git",
+    "url": "git+https://github.com/daichitakahashi/cf-eventhub.git",
+    "directory": "web-console"
+  },
+  "homepage": "https://github.com/daichitakahashi/cf-eventhub/tree/main/web-console#readme",
+  "bugs": {
+    "url": "https://github.com/daichitakahashi/cf-eventhub/issues"
   },
   "scripts": {
     "build:styles": "tailwindcss -i ./src/app/tailwind.css -o ./src/app/styles.css --minify && node ./scripts/embed-styles.mjs",
@@ -14,6 +28,9 @@
     "hono": "^4.9.10",
     "valibot": "^1.1.0"
   },
+  "peerDependencies": {
+    "cf-eventhub": "workspace:^"
+  },
   "devDependencies": {
     "@cloudflare/workers-types": "catalog:",
     "@tailwindcss/cli": "^4.3.1",
@@ -23,12 +40,20 @@
     "wrangler": "catalog:"
   },
   "exports": {
-    "types": "./src/index.ts",
-    "default": "./src/index.ts"
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
   },
   "files": [
-    "src",
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "!src/**/*.test.ts",
+    "!src/**/*.test.tsx",
     "README.md",
     "CHANGELOG.md"
-  ]
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
 }
