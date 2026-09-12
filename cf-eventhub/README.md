@@ -8,6 +8,7 @@ Delivery is attempted immediately, and failed jobs are retried via Durable Objec
 
 - [What It Does](#what-it-does)
 - [Public API](#public-api)
+- [EventHub Registry](#eventhub-registry)
 - [Delivery Configuration](#delivery-configuration)
 - [Automatic Eviction](#automatic-eviction)
 - [Routing](#routing)
@@ -26,6 +27,7 @@ Delivery is attempted immediately, and failed jobs are retried via Durable Objec
 - Retry failed deliveries to Queue or R2 automatically
 - Archive finalized events gradually with `eject -> listEjected -> evict`
 - Automatically delete or archive finalized events after a retention period
+- Discover named EventHub instances through an optional registry
 
 ## Public API
 
@@ -41,6 +43,53 @@ The `EventHub` Durable Object exposes the following RPC methods:
 
 `payload` must be a JSON object.
 
+`EventHubRegistry` exposes `register(name)`, `list(options?)`, and
+`delete(name)`. `list()` returns active instances by default and can filter
+`active`, `stale`, or `deleted` entries with name-ordered cursor pagination.
+
+## EventHub Registry
+
+The registry is an optional discoverability control plane for named EventHub
+instances. Bind its SQLite-backed Durable Object namespace and expose that
+binding from your EventHub subclass:
+
+```ts
+import { env } from "cloudflare:workers";
+import { EventHub, EventHubRegistry, routeByConfig } from "cf-eventhub";
+
+export { EventHubRegistry };
+
+export class MyEventHub extends EventHub<Env> {
+  registry = env.EVENT_HUB_REGISTRY;
+  routing = routeByConfig(env, { routes: [] });
+}
+```
+
+Activity on an EventHub created with `getByName()` or `idFromName()` registers
+its Durable Object name automatically. No name needs to be passed to
+`publish()`, `list()`, or the other EventHub methods. Unnamed objects created
+with `newUniqueId()` or `idFromString()`, and EventHub subclasses without a
+`registry`, retain their previous behavior.
+
+Registration is best-effort and eventually consistent. Each EventHub stores the
+last successful synchronization time and refreshes at most once per 24 hours.
+`lastSeenAt` is therefore an approximate Registry synchronization time, not the
+time of the latest event. A Registry outage never makes publishing, delivery,
+inspection, redrive, eviction, or alarms fail. After Registry data loss,
+reconstruction can take up to 24 hours as EventHub instances become active.
+
+Entries become `stale` when `lastSeenAt` is more than 30 days old. Staleness is
+derived at query time and never deletes data. `EventHubRegistry.delete(name)`
+only writes a discoverability tombstone; it does not delete EventHub SQLite
+storage, alarms, or R2 archives. Later activity revives a tombstoned name when
+the EventHub next synchronizes.
+
+Naming can stay as simple or become as granular as the application requires:
+
+- Use `default` for a small application with one EventHub.
+- Use names such as `tenant:acme` for tenant-level isolation.
+- Use names such as `orders` and `billing` for domain-level partitioning.
+
 ## Delivery Configuration
 
 Configure delivery behavior by overriding the `deliveryConfig` field. Use `configureDelivery()` to create a configuration object:
@@ -50,7 +99,7 @@ import { EventHub, configureDelivery } from "cf-eventhub";
 
 export class MyEventHub extends EventHub<Env> {
   deliveryConfig = configureDelivery({
-    includeDeliveryJobId: true, // Include job ID in delivered payloads (default: false)
+    includeDeliveryMetadata: true, // Include instance identity and job ID (default: false)
     initialRetryDelayMs: 5000,  // Initial retry delay (default: 10000)
     maxRetryDelayMs: 300000,    // Maximum retry delay (default: 900000)
     alarmBatchSize: 100,        // Jobs per alarm batch (default: 50)
@@ -60,7 +109,11 @@ export class MyEventHub extends EventHub<Env> {
 }
 ```
 
-When `includeDeliveryJobId` is `true`, EventHub injects the delivery job ID into each payload at `__eventhub__.deliveryJobId` before sending it to Queue or R2 destinations. This ID can be used with `reportFailure()` to record downstream processing failures for that delivery job.
+When `includeDeliveryMetadata` is `true`, EventHub injects `instanceId`,
+`deliveryJobId`, and, for named instances, `instanceName` under `__eventhub__`
+before sending each payload to Queue or R2 destinations. The delivered payload
+can be used with `reportFailure()` to record downstream processing failures for
+that delivery job.
 
 ## Automatic Eviction
 
@@ -173,6 +226,10 @@ This is a minimal `wrangler.jsonc` example. If you change bindings, run `npx wra
       {
         "name": "EVENT_HUB",
         "class_name": "MyEventHub"
+      },
+      {
+        "name": "EVENT_HUB_REGISTRY",
+        "class_name": "EventHubRegistry"
       }
     ]
   },
@@ -180,6 +237,10 @@ This is a minimal `wrangler.jsonc` example. If you change bindings, run `npx wra
     {
       "tag": "v1",
       "new_sqlite_classes": ["MyEventHub"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["EventHubRegistry"]
     }
   ],
   "queues": {
@@ -221,9 +282,6 @@ type Env = {
   EVENT_HUB: DurableObjectNamespace<EventHub>;
 };
 
-const getHub = (env: Env, name = "default") =>
-  env.EVENT_HUB.get(env.EVENT_HUB.idFromName(name));
-
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -231,9 +289,8 @@ export default {
       return new Response("Not found", { status: 404 });
     }
 
+    const hub = env.EVENT_HUB.getByName("default");
     const body = (await request.json()) as EventPayload | EventPayload[];
-    const hub = getHub(env);
-
     if (Array.isArray(body)) {
       if (body.length === 0) {
         return new Response("payloads must not be empty", { status: 400 });
@@ -263,7 +320,7 @@ EventHub supports consumer-reported failures through the `reportFailure()` metho
 
 ### Setup Overview
 
-1. Enable `includeDeliveryJobId` in your EventHub configuration
+1. Enable `includeDeliveryMetadata` in your EventHub configuration
 2. Configure a DLQ for each destination queue
 3. Implement a DLQ consumer that calls `reportFailure()` with the failed payload to record the consumer-reported failure
 
@@ -308,7 +365,7 @@ import { EventHub, configureDelivery, routeByConfig } from "cf-eventhub";
 export class MyEventHub extends EventHub<Env> {
   // Enable delivery job ID injection
   deliveryConfig = configureDelivery({
-    includeDeliveryJobId: true,
+    includeDeliveryMetadata: true,
   });
 
   routing = routeByConfig(env, {
@@ -326,26 +383,39 @@ export class MyEventHub extends EventHub<Env> {
 }
 ```
 
+### Resolving the Originating Instance
+
+`getEventHubFromPayload(namespace, payload)` synchronously returns a typed
+`DurableObjectStub<T> | undefined`, with `T` inferred from the namespace.
+It validates `__eventhub__.instanceId` and returns `undefined` for missing or
+invalid metadata, including IDs from another namespace. When `instanceName` is
+present, it must resolve to the same ID; the helper then uses `getByName()` so
+the originating EventHub retains its name for Registry synchronization. Unnamed
+instances are resolved by ID. Resolving the stub does not make an RPC call or
+check whether the instance already exists. Invalid namespace operations also
+return `undefined`. `reportFailure(payload)` separately
+validates the job ID and requires the instance ID to match the receiving instance.
+
 ### DLQ Consumer Implementation
 
 ```ts
-import type { EventHub } from "cf-eventhub";
+import { getEventHubFromPayload, type EventHub } from "cf-eventhub";
 
 type Env = {
   EVENT_HUB: DurableObjectNamespace<EventHub>;
 };
 
-const getHub = (env: Env, name = "default") =>
-  env.EVENT_HUB.get(env.EVENT_HUB.idFromName(name));
-
 export default {
   async queue(batch: MessageBatch, env: Env): Promise<void> {
-    const hub = getHub(env);
-
     // Report all DLQ messages as failures
     for (const message of batch.messages) {
       try {
-        // The payload already contains __eventhub__.deliveryJobId
+        const hub = getEventHubFromPayload(env.EVENT_HUB, message.body);
+        if (!hub) {
+          console.error("Invalid EventHub metadata", message.id);
+          message.retry();
+          continue;
+        }
         await hub.reportFailure(message.body);
         message.ack();
       } catch (error) {
@@ -360,7 +430,7 @@ export default {
 ### How It Works
 
 1. EventHub publishes events to `MEMBER_EVENTS` and `PAYMENT_EVENTS` queues
-2. Each payload includes `__eventhub__.deliveryJobId` (e.g., `{ type: "member.created", __eventhub__: { deliveryJobId: "01JG..." } }`)
+2. Each payload includes `__eventhub__: { instanceId, instanceName, deliveryJobId }` for a named EventHub
 3. If a consumer fails to process a message after `max_retries`, the message moves to `eventhub-dlq`
 4. The DLQ consumer calls `reportFailure()` with the failed payload
 5. EventHub records a consumer-reported failure for the extracted job ID, but the job's `finalStatus` remains unchanged.
@@ -401,9 +471,6 @@ type Env = {
   EVENT_ARCHIVE_EXPORT: R2Bucket;
 };
 
-const getHub = (env: Env, name = "default") =>
-  env.EVENT_HUB.get(env.EVENT_HUB.idFromName(name));
-
 export class EventArchiveWorkflow extends WorkflowEntrypoint<
   Env,
   ArchivePayload
@@ -412,7 +479,9 @@ export class EventArchiveWorkflow extends WorkflowEntrypoint<
     event: WorkflowEvent<ArchivePayload>,
     step: WorkflowStep,
   ): Promise<{ ejectKey: string | null; archivedCount: number }> {
-    const hub = getHub(this.env, event.payload.hubName ?? "default");
+    const hub = this.env.EVENT_HUB.getByName(
+      event.payload.hubName ?? "default",
+    );
 
     const ejection = await step.do("create ejection", async () => {
       return await hub.eject(event.payload.before, {

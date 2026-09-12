@@ -1,5 +1,12 @@
 # @cf-eventhub/web-console
 
+## Unreleased
+
+### Minor Changes
+
+- Replace the static EventHub instance setting with Registry-based active and stale instance discovery, selection, and URL state propagation.
+- Allow a selected stale EventHub instance to be deleted from the Registry.
+
 ## 0.0.17
 
 ### Patch Changes

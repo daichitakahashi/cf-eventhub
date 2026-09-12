@@ -15,12 +15,34 @@ const parseEventPayload = (value: string): unknown => {
 };
 
 const redirectWithError = (c: Context<Env>) =>
-  c.redirect("/?error=invalid-payload");
+  c.redirect(c.var.buildUrl("/", { error: "invalid-payload" }));
 
 const handler = factory
   .createApp()
+  .post("/instances/delete", async (c) => {
+    if (c.var.registryError) {
+      return c.json({ error: "EventHub Registry unavailable" }, 503);
+    }
+    const instance = c.var.selectedInstance;
+    if (!instance || c.var.requestedInstance !== instance.name) {
+      return c.json({ error: "EventHub instance not found" }, 404);
+    }
+    if (instance.status !== "stale") {
+      return c.json({ error: "Only stale instances can be deleted" }, 409);
+    }
+    try {
+      await c.var.registry.delete(instance.name);
+    } catch {
+      return c.json({ error: "EventHub Registry unavailable" }, 503);
+    }
+    return c.redirect("/");
+  })
   .get("/events/latest", async (c) => {
-    const list = await c.var.getEventHub().list({
+    const hub = c.var.getEventHub();
+    if (!hub) {
+      return c.json({ error: "EventHub instance not found" }, 404);
+    }
+    const list = await hub.list({
       max: 10,
       order: "desc",
     });
@@ -37,13 +59,15 @@ const handler = factory
       }),
     ),
     async (c) => {
-      const retried = await c.var
-        .getEventHub()
-        .redrive(c.req.valid("param").id);
-      if (!retried) {
-        return c.redirect("/?error=delivery-not-found");
+      const hub = c.var.getEventHub();
+      if (!hub) {
+        return c.json({ error: "EventHub instance not found" }, 404);
       }
-      return c.redirect("/");
+      const retried = await hub.redrive(c.req.valid("param").id);
+      if (!retried) {
+        return c.redirect(c.var.buildUrl("/", { error: "delivery-not-found" }));
+      }
+      return c.redirect(c.var.buildUrl("/"));
     },
   )
   .post(
@@ -55,6 +79,10 @@ const handler = factory
       }),
     ),
     async (c) => {
+      const hub = c.var.getEventHub();
+      if (!hub) {
+        return c.json({ error: "EventHub instance not found" }, 404);
+      }
       const parsed = parseEventPayload(c.req.valid("form").payload);
       if (
         typeof parsed !== "object" ||
@@ -63,8 +91,8 @@ const handler = factory
       ) {
         return redirectWithError(c);
       }
-      await c.var.getEventHub().publish(parsed as EventPayload);
-      return c.redirect("/");
+      await hub.publish(parsed as EventPayload);
+      return c.redirect(c.var.buildUrl("/"));
     },
   );
 

@@ -783,7 +783,10 @@ describe("reportFailure", () => {
 
       const payload = {
         kind: "culture",
-        __eventhub__: { deliveryJobId: jobs[0]?.id ?? "" },
+        __eventhub__: {
+          instanceId: stub.id.toString(),
+          deliveryJobId: jobs[0]?.id ?? "",
+        },
       };
       const recorded = await (instance as TestEventHub).reportFailure(payload);
 
@@ -821,7 +824,10 @@ describe("reportFailure", () => {
 
       const payload = {
         kind: "culture",
-        __eventhub__: { deliveryJobId: jobs[0]?.id ?? "" },
+        __eventhub__: {
+          instanceId: stub.id.toString(),
+          deliveryJobId: jobs[0]?.id ?? "",
+        },
       };
 
       const firstRecorded = await (instance as TestEventHub).reportFailure(
@@ -927,7 +933,7 @@ describe("reportFailure", () => {
     await runInDurableObject(stub, async (instance, _state) => {
       const payload = {
         kind: "culture",
-        __eventhub__: { deliveryJobId: "" },
+        __eventhub__: { instanceId: stub.id.toString(), deliveryJobId: "" },
       };
       await expect(
         (instance as TestEventHub).reportFailure(payload),
@@ -943,7 +949,7 @@ describe("reportFailure", () => {
     await runInDurableObject(stub, async (instance, _state) => {
       const payload = {
         kind: "culture",
-        __eventhub__: { deliveryJobId: 12345 },
+        __eventhub__: { instanceId: stub.id.toString(), deliveryJobId: 12345 },
       };
       await expect(
         (instance as TestEventHub).reportFailure(payload),
@@ -968,11 +974,17 @@ describe("reportFailure", () => {
 
       const payload1 = {
         kind: "culture",
-        __eventhub__: { deliveryJobId: jobs[0]?.id ?? "" },
+        __eventhub__: {
+          instanceId: stub.id.toString(),
+          deliveryJobId: jobs[0]?.id ?? "",
+        },
       };
       const payload2 = {
         kind: "nature",
-        __eventhub__: { deliveryJobId: jobs[1]?.id ?? "" },
+        __eventhub__: {
+          instanceId: stub.id.toString(),
+          deliveryJobId: jobs[1]?.id ?? "",
+        },
       };
 
       const recorded = await Promise.all([
@@ -1004,7 +1016,10 @@ describe("reportFailure", () => {
     await runInDurableObject(stub, async (instance, state) => {
       const recorded = await (instance as TestEventHub).reportFailure({
         kind: "culture",
-        __eventhub__: { deliveryJobId: "missing_job_id" },
+        __eventhub__: {
+          instanceId: stub.id.toString(),
+          deliveryJobId: "missing_job_id",
+        },
       });
 
       const failures = state.storage.sql
@@ -1484,7 +1499,11 @@ describe("redrive", () => {
             {
               body: {
                 ...payload,
-                __eventhub__: { deliveryJobId: originalJobId },
+                __eventhub__: {
+                  instanceId: stub.id.toString(),
+                  instanceName: "redrive-completed-job",
+                  deliveryJobId: originalJobId,
+                },
               },
               contentType: "json",
             },
@@ -1543,7 +1562,11 @@ describe("redrive", () => {
               {
                 body: {
                   ...payload,
-                  __eventhub__: { deliveryJobId: originalJobId },
+                  __eventhub__: {
+                    instanceId: stub.id.toString(),
+                    instanceName: "redrive-completed-job",
+                    deliveryJobId: originalJobId,
+                  },
                 },
                 contentType: "json",
               },
@@ -1552,7 +1575,11 @@ describe("redrive", () => {
               {
                 body: {
                   ...payload,
-                  __eventhub__: { deliveryJobId: redrivenJobId },
+                  __eventhub__: {
+                    instanceId: stub.id.toString(),
+                    instanceName: "redrive-completed-job",
+                    deliveryJobId: redrivenJobId,
+                  },
                 },
                 contentType: "json",
               },
@@ -1586,9 +1613,9 @@ describe("redrive", () => {
   });
 });
 
-describe("includeDeliveryJobId configuration", () => {
-  test("delivers successfully when includeDeliveryJobId is false (default)", async () => {
-    // 1. Publish payloads with default configuration (includeDeliveryJobId: false).
+describe("includeDeliveryMetadata configuration", () => {
+  test("delivers successfully when includeDeliveryMetadata is false (default)", async () => {
+    // 1. Publish payloads with default configuration (includeDeliveryMetadata: false).
     // 2. Verify delivery completes successfully.
     const stub = getStub("no-job-id-default");
     const payload = { kind: "culture" };
@@ -1605,9 +1632,9 @@ describe("includeDeliveryJobId configuration", () => {
     });
   });
 
-  test("delivers successfully when includeDeliveryJobId is true", async () => {
-    // 1. Configure EventHub with includeDeliveryJobId: true.
-    // 2. Publish a payload and verify delivery completes with the injected job ID.
+  test("delivers successfully when includeDeliveryMetadata is true", async () => {
+    // 1. Configure EventHub with includeDeliveryMetadata: true.
+    // 2. Publish a payload and verify delivery completes with its metadata.
     const stub = getStubWithJobId(
       "with-job-id",
     ) as DurableObjectStub<TestEventHubWithJobId>;
@@ -1630,7 +1657,11 @@ describe("includeDeliveryJobId configuration", () => {
             {
               body: {
                 ...payload,
-                __eventhub__: { deliveryJobId: jobs[0]?.id },
+                __eventhub__: {
+                  instanceId: stub.id.toString(),
+                  instanceName: "with-job-id",
+                  deliveryJobId: jobs[0]?.id,
+                },
               },
               contentType: "json",
             },
@@ -1641,7 +1672,7 @@ describe("includeDeliveryJobId configuration", () => {
   });
 
   test("DB-stored payloads do not contain injected job ID", async () => {
-    // 1. Configure EventHub with includeDeliveryJobId: true.
+    // 1. Configure EventHub with includeDeliveryMetadata: true.
     // 2. Publish a payload.
     // 3. Verify the payload stored in the database does not contain the job ID.
     const stub = getStubWithJobId(

@@ -275,6 +275,33 @@ export const initializeSchema = (sql: SqlStorage): void => {
 			payload_id TEXT PRIMARY KEY
 		) WITHOUT ROWID
 	`);
+  sql.exec(`
+		CREATE TABLE IF NOT EXISTS registry_sync_state (
+			singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+			synced_at INTEGER NOT NULL
+		)
+	`);
+};
+
+export const getRegistrySyncedAt = (sql: SqlStorage): number | null =>
+  sql
+    .exec<{ synced_at: number }>(
+      "SELECT synced_at FROM registry_sync_state WHERE singleton = 1",
+    )
+    .toArray()[0]?.synced_at ?? null;
+
+export const setRegistrySyncedAt = (
+  sql: SqlStorage,
+  syncedAt: number,
+): void => {
+  sql.exec(
+    `
+		INSERT INTO registry_sync_state (singleton, synced_at)
+		VALUES (1, ?)
+		ON CONFLICT(singleton) DO UPDATE SET synced_at = excluded.synced_at
+	`,
+    syncedAt,
+  );
 };
 
 // Evaluates routing rules and builds a persistence plan for each payload.

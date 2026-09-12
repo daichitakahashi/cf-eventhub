@@ -34,7 +34,8 @@ export const Event: FC<{
   event: EventWithDeliveryJobs;
   formatDate: (d: DateTime) => string;
   eventTitle?: (e: EventWithDeliveryJobs) => string;
-}> = ({ event, formatDate, eventTitle }) => {
+  buildUrl: (path: string) => string;
+}> = ({ event, formatDate, eventTitle, buildUrl }) => {
   const title = eventTitle ? eventTitle(event) : event.id;
   const payload = JSON.stringify(event.payload, null, 4);
   const rows = payload.split("\n").length;
@@ -92,7 +93,12 @@ export const Event: FC<{
         <TableBody id={`event-deliveryjobs-${event.id}`}>
           {event.deliveryJobs.length > 0 ? (
             event.deliveryJobs.map((job) => (
-              <DeliveryJobRow key={job.id} job={job} formatDate={formatDate} />
+              <DeliveryJobRow
+                key={job.id}
+                job={job}
+                formatDate={formatDate}
+                buildUrl={buildUrl}
+              />
             ))
           ) : (
             <TableRow>
@@ -110,7 +116,8 @@ export const Event: FC<{
 const DeliveryJobRow: FC<{
   job: DeliveryJob;
   formatDate: (d: DateTime) => string;
-}> = ({ job, formatDate }) => (
+  buildUrl: (path: string) => string;
+}> = ({ job, formatDate, buildUrl }) => (
   <TableRow>
     <TableCell>
       <code>{job.destination}</code>
@@ -132,7 +139,11 @@ const DeliveryJobRow: FC<{
         <ScanSearch title="Show detail" />
       </button>
       <template id={`deliveryjob-detail-${job.id}`}>
-        <DeliveryJobDetails job={job} formatDate={formatDate} />
+        <DeliveryJobDetails
+          job={job}
+          formatDate={formatDate}
+          buildUrl={buildUrl}
+        />
       </template>
     </TableCell>
   </TableRow>
@@ -141,7 +152,8 @@ const DeliveryJobRow: FC<{
 export const DeliveryJobDetails: FC<{
   job: DeliveryJob;
   formatDate: (d: DateTime) => string;
-}> = ({ job, formatDate }) => (
+  buildUrl: (path: string) => string;
+}> = ({ job, formatDate, buildUrl }) => (
   <div class={`deliveryjob-${job.id}`}>
     <h2 class="text-2xl font-semibold">
       <span class="flex gap-2 items-center">
@@ -204,7 +216,10 @@ export const DeliveryJobDetails: FC<{
       </DescriptionList>
     </div>
     <div class="flex gap-2">
-      <form method="post" action={`/api/delivery-jobs/${job.id}/retry`}>
+      <form
+        method="post"
+        action={buildUrl(`/api/delivery-jobs/${job.id}/retry`)}
+      >
         <Button
           type="submit"
           data-confirm="Are you sure you wish to redrive this delivery job?"

@@ -97,18 +97,39 @@ export const assertDestinationBindingsExist = <Env extends object>(
 const getR2ObjectKey = (job: PersistedDeliveryJob): string =>
   `${job.payloadId}/${job.id}.json`;
 
-// Merges the delivery job ID into the payload at $.__eventhub__.deliveryJobId
-const injectDeliveryJobId = (
+type DeliveryMetadataSource = {
+  instanceId: string;
+  instanceName?: string;
+};
+
+// Adds authoritative instance and job IDs while preserving other metadata.
+const injectDeliveryMetadata = (
   payload: EventPayload,
   jobId: string,
+  source: DeliveryMetadataSource,
 ): EventPayload => {
   const existing = payload.__eventhub__;
-  const eventhubMetadata =
+  const customMetadata: Record<string, unknown> =
     typeof existing === "object" &&
     existing !== null &&
     !Array.isArray(existing)
-      ? { ...existing, deliveryJobId: jobId }
-      : { deliveryJobId: jobId };
+      ? Object.fromEntries(
+          Object.entries(existing).filter(
+            ([key]) =>
+              key !== "deliveryJobId" &&
+              key !== "instanceId" &&
+              key !== "instanceName",
+          ),
+        )
+      : {};
+  const eventhubMetadata = {
+    ...customMetadata,
+    deliveryJobId: jobId,
+    instanceId: source.instanceId,
+    ...(source.instanceName === undefined
+      ? {}
+      : { instanceName: source.instanceName }),
+  };
 
   return {
     ...payload,
@@ -120,7 +141,7 @@ const deliverQueueJobs = async <Env extends object>(
   jobs: readonly DeliveryJob<Env>[],
   queue: Queue<EventPayload>,
   handlers: DeliverJobsHandlers,
-  includeDeliveryJobId: boolean,
+  metadataSource: DeliveryMetadataSource | false,
 ): Promise<void> => {
   for (let i = 0; i < jobs.length; i += MAX_SEND_BATCH_COUNT) {
     const chunk = jobs.slice(i, i + MAX_SEND_BATCH_COUNT);
@@ -128,8 +149,8 @@ const deliverQueueJobs = async <Env extends object>(
     try {
       await queue.sendBatch(
         chunk.map((job) => ({
-          body: includeDeliveryJobId
-            ? injectDeliveryJobId(job.payload, job.id)
+          body: metadataSource
+            ? injectDeliveryMetadata(job.payload, job.id, metadataSource)
             : job.payload,
           contentType: "json",
         })),
@@ -145,12 +166,12 @@ const deliverR2Jobs = async <Env extends object>(
   jobs: readonly DeliveryJob<Env>[],
   bucket: R2Bucket,
   handlers: DeliverJobsHandlers,
-  includeDeliveryJobId: boolean,
+  metadataSource: DeliveryMetadataSource | false,
 ): Promise<void> => {
   for (const job of jobs) {
     try {
-      const payloadToStore = includeDeliveryJobId
-        ? injectDeliveryJobId(job.payload, job.id)
+      const payloadToStore = metadataSource
+        ? injectDeliveryMetadata(job.payload, job.id, metadataSource)
         : job.payload;
 
       await bucket.put(getR2ObjectKey(job), JSON.stringify(payloadToStore), {
@@ -169,7 +190,7 @@ const deliverR2Jobs = async <Env extends object>(
 export const deliverJobs = async <Env extends object>(
   jobs: readonly DeliveryJob<Env>[],
   handlers: DeliverJobsHandlers,
-  includeDeliveryJobId: boolean,
+  metadataSource: DeliveryMetadataSource | false,
 ): Promise<void> => {
   for (const destinationJobs of groupJobsByDestination(jobs).values()) {
     const [{ target }] = destinationJobs;
@@ -178,7 +199,7 @@ export const deliverJobs = async <Env extends object>(
         destinationJobs,
         target.queue,
         handlers,
-        includeDeliveryJobId,
+        metadataSource,
       );
       continue;
     }
@@ -186,7 +207,7 @@ export const deliverJobs = async <Env extends object>(
       destinationJobs,
       target.bucket,
       handlers,
-      includeDeliveryJobId,
+      metadataSource,
     );
   }
 };
@@ -196,14 +217,14 @@ export const deliverPersistedJobs = async <Env extends object>(
   routing: RoutingStrategy<Env>,
   jobs: readonly PersistedDeliveryJob[],
   handlers: DeliverJobsHandlers,
-  includeDeliveryJobId: boolean,
+  metadataSource: DeliveryMetadataSource | false,
 ): Promise<void> => {
   for (const destinationJobs of groupJobsByDestination(jobs).values()) {
     try {
       await deliverJobs(
         resolveDeliveryJobs(routing, destinationJobs),
         handlers,
-        includeDeliveryJobId,
+        metadataSource,
       );
     } catch (error) {
       await handlers.onFailed(

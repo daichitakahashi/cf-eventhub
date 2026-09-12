@@ -23,6 +23,7 @@ import {
   getEvictionRun,
   getNextEvictionBaseline,
   getNextRetryAt,
+  getRegistrySyncedAt,
   initializeSchema,
   listDeliverableJobs,
   listEjected,
@@ -33,8 +34,10 @@ import {
   recordDeliveryJobFailure,
   recordEvictionFailure,
   redriveDeliveryJob,
+  setRegistrySyncedAt,
 } from "./core/store";
 import type { EventPayload } from "./core/type";
+import { EVENT_HUB_REGISTRY_NAME, type EventHubRegistry } from "./registry";
 
 const safe: unique symbol = Symbol();
 
@@ -72,11 +75,12 @@ export type DeliveryConfig = {
   maxRetryDelayMs: number;
 
   /**
-   * Whether to include the delivery job ID in the payload sent to destinations.
-   * When enabled, the job ID is added at path `$.__eventhub__.deliveryJobId`.
+   * Whether to include delivery metadata in the payload sent to destinations.
+   * When enabled, instanceId, optional instanceName, and deliveryJobId are
+   * added under `__eventhub__`.
    * @default false
    */
-  includeDeliveryJobId: boolean;
+  includeDeliveryMetadata: boolean;
 };
 
 export type EvictionAction =
@@ -151,8 +155,9 @@ const DEFAULT_ALARM_BATCH_SIZE = 50;
 const DEFAULT_MAX_DELIVERY_RETRIES = 10;
 const DEFAULT_INITIAL_RETRY_DELAY_MS = 10_000;
 const DEFAULT_MAX_RETRY_DELAY_MS = 900_000;
-const DEFAULT_INCLUDE_DELIVERY_JOB_ID = false;
+const DEFAULT_INCLUDE_DELIVERY_METADATA = false;
 const DEFAULT_EVICTION_BATCH_SIZE = 50;
+const REGISTRY_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1_000;
 
 const assertPositiveInteger = (v: number, name: string) => {
   if (Number.isInteger(v) && v > 0) return;
@@ -173,7 +178,7 @@ function assertListOrder(v: string): asserts v is ListOrder {
  *
  * export class MyEventHub extends EventHub<Env> {
  *   deliveryConfig = configureDelivery({
- *     includeDeliveryJobId: true,  // Enable job ID injection for reportFailure()
+ *     includeDeliveryMetadata: true,  // Enable job ID injection for reportFailure()
  *     initialRetryDelayMs: 5000,   // Start retry after 5 seconds
  *     maxRetryDelayMs: 300000,     // Cap retry delay at 5 minutes
  *     maxDeliveryRetries: 10,      // Retry up to 10 times
@@ -191,7 +196,7 @@ export const configureDelivery = (
     maxDeliveryRetries: DEFAULT_MAX_DELIVERY_RETRIES,
     initialRetryDelayMs: DEFAULT_INITIAL_RETRY_DELAY_MS,
     maxRetryDelayMs: DEFAULT_MAX_RETRY_DELAY_MS,
-    includeDeliveryJobId: DEFAULT_INCLUDE_DELIVERY_JOB_ID,
+    includeDeliveryMetadata: DEFAULT_INCLUDE_DELIVERY_METADATA,
     ...c,
   };
 
@@ -251,14 +256,50 @@ export abstract class EventHub<
   Env extends object = {},
 > extends DurableObject<Env> {
   private readonly idGenerator: MonotonicUlidGenerator;
+  private registrySyncInFlight?: Promise<void>;
   protected deliveryConfig = configureDelivery({});
   protected eviction?: EvictionConfig;
+  protected registry?: DurableObjectNamespace<EventHubRegistry>;
   protected abstract routing: RoutingStrategy<Env>;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.idGenerator = new MonotonicUlidGenerator();
     initializeSchema(this.ctx.storage.sql);
+  }
+
+  private scheduleRegistrySync(): void {
+    const registry = this.registry;
+    const name = this.ctx.id.name;
+    if (
+      !registry ||
+      name === undefined ||
+      name.length === 0 ||
+      this.registrySyncInFlight
+    )
+      return;
+
+    const now = Date.now();
+    const syncedAt = getRegistrySyncedAt(this.ctx.storage.sql);
+    if (syncedAt !== null && now - syncedAt < REGISTRY_REFRESH_INTERVAL_MS) {
+      return;
+    }
+
+    const sync = (async () => {
+      try {
+        await registry.getByName(EVENT_HUB_REGISTRY_NAME).register(name);
+        setRegistrySyncedAt(this.ctx.storage.sql, Date.now());
+      } catch (error) {
+        console.error("eventhub: registry synchronization failed", {
+          instance: name,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      } finally {
+        this.registrySyncInFlight = undefined;
+      }
+    })();
+    this.registrySyncInFlight = sync;
+    this.ctx.waitUntil(sync);
   }
 
   private async reconcileAlarm(): Promise<void> {
@@ -335,7 +376,14 @@ export abstract class EventHub<
           });
         },
       },
-      this.deliveryConfig.includeDeliveryJobId,
+      this.deliveryConfig.includeDeliveryMetadata
+        ? {
+            instanceId: this.ctx.id.toString(),
+            ...(this.ctx.id.name === undefined || this.ctx.id.name.length === 0
+              ? {}
+              : { instanceName: this.ctx.id.name }),
+          }
+        : false,
     );
   }
 
@@ -502,6 +550,7 @@ export abstract class EventHub<
         await this.reconcileAlarm();
       })(),
     );
+    this.scheduleRegistrySync();
   }
 
   /**
@@ -528,6 +577,7 @@ export abstract class EventHub<
     );
     if (!persistedJob) {
       await this.reconcileAlarm();
+      this.scheduleRegistrySync();
       return false;
     }
 
@@ -538,6 +588,7 @@ export abstract class EventHub<
         await this.reconcileAlarm();
       })(),
     );
+    this.scheduleRegistrySync();
     return true;
   }
 
@@ -577,6 +628,7 @@ export abstract class EventHub<
       ),
     );
     await this.reconcileAlarm();
+    this.scheduleRegistrySync();
     return result;
   }
 
@@ -610,6 +662,7 @@ export abstract class EventHub<
       ),
     );
     await this.reconcileAlarm();
+    this.scheduleRegistrySync();
     return result;
   }
 
@@ -658,6 +711,7 @@ export abstract class EventHub<
       ),
     );
     await this.reconcileAlarm();
+    this.scheduleRegistrySync();
     return result;
   }
 
@@ -674,6 +728,7 @@ export abstract class EventHub<
       evictEjection(this.ctx.storage.sql, ejectKey);
     });
     await this.reconcileAlarm();
+    this.scheduleRegistrySync();
   }
 
   /**
@@ -683,6 +738,7 @@ export abstract class EventHub<
     await this.deliverPersistedJobs();
     await this.processEviction();
     await this.reconcileAlarm();
+    this.scheduleRegistrySync();
   }
 
   /**
@@ -696,13 +752,18 @@ export abstract class EventHub<
    * destination queues and call `reportFailure()` from the DLQ consumer:
    *
    * ```ts
+   * import { getEventHubFromPayload } from "cf-eventhub";
+   *
    * // DLQ consumer
    * export default {
    *   async queue(batch: MessageBatch, env: Env): Promise<void> {
-   *     const hub = env.EVENT_HUB.get(env.EVENT_HUB.idFromName("default"));
-   *
    *     for (const message of batch.messages) {
    *       try {
+   *         const hub = getEventHubFromPayload(env.EVENT_HUB, message.body);
+   *         if (!hub) {
+   *           message.retry();
+   *           continue;
+   *         }
    *         await hub.reportFailure(message.body);
    *         message.ack();
    *       } catch (error) {
@@ -715,15 +776,15 @@ export abstract class EventHub<
    * ```
    *
    * **Prerequisites:**
-   * - Set `includeDeliveryJobId: true` in your `deliveryConfig`
+   * - Set `includeDeliveryMetadata: true` in your `deliveryConfig`
    * - Configure DLQs for your destination queues in `wrangler.jsonc`
    *
    * @param payload The payload that was delivered. Must be an object containing
-   * a delivery job ID at `__eventhub__.deliveryJobId`.
+   * matching `__eventhub__.instanceId` and `__eventhub__.deliveryJobId`.
    * @returns `true` when a new failure record is written, or `false` when no
    * record is added because the job was already recorded or no longer exists.
    * @throws {Error} If the payload is not an object or if the delivery job ID
-   * cannot be extracted.
+   * cannot be extracted, or the instance ID does not match.
    */
   async reportFailure(payload: unknown): Promise<boolean> {
     if (
@@ -751,10 +812,18 @@ export abstract class EventHub<
       throw new Error("eventhub: deliveryJobId must be a non-empty string");
     }
 
+    if (
+      (eventhubMetadata as Record<string, unknown>).instanceId !==
+      this.ctx.id.toString()
+    ) {
+      throw new Error("eventhub: instanceId does not match this instance");
+    }
+
     const recorded = this.ctx.storage.transactionSync(() =>
       recordDeliveryJobFailure(this.ctx.storage.sql, deliveryJobId),
     );
     await this.reconcileAlarm();
+    this.scheduleRegistrySync();
     return recorded;
   }
 }

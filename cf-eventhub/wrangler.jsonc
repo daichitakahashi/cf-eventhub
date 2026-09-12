@@ -20,6 +20,14 @@
       ],
       "tag": "v2",
     },
+    {
+      "new_sqlite_classes": [
+        "EventHubRegistry",
+        "TestRegisteredEventHub",
+        "TestEventHubWithFailingRegistry",
+      ],
+      "tag": "v3",
+    },
   ],
   "durable_objects": {
     "bindings": [
@@ -42,6 +50,18 @@
       {
         "class_name": "TestEventHubWithFailingArchiveEviction",
         "name": "EVENT_HUB_WITH_FAILING_ARCHIVE_EVICTION",
+      },
+      {
+        "class_name": "TestRegisteredEventHub",
+        "name": "REGISTERED_EVENT_HUB",
+      },
+      {
+        "class_name": "EventHubRegistry",
+        "name": "EVENT_HUB_REGISTRY",
+      },
+      {
+        "class_name": "TestEventHubWithFailingRegistry",
+        "name": "EVENT_HUB_WITH_FAILING_REGISTRY",
       },
     ],
   },
