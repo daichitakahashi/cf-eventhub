@@ -4,7 +4,7 @@ import {
   query,
   queryWithParsedPath,
 } from "./jsonpath-lite";
-import type { JSONObject } from "./type";
+import type { EventPayload, JSONObject } from "./type";
 
 type Destination = Queue | R2Bucket;
 
@@ -12,6 +12,17 @@ export type Destinations<Env extends object> = Extract<
   keyof {
     [K in keyof Env as K extends string
       ? Env[K] extends Destination
+        ? K
+        : never
+      : never]: Env[K];
+  },
+  string
+>;
+
+export type R2Destinations<Env extends object> = Extract<
+  keyof {
+    [K in keyof Env as K extends string
+      ? Env[K] extends R2Bucket
         ? K
         : never
       : never]: Env[K];
@@ -27,9 +38,35 @@ export type QueueDestination = {
 export type R2Destination = {
   kind: "r2";
   bucket: R2Bucket;
+  objectKey?: R2ObjectKeyFactory;
 };
 
 export type ResolvedDestination = QueueDestination | R2Destination;
+
+export type R2ObjectKeyContext<Destination extends string = string> = {
+  payload: EventPayload;
+  payloadId: string;
+  deliveryJobId: string;
+  destination: Destination;
+  instanceId: string;
+  instanceName?: string;
+};
+
+export type R2ObjectKeyFactory<Destination extends string = string> = (
+  context: R2ObjectKeyContext<Destination>,
+) => string;
+
+export type RoutingOptions<Env extends object> = {
+  r2?: Partial<{
+    [Destination in R2Destinations<Env>]: {
+      /**
+       * Generates object keys for direct delivery to this R2 destination. The
+       * factory should return the same key for the same delivery job context.
+       */
+      objectKey: R2ObjectKeyFactory<Destination>;
+    };
+  }>;
+};
 
 const safe: unique symbol = Symbol();
 
@@ -260,6 +297,7 @@ export const findRoutes = <Env extends object>(
 const resolveDestinationBinding = <Env extends object>(
   env: Env,
   destination: Destinations<Env>,
+  options: RoutingOptions<Env>,
 ): ResolvedDestination => {
   const binding = (env as Record<PropertyKey, unknown>)[destination];
   if (!binding) {
@@ -272,9 +310,15 @@ const resolveDestinationBinding = <Env extends object>(
     };
   }
   if (isR2Bucket(binding)) {
+    const r2Options = (
+      options.r2 as
+        | Partial<Record<string, { objectKey: R2ObjectKeyFactory }>>
+        | undefined
+    )?.[String(destination)];
     return {
       kind: "r2",
       bucket: binding,
+      ...(r2Options === undefined ? {} : { objectKey: r2Options.objectKey }),
     };
   }
   throw new Error(
@@ -285,6 +329,7 @@ const resolveDestinationBinding = <Env extends object>(
 export const routeByConfig = <Env extends object>(
   env: Env,
   config: Config<Env>,
+  options: RoutingOptions<Env> = {},
 ): RoutingStrategy<Env> => {
   const pathCache: PathCache = new Map();
 
@@ -292,16 +337,17 @@ export const routeByConfig = <Env extends object>(
     [safe]: true,
     findRoutes: (message: JSONObject) => findRoutes(config, message, pathCache),
     resolveDestination: (destination: Destinations<Env>) =>
-      resolveDestinationBinding(env, destination),
+      resolveDestinationBinding(env, destination, options),
   };
 };
 
 export const routeFunc = <Env extends object>(
   env: Env,
   fn: (message: JSONObject) => FoundRoute<Env>[],
+  options: RoutingOptions<Env> = {},
 ): RoutingStrategy<Env> => ({
   [safe]: true,
   findRoutes: fn,
   resolveDestination: (destination: Destinations<Env>) =>
-    resolveDestinationBinding(env, destination),
+    resolveDestinationBinding(env, destination, options),
 });

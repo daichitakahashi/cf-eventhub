@@ -376,14 +376,13 @@ export abstract class EventHub<
           });
         },
       },
-      this.deliveryConfig.includeDeliveryMetadata
-        ? {
-            instanceId: this.ctx.id.toString(),
-            ...(this.ctx.id.name === undefined || this.ctx.id.name.length === 0
-              ? {}
-              : { instanceName: this.ctx.id.name }),
-          }
-        : false,
+      {
+        instanceId: this.ctx.id.toString(),
+        ...(this.ctx.id.name === undefined || this.ctx.id.name.length === 0
+          ? {}
+          : { instanceName: this.ctx.id.name }),
+        includeDeliveryMetadata: this.deliveryConfig.includeDeliveryMetadata,
+      },
     );
   }
 

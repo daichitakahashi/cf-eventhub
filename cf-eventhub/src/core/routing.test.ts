@@ -318,4 +318,23 @@ describe("routeByConfig", () => {
       bucket,
     });
   });
+
+  test("attaches a configured object key factory to R2 destinations", () => {
+    const bucket = {
+      put: async () => ({}),
+      createMultipartUpload: async () => ({}),
+    } as unknown as R2Bucket;
+    const r2ObjectKey = () => "custom/key.json";
+    const strategy = routeByConfig(
+      { ARCHIVE: bucket },
+      { routes: [] },
+      { r2: { ARCHIVE: { objectKey: r2ObjectKey } } },
+    );
+
+    expect(strategy.resolveDestination("ARCHIVE")).toStrictEqual({
+      kind: "r2",
+      bucket,
+      objectKey: r2ObjectKey,
+    });
+  });
 });
