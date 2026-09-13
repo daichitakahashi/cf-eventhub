@@ -241,6 +241,11 @@ const cacheConditionPaths = (cond: Condition, pathCache: PathCache): void => {
     return;
   }
   const conditions = cond.allOf ?? cond.anyOf;
+  if (conditions === undefined) {
+    throw new Error(
+      "eventhub: routing condition must contain path, allOf, anyOf, or not",
+    );
+  }
   for (const nested of conditions) {
     cacheConditionPaths(nested, pathCache);
   }

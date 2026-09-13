@@ -333,6 +333,23 @@ describe("routeByConfig", () => {
     ).toThrow();
   });
 
+  test("throws a configuration error for a malformed condition", () => {
+    const env = { ORDER_HANDLER: {} as Queue };
+
+    expect(() =>
+      routeByConfig(env, {
+        routes: [
+          {
+            condition: {} as Config<typeof env>["routes"][number]["condition"],
+            destination: "ORDER_HANDLER",
+          },
+        ],
+      }),
+    ).toThrow(
+      "eventhub: routing condition must contain path, allOf, anyOf, or not",
+    );
+  });
+
   test("treats a valid path missing from an event as a non-match", () => {
     const env = { ORDER_HANDLER: {} as Queue };
     const strategy = routeByConfig(env, {
