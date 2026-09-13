@@ -204,8 +204,6 @@ export type Config<Env extends object> = {
 
 type PathCache = Map<string, readonly Token[]>;
 
-const immediate = <T>(f: () => T) => f();
-
 const isQueue = (value: unknown): value is Queue<JSONObject> =>
   typeof value === "object" && value !== null && "sendBatch" in value;
 const isR2Bucket = (value: unknown): value is R2Bucket =>
@@ -231,14 +229,25 @@ const queryWithOptionalCache = (
   return queryWithParsedPath(message, parsed);
 };
 
-const match = (message: unknown, cond: Comparator, pathCache?: PathCache) => {
-  const values = immediate(() => {
-    try {
-      return queryWithOptionalCache(message, cond.path, pathCache);
-    } catch {
-      return [];
+const cacheConditionPaths = (cond: Condition, pathCache: PathCache): void => {
+  if ("path" in cond) {
+    if (!pathCache.has(cond.path)) {
+      pathCache.set(cond.path, parsePath(cond.path));
     }
-  });
+    return;
+  }
+  if (cond.not !== undefined) {
+    cacheConditionPaths(cond.not, pathCache);
+    return;
+  }
+  const conditions = cond.allOf ?? cond.anyOf;
+  for (const nested of conditions) {
+    cacheConditionPaths(nested, pathCache);
+  }
+};
+
+const match = (message: unknown, cond: Comparator, pathCache?: PathCache) => {
+  const values = queryWithOptionalCache(message, cond.path, pathCache);
   if (values.length === 0) {
     return false;
   }
@@ -332,6 +341,9 @@ export const routeByConfig = <Env extends object>(
   options: RoutingOptions<Env> = {},
 ): RoutingStrategy<Env> => {
   const pathCache: PathCache = new Map();
+  for (const route of config.routes) {
+    cacheConditionPaths(route.condition, pathCache);
+  }
 
   return {
     [safe]: true,
