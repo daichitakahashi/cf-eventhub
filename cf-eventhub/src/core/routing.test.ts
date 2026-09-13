@@ -1,5 +1,6 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
+import * as jsonpath from "./jsonpath-lite";
 import { type Config, findRoutes, routeByConfig } from "./routing";
 
 describe("findRoutes", () => {
@@ -269,7 +270,8 @@ describe("findRoutes", () => {
 });
 
 describe("routeByConfig", () => {
-  test("stores the parsed json path cache in the strategy instance", () => {
+  test("precompiles each unique path once when the strategy is created", () => {
+    const parsePath = vi.spyOn(jsonpath, "parsePath");
     const env = {
       ORDER_HANDLER: {} as Queue,
     };
@@ -282,15 +284,84 @@ describe("routeByConfig", () => {
           },
           destination: "ORDER_HANDLER",
         },
+        {
+          condition: {
+            not: {
+              path: "$.eventName",
+              exact: "orderCancelled",
+            },
+          },
+          destination: "ORDER_HANDLER",
+        },
       ],
     });
 
-    expect(strategy.findRoutes({ eventName: "orderPlaced" })).toStrictEqual([
-      { destination: "ORDER_HANDLER" },
-    ]);
-    expect(strategy.findRoutes({ eventName: "orderPlaced" })).toStrictEqual([
-      { destination: "ORDER_HANDLER" },
-    ]);
+    expect(parsePath).toHaveBeenCalledTimes(1);
+    strategy.findRoutes({ eventName: "orderPlaced" });
+    strategy.findRoutes({ eventName: "orderPlaced" });
+    expect(parsePath).toHaveBeenCalledTimes(1);
+    parsePath.mockRestore();
+  });
+
+  test.each([
+    ["comparator", { path: "$.items[", exists: true }],
+    [
+      "allOf",
+      {
+        allOf: [
+          { path: "$.valid", exists: true },
+          { path: "$.", exists: true },
+        ],
+      },
+    ],
+    ["anyOf", { anyOf: [{ path: "$.items[nope]", exists: true }] }],
+    ["not", { not: { path: "$.valid..invalid", exists: true } }],
+  ])("throws for an invalid path nested in %s", (_name, condition) => {
+    const env = { ORDER_HANDLER: {} as Queue };
+
+    expect(() =>
+      routeByConfig(env, {
+        routes: [
+          {
+            condition: condition as Config<
+              typeof env
+            >["routes"][number]["condition"],
+            destination: "ORDER_HANDLER",
+          },
+        ],
+      }),
+    ).toThrow();
+  });
+
+  test("throws a configuration error for a malformed condition", () => {
+    const env = { ORDER_HANDLER: {} as Queue };
+
+    expect(() =>
+      routeByConfig(env, {
+        routes: [
+          {
+            condition: {} as Config<typeof env>["routes"][number]["condition"],
+            destination: "ORDER_HANDLER",
+          },
+        ],
+      }),
+    ).toThrow(
+      "eventhub: routing condition must contain path, allOf, anyOf, or not",
+    );
+  });
+
+  test("treats a valid path missing from an event as a non-match", () => {
+    const env = { ORDER_HANDLER: {} as Queue };
+    const strategy = routeByConfig(env, {
+      routes: [
+        {
+          condition: { path: "$.order.id", exists: true },
+          destination: "ORDER_HANDLER",
+        },
+      ],
+    });
+
+    expect(strategy.findRoutes({ eventName: "orderPlaced" })).toStrictEqual([]);
   });
 
   test("resolves queue and R2 destinations from env", () => {
