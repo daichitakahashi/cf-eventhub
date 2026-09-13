@@ -304,6 +304,72 @@ describe("routeByConfig", () => {
   });
 
   test.each([
+    ["global", /^order/g],
+    ["sticky", /^order/y],
+    ["global and sticky", /^order/gy],
+  ])("rejects a match expression with %s flags", (_name, pattern) => {
+    const env = { ORDER_HANDLER: {} as Queue };
+
+    expect(() =>
+      routeByConfig(env, {
+        routes: [
+          {
+            condition: { path: "$.eventName", match: pattern },
+            destination: "ORDER_HANDLER",
+          },
+        ],
+      }),
+    ).toThrow(
+      "eventhub: routing match expression must not use global or sticky flags",
+    );
+  });
+
+  test.each([
+    ["allOf", { allOf: [{ path: "$.eventName", match: /^order/g }] }],
+    ["anyOf", { anyOf: [{ path: "$.eventName", match: /^order/y }] }],
+    ["not", { not: { path: "$.eventName", match: /^order/g } }],
+  ])("rejects a stateful match expression nested in %s", (_name, condition) => {
+    const env = { ORDER_HANDLER: {} as Queue };
+
+    expect(() =>
+      routeByConfig(env, {
+        routes: [
+          {
+            condition: condition as Config<
+              typeof env
+            >["routes"][number]["condition"],
+            destination: "ORDER_HANDLER",
+          },
+        ],
+      }),
+    ).toThrow(
+      "eventhub: routing match expression must not use global or sticky flags",
+    );
+  });
+
+  test("routes repeated payloads deterministically with a stateless expression", () => {
+    const env = { ORDER_HANDLER: {} as Queue };
+    const strategy = routeByConfig(env, {
+      routes: [
+        {
+          condition: { path: "$.eventName", match: /^order/ },
+          destination: "ORDER_HANDLER",
+        },
+      ],
+    });
+
+    expect([
+      strategy.findRoutes({ eventName: "order.created" }),
+      strategy.findRoutes({ eventName: "order.created" }),
+      strategy.findRoutes({ eventName: "order.created" }),
+    ]).toStrictEqual([
+      [{ destination: "ORDER_HANDLER" }],
+      [{ destination: "ORDER_HANDLER" }],
+      [{ destination: "ORDER_HANDLER" }],
+    ]);
+  });
+
+  test.each([
     ["comparator", { path: "$.items[", exists: true }],
     [
       "allOf",
