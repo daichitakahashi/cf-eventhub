@@ -120,6 +120,7 @@ type Comparator = {
     }
   | {
       exact?: never;
+      /** Stateful global (`g`) and sticky (`y`) flags are not supported. */
       match: RegExp;
       exists?: never;
       lte?: never;
@@ -229,15 +230,23 @@ const queryWithOptionalCache = (
   return queryWithParsedPath(message, parsed);
 };
 
-const cacheConditionPaths = (cond: Condition, pathCache: PathCache): void => {
+const validateAndCacheCondition = (
+  cond: Condition,
+  pathCache: PathCache,
+): void => {
   if ("path" in cond) {
+    if (cond.match !== undefined && (cond.match.global || cond.match.sticky)) {
+      throw new Error(
+        "eventhub: routing match expression must not use global or sticky flags",
+      );
+    }
     if (!pathCache.has(cond.path)) {
       pathCache.set(cond.path, parsePath(cond.path));
     }
     return;
   }
   if (cond.not !== undefined) {
-    cacheConditionPaths(cond.not, pathCache);
+    validateAndCacheCondition(cond.not, pathCache);
     return;
   }
   const conditions = cond.allOf ?? cond.anyOf;
@@ -247,7 +256,7 @@ const cacheConditionPaths = (cond: Condition, pathCache: PathCache): void => {
     );
   }
   for (const nested of conditions) {
-    cacheConditionPaths(nested, pathCache);
+    validateAndCacheCondition(nested, pathCache);
   }
 };
 
@@ -347,7 +356,7 @@ export const routeByConfig = <Env extends object>(
 ): RoutingStrategy<Env> => {
   const pathCache: PathCache = new Map();
   for (const route of config.routes) {
-    cacheConditionPaths(route.condition, pathCache);
+    validateAndCacheCondition(route.condition, pathCache);
   }
 
   return {

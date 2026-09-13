@@ -346,6 +346,8 @@ export class MyEventHub extends EventHub<Env> {
 ```
 
 Supported operators are `exact`, `match`, `exists`, `lt`, `lte`, `gt`, `gte`, `allOf`, `anyOf`, and `not`.
+Regular expressions used with `match` must not use the stateful global (`g`) or
+sticky (`y`) flags.
 
 For routing rules that are easier to express in code, use `routeFunc()`:
 

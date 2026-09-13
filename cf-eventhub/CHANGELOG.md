@@ -9,6 +9,10 @@
 - Add delivery instance metadata and `getEventHubFromPayload()` for resolving the originating EventHub from shared destination payloads.
 - Add configurable, destination-aware object keys for direct R2 delivery through `routeByConfig()` and `routeFunc()`.
 
+### Patch Changes
+
+- Reject stateful global or sticky regular expressions in `routeByConfig()` match conditions.
+
 ## 0.3.5
 
 ### Patch Changes
