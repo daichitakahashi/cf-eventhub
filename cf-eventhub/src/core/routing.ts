@@ -80,6 +80,19 @@ type FoundRoute<Env extends object> = {
   destination: Destinations<Env>;
 };
 
+const uniqueRoutes = <Env extends object>(
+  routes: FoundRoute<Env>[],
+): FoundRoute<Env>[] => {
+  const destinations = new Set<Destinations<Env>>();
+  return routes.filter(({ destination }) => {
+    if (destinations.has(destination)) {
+      return false;
+    }
+    destinations.add(destination);
+    return true;
+  });
+};
+
 type JSONPrimitive = string | number | boolean | null;
 
 type Comparator = {
@@ -310,11 +323,13 @@ export const findRoutes = <Env extends object>(
 ): FoundRoute<Env>[] => {
   const matcher = matchCond(message, pathCache);
 
-  return c.routes
-    .filter((r) => matcher(r.condition))
-    .map(({ destination }) => ({
-      destination,
-    }));
+  return uniqueRoutes(
+    c.routes
+      .filter((r) => matcher(r.condition))
+      .map(({ destination }) => ({
+        destination,
+      })),
+  );
 };
 
 const resolveDestinationBinding = <Env extends object>(
@@ -373,7 +388,7 @@ export const routeFunc = <Env extends object>(
   options: RoutingOptions<Env> = {},
 ): RoutingStrategy<Env> => ({
   [safe]: true,
-  findRoutes: fn,
+  findRoutes: (message: JSONObject) => uniqueRoutes(fn(message)),
   resolveDestination: (destination: Destinations<Env>) =>
     resolveDestinationBinding(env, destination, options),
 });
