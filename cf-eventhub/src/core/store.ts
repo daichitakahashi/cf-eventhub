@@ -1,5 +1,5 @@
 import type { RoutingStrategy } from "./routing";
-import type { EventPayload } from "./type";
+import { type EventPayload, normalizeEventPayload } from "./type";
 
 // Raw row shape used when loading persisted jobs with their payload body.
 type PersistedDeliveryJobRow = {
@@ -309,12 +309,15 @@ export const createPendingDeliveryJobs = <Env extends object>(
   routing: RoutingStrategy<Env>,
   payloads: readonly [EventPayload, ...EventPayload[]],
 ): PendingDeliveryJobs => ({
-  payloads: payloads.map((payload) => ({
-    payload,
-    destinations: routing
-      .findRoutes(payload)
-      .map(({ destination }) => String(destination)),
-  })),
+  payloads: payloads.map((payload) => {
+    const normalizedPayload = normalizeEventPayload(payload);
+    return {
+      payload: normalizedPayload,
+      destinations: routing
+        .findRoutes(normalizedPayload)
+        .map(({ destination }) => String(destination)),
+    };
+  }),
 });
 
 // Persists payloads and delivery jobs and returns the created jobs for dispatch.

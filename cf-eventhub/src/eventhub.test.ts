@@ -101,6 +101,69 @@ describe("EventHub integration", () => {
     });
   });
 
+  test("persists and delivers the same normalized payload on every attempt", async () => {
+    // 1. Publish a payload with normalization-sensitive values.
+    // 2. Rewind the completed job and retry it through the alarm.
+    // 3. Compare storage, initial delivery, and retry delivery.
+    const stub = getStubWithJobId("normalized-first-delivery");
+
+    await stub.publish({
+      type: "queue",
+      omitted: undefined,
+      values: [undefined],
+    });
+
+    await vi.waitFor(async () => {
+      await runInDurableObject(stub, async (_instance, state) => {
+        const job = state.storage.sql
+          .exec<Pick<DeliveryJobRow, "finalized_at">>(
+            "SELECT finalized_at FROM delivery_jobs",
+          )
+          .one();
+        expect(job.finalized_at).toEqual(expect.any(String));
+      });
+    });
+
+    await runInDurableObject(stub, async (instance, state) => {
+      const job = state.storage.sql
+        .exec<Pick<DeliveryJobRow, "id">>("SELECT id FROM delivery_jobs")
+        .one();
+      state.storage.sql.exec(
+        `
+					UPDATE delivery_jobs
+					SET final_status = NULL,
+						finalized_at = NULL,
+						next_retry_at = ?
+					WHERE id = ?
+				`,
+        new Date(Date.now() - 1_000).toISOString(),
+        job.id,
+      );
+      await instance.alarm?.();
+
+      const stored = state.storage.sql
+        .exec<Pick<PayloadRow, "body">>("SELECT body FROM payloads")
+        .one();
+      const delivered = (instance as TestEventHubWithJobId).queue.sentBatches
+        .flat()
+        .map(({ body }) => body);
+
+      expect({
+        stored: JSON.parse(stored.body),
+        delivered,
+      }).toMatchObject({
+        stored: { type: "queue", values: [null] },
+        delivered: [
+          { type: "queue", values: [null] },
+          { type: "queue", values: [null] },
+        ],
+      });
+      expect(stored.body).not.toContain("omitted");
+      expect(delivered).toHaveLength(2);
+      expect(delivered.every((body) => !("omitted" in body))).toBe(true);
+    });
+  });
+
   test("persists payload even when no destination matches", async () => {
     // 1. Publish an unroutable payload through EventHub.
     // 2. Verify only the payload row is stored.
@@ -1677,7 +1740,7 @@ describe("includeDeliveryMetadata configuration", () => {
     const stub = getStubWithJobId(
       "custom-r2-key",
     ) as DurableObjectStub<TestEventHubWithJobId>;
-    const payload = { type: "archive" };
+    const payload = { type: "archive", keyParts: [] };
 
     await stub.publish(payload);
 
@@ -1699,6 +1762,60 @@ describe("includeDeliveryMetadata configuration", () => {
           finalizedAt: expect.any(String),
           objects: [key],
         });
+      });
+    });
+  });
+
+  test("uses the same normalized payload for R2 keys on every attempt", async () => {
+    // 1. Publish a payload whose array entry changes when JSON-normalized.
+    // 2. Rewind the completed job and retry it through the alarm.
+    // 3. Verify both attempts resolve to the same normalized object key.
+    const stub = getStubWithJobId("normalized-r2-key");
+
+    await stub.publish({ type: "archive", keyParts: [undefined] });
+
+    await vi.waitFor(async () => {
+      await runInDurableObject(stub, async (_instance, state) => {
+        const job = state.storage.sql
+          .exec<Pick<DeliveryJobRow, "id" | "finalized_at">>(
+            "SELECT id, finalized_at FROM delivery_jobs",
+          )
+          .one();
+        expect(job.finalized_at).toEqual(expect.any(String));
+      });
+    });
+
+    await runInDurableObject(stub, async (instance, state) => {
+      const job = state.storage.sql
+        .exec<Pick<DeliveryJobRow, "id" | "payload_id" | "finalized_at">>(
+          "SELECT id, payload_id, finalized_at FROM delivery_jobs",
+        )
+        .one();
+      state.storage.sql.exec(
+        `
+					UPDATE delivery_jobs
+					SET final_status = NULL,
+						finalized_at = NULL,
+						next_retry_at = ?
+					WHERE id = ?
+				`,
+        new Date(Date.now() - 1_000).toISOString(),
+        job.id,
+      );
+      await instance.alarm?.();
+
+      const expectedKey = `custom/normalized-r2-key/BUCKET/null/${job.payload_id}/${job.id}.json`;
+
+      expect({
+        finalizedAt: state.storage.sql
+          .exec<Pick<DeliveryJobRow, "finalized_at">>(
+            "SELECT finalized_at FROM delivery_jobs",
+          )
+          .one().finalized_at,
+        objects: [...(instance as TestEventHubWithJobId).bucket.objects.keys()],
+      }).toStrictEqual({
+        finalizedAt: expect.any(String),
+        objects: [expectedKey],
       });
     });
   });

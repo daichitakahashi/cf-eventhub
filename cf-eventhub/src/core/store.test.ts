@@ -2,7 +2,7 @@ import { runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { assert, describe, expect, test, vi } from "vitest";
 
-import { routeByConfig } from "./routing";
+import { routeByConfig, routeFunc } from "./routing";
 import {
   advanceEvictionPage,
   completeAutomaticEviction,
@@ -26,6 +26,7 @@ import {
   recordEvictionFailure,
   redriveDeliveryJob,
 } from "./store";
+import type { JSONObject } from "./type";
 
 type PayloadRow = {
   id: string;
@@ -117,6 +118,51 @@ describe("createPendingDeliveryJobs", () => {
         },
       ],
     });
+  });
+
+  test("normalizes payloads before evaluating routes", () => {
+    // 1. Route a payload containing undefined object and array values.
+    // 2. Verify both the router input and pending payload use JSON semantics.
+    const findRoutes = vi.fn((_payload: JSONObject) => []);
+    const observedRouting = routeFunc(
+      env as unknown as {
+        OKAYAMA: Queue;
+        HOKKAIDO: Queue;
+        OKINAWA: Queue;
+      },
+      findRoutes,
+    );
+    const pending = createPendingDeliveryJobs(observedRouting, [
+      {
+        kind: "culture",
+        omitted: undefined,
+        values: [undefined],
+      },
+    ]);
+
+    expect({
+      pending,
+      routedPayload: findRoutes.mock.calls[0]?.[0],
+    }).toStrictEqual({
+      pending: {
+        payloads: [
+          {
+            payload: { kind: "culture", values: [null] },
+            destinations: [],
+          },
+        ],
+      },
+      routedPayload: { kind: "culture", values: [null] },
+    });
+  });
+
+  test("rejects payloads that cannot be represented as JSON objects", () => {
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+
+    expect(() =>
+      createPendingDeliveryJobs(routing, [circular as never]),
+    ).toThrow("eventhub: payload must be a JSON-serializable object");
   });
 });
 
