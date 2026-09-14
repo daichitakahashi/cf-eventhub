@@ -53,6 +53,8 @@ export type ListedDeliveryJob = DeliveryJobStatus & {
 };
 
 export type ListedPayload = {
+  payloadId: string;
+  createdAt: string;
   payload: EventPayload;
   deliveryJobs: ListedDeliveryJob[];
 };
@@ -936,7 +938,9 @@ export const list = (
     cursor: hasMore
       ? encodeCursor(lastRow.created_at, lastRow.payload_id)
       : undefined,
-    payloads: payloadRows.map(({ payload_id, body }) => ({
+    payloads: payloadRows.map(({ payload_id, body, created_at }) => ({
+      payloadId: payload_id,
+      createdAt: created_at,
       payload: JSON.parse(body) as EventPayload,
       deliveryJobs: jobsByPayloadId.get(payload_id) ?? [],
     })),
@@ -1209,7 +1213,9 @@ export const listEjected = (
     cursor: hasMore
       ? encodeCursor(lastRow.created_at, lastRow.payload_id)
       : undefined,
-    payloads: payloadRows.map(({ payload_id, body }) => ({
+    payloads: payloadRows.map(({ payload_id, body, created_at }) => ({
+      payloadId: payload_id,
+      createdAt: created_at,
       payload: JSON.parse(body) as EventPayload,
       deliveryJobs: jobsByPayloadId.get(payload_id) ?? [],
     })),

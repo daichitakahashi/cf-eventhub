@@ -606,10 +606,14 @@ describe("EventHub integration", () => {
       cursor: expect.any(String),
       payloads: [
         {
+          payloadId: expect.any(String),
+          createdAt: "2026-05-04T00:00:00.000Z",
           payload: { kind: "culture", avoidUrban: true },
           deliveryJobs: [{ finalStatus: "completed" }],
         },
         {
+          payloadId: expect.any(String),
+          createdAt: "2026-05-04T00:00:00.000Z",
           payload: { kind: "nature", avoidUrban: false },
           deliveryJobs: [
             { finalStatus: "completed" },
@@ -650,7 +654,14 @@ describe("EventHub integration", () => {
       allPayloads,
     }).toMatchObject({
       secondPage: {
-        payloads: [{ payload: { kind: "other" }, deliveryJobs: [] }],
+        payloads: [
+          {
+            payloadId: expect.any(String),
+            createdAt: "2026-05-04T00:00:30.000Z",
+            payload: { kind: "other" },
+            deliveryJobs: [],
+          },
+        ],
       },
       allPayloads: [
         { kind: "culture", avoidUrban: true },
@@ -1289,6 +1300,25 @@ describe("automatic eviction", () => {
       expect(afterPage.objects.map(({ key }) => key)).toStrictEqual([
         `${prefix}/pages/000000.json`,
       ]);
+      const pageObject = await env.EVICTION_ARCHIVE.get(
+        `${prefix}/pages/000000.json`,
+      );
+      expect(await pageObject?.json()).toMatchObject({
+        payloads: [
+          {
+            payloadId: expect.any(String),
+            createdAt: expect.any(String),
+            payload: { kind: "other", ordinal: 1 },
+            deliveryJobs: [],
+          },
+          {
+            payloadId: expect.any(String),
+            createdAt: expect.any(String),
+            payload: { kind: "other", ordinal: 2 },
+            deliveryJobs: [],
+          },
+        ],
+      });
 
       await (instance as TestEventHubWithArchiveEviction).alarm();
       const archived = await env.EVICTION_ARCHIVE.list({ prefix });

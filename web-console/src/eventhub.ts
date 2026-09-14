@@ -28,7 +28,7 @@ export type ConsoleDeliveryJob = {
 
 export type ConsoleEvent = {
   id: string;
-  createdAt: string | null;
+  createdAt: string;
   payload: EventPayload;
   deliveryJobs: ConsoleDeliveryJob[];
 };
@@ -61,6 +61,7 @@ export const getEventsLastUpdatedAt = (events: ConsoleEvent[]): number =>
     (lastUpdatedAt, event) =>
       Math.max(
         lastUpdatedAt,
+        toTimestamp(event.createdAt),
         ...event.deliveryJobs.map((job) =>
           toTimestamp(getDeliveryJobUpdatedAt(job)),
         ),
@@ -68,36 +69,25 @@ export const getEventsLastUpdatedAt = (events: ConsoleEvent[]): number =>
     0,
   );
 
-const toCreatedAt = (jobs: ListedDeliveryJob[]): string | null =>
-  jobs.reduce<string | null>((oldest, job) => {
-    if (!oldest || job.createdAt < oldest) return job.createdAt;
-    return oldest;
-  }, null);
-
 export const normalizeEvents = (result: ListResult): ConsoleEvent[] =>
-  result.payloads.map((item, index) => {
-    const createdAt = toCreatedAt(item.deliveryJobs);
-    const fallbackId =
-      createdAt === null ? `payload-no-delivery-${index}` : `payload-${index}`;
-    return {
-      id: item.deliveryJobs[0]?.payloadId ?? fallbackId,
-      createdAt,
-      payload: item.payload,
-      deliveryJobs: item.deliveryJobs.map((job) => ({
-        id: job.id,
-        payloadId: job.payloadId,
-        destination: job.destination,
-        status: job.failureReportedAt
-          ? "consumer_failed"
-          : job.finalStatus || "ongoing",
-        retryCount: job.retryCount,
-        createdAt: job.createdAt,
-        lastFailedAt: job.lastFailedAt,
-        lastError: job.lastError,
-        nextRetryAt: job.nextRetryAt,
-        finalStatus: job.finalStatus,
-        finalizedAt: job.finalizedAt,
-        failureReportedAt: job.failureReportedAt,
-      })),
-    };
-  });
+  result.payloads.map((item) => ({
+    id: item.payloadId,
+    createdAt: item.createdAt,
+    payload: item.payload,
+    deliveryJobs: item.deliveryJobs.map((job) => ({
+      id: job.id,
+      payloadId: job.payloadId,
+      destination: job.destination,
+      status: job.failureReportedAt
+        ? "consumer_failed"
+        : job.finalStatus || "ongoing",
+      retryCount: job.retryCount,
+      createdAt: job.createdAt,
+      lastFailedAt: job.lastFailedAt,
+      lastError: job.lastError,
+      nextRetryAt: job.nextRetryAt,
+      finalStatus: job.finalStatus,
+      finalizedAt: job.finalizedAt,
+      failureReportedAt: job.failureReportedAt,
+    })),
+  }));
