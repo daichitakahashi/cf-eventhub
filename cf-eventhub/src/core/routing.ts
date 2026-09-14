@@ -80,7 +80,7 @@ type FoundRoute<Env extends object> = {
   destination: Destinations<Env>;
 };
 
-const uniqueRoutes = <Env extends object>(
+const dedupeRoutesByDestination = <Env extends object>(
   routes: FoundRoute<Env>[],
 ): FoundRoute<Env>[] => {
   const destinations = new Set<Destinations<Env>>();
@@ -323,7 +323,7 @@ export const findRoutes = <Env extends object>(
 ): FoundRoute<Env>[] => {
   const matcher = matchCond(message, pathCache);
 
-  return uniqueRoutes(
+  return dedupeRoutesByDestination(
     c.routes
       .filter((r) => matcher(r.condition))
       .map(({ destination }) => ({
@@ -388,7 +388,7 @@ export const routeFunc = <Env extends object>(
   options: RoutingOptions<Env> = {},
 ): RoutingStrategy<Env> => ({
   [safe]: true,
-  findRoutes: (message: JSONObject) => uniqueRoutes(fn(message)),
+  findRoutes: (message: JSONObject) => dedupeRoutesByDestination(fn(message)),
   resolveDestination: (destination: Destinations<Env>) =>
     resolveDestinationBinding(env, destination, options),
 });
