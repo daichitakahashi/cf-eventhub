@@ -1,7 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 
 import * as jsonpath from "./jsonpath-lite";
-import { type Config, findRoutes, routeByConfig } from "./routing";
+import { type Config, findRoutes, routeByConfig, routeFunc } from "./routing";
 
 describe("findRoutes", () => {
   test("returns destination for exact comparator", () => {
@@ -56,6 +56,32 @@ describe("findRoutes", () => {
     expect(findRoutes(config, { orderId: null })).toStrictEqual([
       { destination: "ORDER_HANDLER" },
     ]);
+  });
+
+  test("returns each matching destination once in route order", () => {
+    const config: Config<{
+      EVENTS: Queue;
+      AUDIT: Queue;
+    }> = {
+      routes: [
+        {
+          condition: { path: "$.type", exact: "order.created" },
+          destination: "EVENTS",
+        },
+        {
+          condition: { path: "$.priority", exact: "high" },
+          destination: "AUDIT",
+        },
+        {
+          condition: { path: "$.priority", exact: "high" },
+          destination: "EVENTS",
+        },
+      ],
+    };
+
+    expect(
+      findRoutes(config, { type: "order.created", priority: "high" }),
+    ).toStrictEqual([{ destination: "EVENTS" }, { destination: "AUDIT" }]);
   });
 
   test("treats undefined properties as absent for exists comparator", () => {
@@ -473,5 +499,26 @@ describe("routeByConfig", () => {
       bucket,
       objectKey: r2ObjectKey,
     });
+  });
+});
+
+describe("routeFunc", () => {
+  test("returns each destination once in callback order", () => {
+    const strategy = routeFunc(
+      {
+        EVENTS: {} as Queue,
+        AUDIT: {} as Queue,
+      },
+      () => [
+        { destination: "EVENTS" },
+        { destination: "AUDIT" },
+        { destination: "EVENTS" },
+      ],
+    );
+
+    expect(strategy.findRoutes({})).toStrictEqual([
+      { destination: "EVENTS" },
+      { destination: "AUDIT" },
+    ]);
   });
 });

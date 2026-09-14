@@ -319,6 +319,11 @@ Delivery retries and eviction share the Durable Object's single alarm, with deli
 
 Define routing rules by extending `EventHub` and assigning a `RoutingStrategy` to the `routing` field. Use `routeByConfig(env, config)` to create a strategy from a route configuration. The `destination` value must match the binding name of a Queue or R2 bucket. The routing strategy resolves destination bindings from the Worker environment, so mismatched names fail when the strategy validates or resolves that destination.
 
+Each published payload is delivered once per unique matching destination. With
+`routeByConfig()`, destinations are ordered by their first matching rule.
+`routeFunc()` applies the same uniqueness rule and preserves the order in which
+each destination first appears in the callback result.
+
 ```ts
 import { env } from "cloudflare:workers";
 import { EventHub, routeByConfig } from "cf-eventhub";
