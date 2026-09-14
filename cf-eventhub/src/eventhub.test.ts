@@ -1740,7 +1740,7 @@ describe("includeDeliveryMetadata configuration", () => {
     const stub = getStubWithJobId(
       "custom-r2-key",
     ) as DurableObjectStub<TestEventHubWithJobId>;
-    const payload = { type: "archive" };
+    const payload = { type: "archive", keyParts: [] };
 
     await stub.publish(payload);
 

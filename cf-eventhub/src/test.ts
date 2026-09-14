@@ -158,9 +158,11 @@ export class TestEventHubWithJobId extends EventHub<EnvForTestEventHubWithJobId>
             instanceId,
             instanceName,
           }) => {
-            const payloadKey = Array.isArray(payload.keyParts)
+            const firstKeyPart = Array.isArray(payload.keyParts)
               ? payload.keyParts[0]
-              : payload.type;
+              : undefined;
+            const payloadKey =
+              firstKeyPart === undefined ? payload.type : firstKeyPart;
             return `custom/${instanceName ?? instanceId}/${destination}/${String(payloadKey)}/${payloadId}/${deliveryJobId}.json`;
           },
         },
