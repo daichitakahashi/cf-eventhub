@@ -7,57 +7,57 @@
   "migrations": [
     {
       "new_sqlite_classes": ["DevEventHub"],
-      "tag": "v1",
+      "tag": "v1"
     },
     {
       "new_sqlite_classes": ["EventHubRegistry"],
-      "tag": "v2",
-    },
+      "tag": "v2"
+    }
   ],
   "durable_objects": {
     "bindings": [
       {
         "class_name": "DevEventHub",
-        "name": "EVENT_HUB",
+        "name": "EVENT_HUB"
       },
       {
         "class_name": "EventHubRegistry",
-        "name": "EVENT_HUB_REGISTRY",
-      },
-    ],
+        "name": "EVENT_HUB_REGISTRY"
+      }
+    ]
   },
   "queues": {
     "producers": [
       {
         "binding": "STABLE_QUEUE",
-        "queue": "stable-queue",
+        "queue": "stable-queue"
       },
       {
         "binding": "FLAKY_QUEUE",
-        "queue": "flaky-queue",
-      },
+        "queue": "flaky-queue"
+      }
     ],
     "consumers": [
       {
         "queue": "stable-queue",
         "max_retries": 0,
-        "dead_letter_queue": "dlq",
+        "dead_letter_queue": "dlq"
       },
       {
         "queue": "flaky-queue",
         "max_retries": 0,
-        "dead_letter_queue": "dlq",
+        "dead_letter_queue": "dlq"
       },
       {
         "queue": "dlq",
-        "max_retries": 0,
-      },
-    ],
+        "max_retries": 0
+      }
+    ]
   },
   "r2_buckets": [
     {
       "bucket_name": "sink",
-      "binding": "SINK_BUCKET",
-    },
-  ],
+      "binding": "SINK_BUCKET"
+    }
+  ]
 }

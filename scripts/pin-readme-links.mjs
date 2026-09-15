@@ -5,11 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const repository = "daichitakahashi/cf-eventhub";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const readmes = [
-  "README.md",
-  "cf-eventhub/README.md",
-  "web-console/README.md",
-];
+const readmes = ["README.md", "cf-eventhub/README.md", "web-console/README.md"];
 
 const revision = (
   process.env.GITHUB_SHA ??
