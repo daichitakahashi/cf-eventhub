@@ -38,8 +38,16 @@ describe("EventHubRegistry", () => {
     expect(Date.parse(refreshed.lastSeenAt)).toBeGreaterThan(
       Date.parse(created.lastSeenAt) - 1_000,
     );
+    expect(await stub.get("tenant:acme")).toMatchObject({
+      name: "tenant:acme",
+      status: "active",
+    });
 
     expect(await stub.delete("tenant:acme")).toBe(true);
+    expect(await stub.get("tenant:acme")).toMatchObject({
+      name: "tenant:acme",
+      status: "deleted",
+    });
     const deleted = await stub.list({ status: "deleted" });
     expect(deleted.instances).toMatchObject([
       { name: "tenant:acme", status: "deleted" },
@@ -113,10 +121,14 @@ describe("EventHubRegistry", () => {
 
   test("rejects invalid inputs and does not tombstone unknown names", async () => {
     const stub = registry("validation");
+    await expect(stub.get("unknown")).resolves.toBeNull();
     await expect(stub.delete("unknown")).resolves.toBe(false);
     await runInDurableObject(stub, async (instance) => {
       const registryInstance = instance as EventHubRegistry;
       await expect(registryInstance.register("")).rejects.toThrow(
+        "name must not be empty",
+      );
+      await expect(registryInstance.get("")).rejects.toThrow(
         "name must not be empty",
       );
       await expect(registryInstance.list({ max: 0 })).rejects.toThrow("1..100");

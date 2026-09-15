@@ -159,9 +159,11 @@ The `EventHub` Durable Object exposes the following RPC methods:
 
 `payload` must be a JSON object.
 
-`EventHubRegistry` exposes `register(name)`, `list(options?)`, and
-`delete(name)`. `list()` returns active instances by default and can filter
-`active`, `stale`, or `deleted` entries with name-ordered cursor pagination.
+`EventHubRegistry` exposes `register(name)`, `get(name)`, `list(options?)`, and
+`delete(name)`. `get()` returns one active, stale, or deleted entry, or `null`
+when the name is unknown. `list()` returns active instances by default and can
+filter `active`, `stale`, or `deleted` entries with name-ordered cursor
+pagination.
 
 ## EventHub Registry
 

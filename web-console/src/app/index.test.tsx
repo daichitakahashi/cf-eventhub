@@ -48,6 +48,11 @@ const setup = ({
         status === "stale" ? stale : status === "deleted" ? [] : active,
     }),
   );
+  const registryGet = vi.fn(async (name: string) => {
+    return (
+      [...active, ...stale].find((candidate) => candidate.name === name) ?? null
+    );
+  });
   const registryDelete = vi.fn(async () => true);
   const bindings = {
     EVENT_HUB: {
@@ -55,6 +60,7 @@ const setup = ({
     } as unknown as DurableObjectNamespace<EventHub>,
     EVENT_HUB_REGISTRY: {
       getByName: vi.fn(() => ({
+        get: registryGet,
         list: registryList,
         delete: registryDelete,
       })),
@@ -66,6 +72,7 @@ const setup = ({
     hubs,
     eventHubGetByName,
     registryList,
+    registryGet,
     registryDelete,
   };
 };
@@ -224,7 +231,7 @@ describe("EventHub instance URL state", () => {
   });
 
   test("routes publish and redirects back to the selected instance", async () => {
-    const { app, bindings, hubs } = setup();
+    const { app, bindings, hubs, registryGet, registryList } = setup();
     const response = await app.request(
       "http://localhost/api/events?instance=beta",
       {
@@ -236,6 +243,23 @@ describe("EventHub instance URL state", () => {
 
     expect(hubs.get("beta")?.publish).toHaveBeenCalledWith({ kind: "test" });
     expect(hubs.get("alpha")?.publish).not.toHaveBeenCalled();
+    expect(registryGet).toHaveBeenCalledExactlyOnceWith("beta");
+    expect(registryList).not.toHaveBeenCalled();
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("/?instance=beta");
+  });
+
+  test("routes redrive without listing Registry instances", async () => {
+    const { app, bindings, hubs, registryGet, registryList } = setup();
+    const response = await app.request(
+      "http://localhost/api/delivery-jobs/job-1/retry?instance=beta",
+      { method: "POST" },
+      bindings,
+    );
+
+    expect(hubs.get("beta")?.redrive).toHaveBeenCalledExactlyOnceWith("job-1");
+    expect(registryGet).toHaveBeenCalledExactlyOnceWith("beta");
+    expect(registryList).not.toHaveBeenCalled();
     expect(response.status).toBe(302);
     expect(response.headers.get("location")).toBe("/?instance=beta");
   });
@@ -318,6 +342,20 @@ describe("EventHub instance URL state", () => {
     expect(registryDelete).not.toHaveBeenCalled();
   });
 
+  test("does not resolve a deleted instance", async () => {
+    const configured = setup();
+    configured.registryGet.mockResolvedValue(instance("deleted", "deleted"));
+
+    const response = await configured.app.request(
+      "http://localhost/api/events/latest?instance=deleted",
+      {},
+      configured.bindings,
+    );
+
+    expect(response.status).toBe(404);
+    expect(configured.eventHubGetByName).not.toHaveBeenCalled();
+  });
+
   test("requires an explicit instance when deleting", async () => {
     const { app, bindings, registryDelete } = setup();
     const response = await app.request(
@@ -332,7 +370,7 @@ describe("EventHub instance URL state", () => {
 
   test("reports Registry unavailability when instance lookup fails", async () => {
     const configured = setup();
-    configured.registryList.mockRejectedValue(new Error("registry offline"));
+    configured.registryGet.mockRejectedValue(new Error("registry offline"));
 
     const response = await configured.app.request(
       "http://localhost/api/instances/delete?instance=old",
@@ -390,5 +428,7 @@ describe("latest event polling", () => {
     expect(await response.json()).toStrictEqual({
       lastUpdatedAt: Date.parse("2026-09-15T01:02:03.000Z"),
     });
+    expect(configured.registryGet).toHaveBeenCalledExactlyOnceWith("alpha");
+    expect(configured.registryList).not.toHaveBeenCalled();
   });
 });

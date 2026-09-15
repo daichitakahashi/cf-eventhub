@@ -321,25 +321,36 @@ export const createHandler = ({
       const search = new URL(c.req.url).searchParams;
       const requestedInstance = search.get("instance") ?? undefined;
       const showStale = search.get("showStale") === "1";
+      const isApiRequest = new URL(c.req.url).pathname.startsWith("/api/");
       let instances: Awaited<ReturnType<typeof listAllInstances>> = [];
       let selectedInstance: (typeof instances)[number] | undefined;
       let registryError: string | undefined;
 
       try {
-        const active = await listAllInstances(registryStub, "active");
-        const requestedIsActive = active.some(
-          (instance) => instance.name === requestedInstance,
-        );
-        const stale =
-          showStale ||
-          active.length === 0 ||
-          (requestedInstance && !requestedIsActive)
-            ? await listAllInstances(registryStub, "stale")
-            : [];
-        instances = [...active, ...stale];
-        selectedInstance = requestedInstance
-          ? instances.find((instance) => instance.name === requestedInstance)
-          : active[0];
+        if (isApiRequest) {
+          const requested = requestedInstance
+            ? await registryStub.get(requestedInstance)
+            : null;
+          selectedInstance =
+            requested?.status === "active" || requested?.status === "stale"
+              ? requested
+              : undefined;
+        } else {
+          const active = await listAllInstances(registryStub, "active");
+          const requestedIsActive = active.some(
+            (instance) => instance.name === requestedInstance,
+          );
+          const stale =
+            showStale ||
+            active.length === 0 ||
+            (requestedInstance && !requestedIsActive)
+              ? await listAllInstances(registryStub, "stale")
+              : [];
+          instances = [...active, ...stale];
+          selectedInstance = requestedInstance
+            ? instances.find((instance) => instance.name === requestedInstance)
+            : active[0];
+        }
       } catch (error) {
         registryError = error instanceof Error ? error.message : String(error);
       }
