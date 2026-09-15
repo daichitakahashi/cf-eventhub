@@ -153,6 +153,11 @@ refresh its liveness or revive a Registry tombstone. Registry failure does not
 affect the EventHub data plane; the console displays a distinct Registry error
 state.
 
+Instance-specific API requests validate the selected name with a direct
+Registry lookup. Only the instance selector enumerates Registry pages, so
+polling, publishing, and redrive requests do not scale with the total number of
+registered instances.
+
 ## Protecting with Cloudflare Access
 
 The console is an operational interface. It can display event payloads, expose

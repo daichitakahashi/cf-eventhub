@@ -79,6 +79,24 @@ export const registerInstance = (
   return toInstance(row, staleCutoff);
 };
 
+export const getInstance = (
+  sql: SqlStorage,
+  name: string,
+  staleCutoff: number,
+): RegistryInstance | null => {
+  const row = sql
+    .exec<RegistryInstanceRow>(
+      `
+			SELECT name, first_seen_at, last_seen_at, deleted_at
+			FROM eventhub_instances
+			WHERE name = ?
+		`,
+      name,
+    )
+    .toArray()[0];
+  return row ? toInstance(row, staleCutoff) : null;
+};
+
 export const listInstances = (
   sql: SqlStorage,
   status: RegistryInstanceStatus,

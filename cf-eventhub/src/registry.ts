@@ -3,6 +3,7 @@ import { DurableObject } from "cloudflare:workers";
 import {
   type RegistryInstance,
   type RegistryInstanceStatus,
+  getInstance,
   initializeRegistrySchema,
   listInstances,
   registerInstance,
@@ -77,6 +78,15 @@ export class EventHubRegistry extends DurableObject<Record<string, never>> {
       name,
       now,
       now - EVENT_HUB_STALE_AFTER_MS,
+    );
+  }
+
+  async get(name: string): Promise<EventHubInstance | null> {
+    assertName(name);
+    return getInstance(
+      this.ctx.storage.sql,
+      name,
+      Date.now() - EVENT_HUB_STALE_AFTER_MS,
     );
   }
 

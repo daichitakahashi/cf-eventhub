@@ -3,12 +3,36 @@ import { env } from "cloudflare:workers";
 import { describe, expect, test } from "vitest";
 
 import {
+  getInstance,
   listInstances,
   registerInstance,
   tombstoneInstance,
 } from "./registry-store";
 
 describe("registry store", () => {
+  test("gets one instance by its byte-sensitive name", async () => {
+    const stub = env.EVENT_HUB_REGISTRY.getByName("store-get");
+    await runInDurableObject(stub, async (_instance, state) => {
+      registerInstance(state.storage.sql, "Tenant:Acme", 1_000, 0);
+
+      expect({
+        found: getInstance(state.storage.sql, "Tenant:Acme", 2_000),
+        differentCase: getInstance(state.storage.sql, "tenant:acme", 2_000),
+        missing: getInstance(state.storage.sql, "missing", 2_000),
+      }).toStrictEqual({
+        found: {
+          name: "Tenant:Acme",
+          firstSeenAt: "1970-01-01T00:00:01.000Z",
+          lastSeenAt: "1970-01-01T00:00:01.000Z",
+          deletedAt: null,
+          status: "stale",
+        },
+        differentCase: null,
+        missing: null,
+      });
+    });
+  });
+
   test("preserves firstSeenAt and revives the same byte-sensitive name", async () => {
     const stub = env.EVENT_HUB_REGISTRY.getByName("store-upsert");
     await runInDurableObject(stub, async (_instance, state) => {

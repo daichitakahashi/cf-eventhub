@@ -19,10 +19,13 @@ const redirectWithError = (c: Context<Env>) =>
 
 const handler = factory
   .createApp()
-  .post("/instances/delete", async (c) => {
+  .use(async (c, next) => {
     if (c.var.registryError) {
       return c.json({ error: "EventHub Registry unavailable" }, 503);
     }
+    return next();
+  })
+  .post("/instances/delete", async (c) => {
     const instance = c.var.selectedInstance;
     if (!instance || c.var.requestedInstance !== instance.name) {
       return c.json({ error: "EventHub instance not found" }, 404);
