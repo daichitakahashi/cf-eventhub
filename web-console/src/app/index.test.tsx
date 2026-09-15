@@ -199,7 +199,7 @@ describe("EventHub instance URL state", () => {
                 payloadId: "payload-1",
                 destination: "QUEUE",
                 createdAt: "2026-09-01T00:00:00.000Z",
-                retryCount: 0,
+                failedAttemptCount: 0,
                 lastFailedAt: null,
                 lastError: null,
                 nextRetryAt: "2026-09-01T00:00:10.000Z",

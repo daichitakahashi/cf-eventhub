@@ -30,9 +30,9 @@ export type PersistedDeliveryJob = {
 
 export type DeliveryFinalStatus = "completed" | "failed";
 
-// Retry-related fields tracked for each delivery job.
+// Delivery-attempt fields tracked for each delivery job.
 export type DeliveryRetryState = {
-  retryCount: number;
+  failedAttemptCount: number;
   lastFailedAt: string | null;
   lastError: string | null;
   nextRetryAt: string;
@@ -471,18 +471,18 @@ export const markDeliveryJobsFailed = (
       ...jobIds,
     )
     .toArray();
-  const retryCountById = new Map(
+  const failedAttemptCountById = new Map(
     rows.map(({ id, retry_count }) => [id, retry_count + 1]),
   );
   const message = toErrorMessage(error);
 
   for (const jobId of jobIds) {
-    const nextRetryCount = retryCountById.get(jobId);
-    if (nextRetryCount === undefined) {
+    const nextFailedAttemptCount = failedAttemptCountById.get(jobId);
+    if (nextFailedAttemptCount === undefined) {
       continue;
     }
 
-    if (nextRetryCount > maxRetries) {
+    if (nextFailedAttemptCount > maxRetries) {
       sql.exec(
         `
 					UPDATE delivery_jobs
@@ -493,7 +493,7 @@ export const markDeliveryJobsFailed = (
 						finalized_at = ?
 					WHERE id = ?
 				`,
-        nextRetryCount,
+        nextFailedAttemptCount,
         failedAt,
         message,
         failedAt,
@@ -503,7 +503,7 @@ export const markDeliveryJobsFailed = (
     }
 
     const delayMs = Math.min(
-      initialRetryDelayMs * 2 ** (nextRetryCount - 1),
+      initialRetryDelayMs * 2 ** (nextFailedAttemptCount - 1),
       maxRetryDelayMs,
     );
     sql.exec(
@@ -515,7 +515,7 @@ export const markDeliveryJobsFailed = (
 						next_retry_at = ?
 					WHERE id = ?
 				`,
-      nextRetryCount,
+      nextFailedAttemptCount,
       failedAt,
       message,
       new Date(now.getTime() + delayMs).toISOString(),
@@ -607,7 +607,7 @@ export const listDeliveryJobStatuses = (sql: SqlStorage): DeliveryJobStatus[] =>
       createdAt: row.created_at,
       finalStatus: row.final_status,
       finalizedAt: row.finalized_at,
-      retryCount: row.retry_count,
+      failedAttemptCount: row.retry_count,
       lastFailedAt: row.last_failed_at,
       lastError: row.last_error,
       nextRetryAt: row.next_retry_at,
@@ -899,7 +899,7 @@ export const list = (
         createdAt: row.created_at,
         finalStatus: row.final_status,
         finalizedAt: row.finalized_at,
-        retryCount: row.retry_count,
+        failedAttemptCount: row.retry_count,
         lastFailedAt: row.last_failed_at,
         lastError: row.last_error,
         nextRetryAt: row.next_retry_at,
@@ -1180,7 +1180,7 @@ export const listEjected = (
         createdAt: row.created_at,
         finalStatus: row.final_status,
         finalizedAt: row.finalized_at,
-        retryCount: row.retry_count,
+        failedAttemptCount: row.retry_count,
         lastFailedAt: row.last_failed_at,
         lastError: row.last_error,
         nextRetryAt: row.next_retry_at,

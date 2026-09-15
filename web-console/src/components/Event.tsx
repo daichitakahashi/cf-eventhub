@@ -1,6 +1,6 @@
 import type { FC } from "hono/jsx";
 
-import { getDeliveryJobUpdatedAt } from "../eventhub";
+import { formatDeliveryAttempts, getDeliveryJobUpdatedAt } from "../eventhub";
 import type { DateTime } from "../factory";
 import { Button } from "./Button";
 import { Description, DescriptionList } from "./DescriptionList";
@@ -16,11 +16,6 @@ import {
 } from "./Table";
 import { Textarea } from "./Textarea";
 import type { DeliveryJob, EventWithDeliveryJobs } from "./types";
-
-const formatAttempts = (job: DeliveryJob): string =>
-  job.status === "ongoing"
-    ? `${job.retryCount} failures`
-    : `${job.retryCount + 1} attempts`;
 
 const statusText = (job: DeliveryJob): string => {
   if (job.status === "ongoing") return "ongoing";
@@ -128,7 +123,7 @@ const DeliveryJobRow: FC<{
         {statusText(job)}
       </div>
     </TableCell>
-    <TableCell>{formatAttempts(job)}</TableCell>
+    <TableCell>{formatDeliveryAttempts(job)}</TableCell>
     <TableCell>{formatDate(getDeliveryJobUpdatedAt(job))}</TableCell>
     <TableCell>
       <button
@@ -189,9 +184,9 @@ export const DeliveryJobDetails: FC<{
               </dd>
             </div>
             <div class="py-2 sm:grid sm:grid-cols-3 sm:gap-4">
-              <dt class="text-sm/6 text-gray-900">Retry count</dt>
+              <dt class="text-sm/6 text-gray-900">Failed attempt count</dt>
               <dd class="text-sm/6 text-gray-700 sm:col-span-2">
-                {job.retryCount}
+                {job.failedAttemptCount}
               </dd>
             </div>
             <div class="pt-2 sm:grid sm:grid-cols-3 sm:gap-4">

@@ -1594,7 +1594,7 @@ describe("delivery job state transitions", () => {
       });
 
       let [updatedJob] = listDeliveryJobStatuses(state.storage.sql);
-      expect(updatedJob.retryCount).toBe(1);
+      expect(updatedJob.failedAttemptCount).toBe(1);
       expect(updatedJob.finalStatus).toBeNull();
       expect(updatedJob.finalizedAt).toBeNull();
       expect(updatedJob.lastFailedAt).toBe("2026-05-04T00:00:00.000Z");
@@ -1614,7 +1614,7 @@ describe("delivery job state transitions", () => {
       });
 
       [updatedJob] = listDeliveryJobStatuses(state.storage.sql);
-      expect(updatedJob.retryCount).toBe(2);
+      expect(updatedJob.failedAttemptCount).toBe(2);
       expect(updatedJob.finalStatus).toBe("failed");
       expect(updatedJob.finalizedAt).toBe("2026-05-04T00:00:10.000Z");
       expect(updatedJob.lastFailedAt).toBe("2026-05-04T00:00:10.000Z");
