@@ -7,6 +7,8 @@
   },
   "files": {
     "ignore": [
+      "cf-eventhub/worker-configuration.d.ts",
+      "demo/worker-configuration.d.ts",
       "web-console/src/app/styles.css",
       "web-console/src/app/styles.ts"
     ]

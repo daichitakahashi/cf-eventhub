@@ -10,72 +10,72 @@
   "migrations": [
     {
       "new_sqlite_classes": ["TestEventHub", "TestEventHubWithJobId"],
-      "tag": "v1",
+      "tag": "v1"
     },
     {
       "new_sqlite_classes": [
         "TestEventHubWithDeleteEviction",
         "TestEventHubWithArchiveEviction",
-        "TestEventHubWithFailingArchiveEviction",
+        "TestEventHubWithFailingArchiveEviction"
       ],
-      "tag": "v2",
+      "tag": "v2"
     },
     {
       "new_sqlite_classes": [
         "EventHubRegistry",
         "TestRegisteredEventHub",
-        "TestEventHubWithFailingRegistry",
+        "TestEventHubWithFailingRegistry"
       ],
-      "tag": "v3",
-    },
+      "tag": "v3"
+    }
   ],
   "durable_objects": {
     "bindings": [
       {
         "class_name": "TestEventHub",
-        "name": "EVENT_HUB",
+        "name": "EVENT_HUB"
       },
       {
         "class_name": "TestEventHubWithJobId",
-        "name": "EVENT_HUB_WITH_JOB_ID",
+        "name": "EVENT_HUB_WITH_JOB_ID"
       },
       {
         "class_name": "TestEventHubWithDeleteEviction",
-        "name": "EVENT_HUB_WITH_DELETE_EVICTION",
+        "name": "EVENT_HUB_WITH_DELETE_EVICTION"
       },
       {
         "class_name": "TestEventHubWithArchiveEviction",
-        "name": "EVENT_HUB_WITH_ARCHIVE_EVICTION",
+        "name": "EVENT_HUB_WITH_ARCHIVE_EVICTION"
       },
       {
         "class_name": "TestEventHubWithFailingArchiveEviction",
-        "name": "EVENT_HUB_WITH_FAILING_ARCHIVE_EVICTION",
+        "name": "EVENT_HUB_WITH_FAILING_ARCHIVE_EVICTION"
       },
       {
         "class_name": "TestRegisteredEventHub",
-        "name": "REGISTERED_EVENT_HUB",
+        "name": "REGISTERED_EVENT_HUB"
       },
       {
         "class_name": "EventHubRegistry",
-        "name": "EVENT_HUB_REGISTRY",
+        "name": "EVENT_HUB_REGISTRY"
       },
       {
         "class_name": "TestEventHubWithFailingRegistry",
-        "name": "EVENT_HUB_WITH_FAILING_REGISTRY",
-      },
-    ],
+        "name": "EVENT_HUB_WITH_FAILING_REGISTRY"
+      }
+    ]
   },
   "r2_buckets": [
     {
       "binding": "EVICTION_ARCHIVE",
-      "bucket_name": "cf-eventhub-eviction-test",
-    },
+      "bucket_name": "cf-eventhub-eviction-test"
+    }
   ],
   "observability": {
-    "enabled": true,
+    "enabled": true
   },
   "upload_source_maps": true,
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": ["nodejs_compat"]
   /**
    * Smart Placement
    * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement

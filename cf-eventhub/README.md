@@ -181,11 +181,13 @@ export class MyEventHub extends EventHub<Env> {
 }
 ```
 
-Activity on an EventHub created with `getByName()` or `idFromName()` registers
-its Durable Object name automatically. No name needs to be passed to
-`publish()`, `list()`, or the other EventHub methods. Unnamed objects created
-with `newUniqueId()` or `idFromString()`, and EventHub subclasses without a
-`registry`, retain their previous behavior.
+Data-plane activity on an EventHub created with `getByName()` or `idFromName()`
+registers its Durable Object name automatically. No name needs to be passed to
+the EventHub methods. Liveness-triggering activity is `publish()`, `redrive()`,
+`eject()`, `evict()`, `reportFailure()`, and alarm processing. The observational
+`list()` and `listEjected()` methods never register or refresh an instance.
+Unnamed objects created with `newUniqueId()` or `idFromString()`, and EventHub
+subclasses without a `registry`, retain their previous behavior.
 
 Registration is best-effort and eventually consistent. Each EventHub stores the
 last successful synchronization time and refreshes at most once per 24 hours.

@@ -3,12 +3,7 @@
   "type": "module",
   "version": "0.0.17",
   "description": "A web console for inspecting and operating cf-eventhub on Cloudflare Workers.",
-  "keywords": [
-    "cloudflare",
-    "durable-objects",
-    "eventhub",
-    "web-console"
-  ],
+  "keywords": ["cloudflare", "durable-objects", "eventhub", "web-console"],
   "license": "MIT",
   "repository": {
     "type": "git",
