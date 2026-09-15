@@ -183,6 +183,8 @@ describe("EventHub instance URL state", () => {
       .mockResolvedValueOnce({
         payloads: [
           {
+            payloadId: "payload-1",
+            createdAt: "2026-09-01T00:00:00.000Z",
             payload: { hello: "world" },
             deliveryJobs: [
               {
@@ -361,6 +363,32 @@ describe("EventHub instance URL state", () => {
     expect(response.status).toBe(503);
     expect(await response.json()).toStrictEqual({
       error: "EventHub Registry unavailable",
+    });
+  });
+});
+
+describe("latest event polling", () => {
+  test("returns the creation time of an event without delivery jobs", async () => {
+    const configured = setup();
+    configured.hubs.get("alpha")?.list.mockResolvedValue({
+      payloads: [
+        {
+          payloadId: "payload-no-route",
+          createdAt: "2026-09-15T01:02:03.000Z",
+          payload: { kind: "other" },
+          deliveryJobs: [],
+        },
+      ],
+    });
+
+    const response = await configured.app.request(
+      "http://localhost/api/events/latest?instance=alpha",
+      {},
+      configured.bindings,
+    );
+
+    expect(await response.json()).toStrictEqual({
+      lastUpdatedAt: Date.parse("2026-09-15T01:02:03.000Z"),
     });
   });
 });

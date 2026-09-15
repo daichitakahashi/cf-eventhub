@@ -682,6 +682,8 @@ describe("list", () => {
       expect(page).toMatchObject({
         payloads: [
           {
+            payloadId: "01TEST000000000000000000",
+            createdAt: "2026-05-04T00:00:00.000Z",
             payload: { kind: "culture", ordinal: 1 },
             deliveryJobs: [
               {
@@ -691,6 +693,8 @@ describe("list", () => {
             ],
           },
           {
+            payloadId: "01TEST000000000000000002",
+            createdAt: "2026-05-04T00:00:00.000Z",
             payload: { kind: "nature", ordinal: 2 },
             deliveryJobs: [
               { destination: "HOKKAIDO", failureReportedAt: null },
@@ -698,6 +702,8 @@ describe("list", () => {
             ],
           },
           {
+            payloadId: "01TEST000000000000000005",
+            createdAt: "2026-05-04T00:00:00.000Z",
             payload: { kind: "other", ordinal: 3 },
             deliveryJobs: [],
           },
@@ -887,10 +893,14 @@ describe("ejectPayloads", () => {
         listed: {
           payloads: [
             {
+              payloadId: expect.any(String),
+              createdAt: "2026-05-04T00:00:00.000Z",
               payload: { kind: "culture", avoidUrban: true },
               deliveryJobs: [{ finalStatus: "completed" }],
             },
             {
+              payloadId: expect.any(String),
+              createdAt: "2026-05-04T00:00:00.000Z",
               payload: { kind: "nature", avoidUrban: false },
               deliveryJobs: [
                 { finalStatus: "failed" },
