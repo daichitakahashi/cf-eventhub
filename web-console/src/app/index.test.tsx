@@ -406,6 +406,20 @@ describe("EventHub instance URL state", () => {
 });
 
 describe("latest event polling", () => {
+  test("does not list Registry instances at the exact API mount point", async () => {
+    const configured = setup();
+
+    const response = await configured.app.request(
+      "http://localhost/api",
+      {},
+      configured.bindings,
+    );
+
+    expect(response.status).toBe(404);
+    expect(configured.registryGet).not.toHaveBeenCalled();
+    expect(configured.registryList).not.toHaveBeenCalled();
+  });
+
   test("returns the creation time of an event without delivery jobs", async () => {
     const configured = setup();
     configured.hubs.get("alpha")?.list.mockResolvedValue({

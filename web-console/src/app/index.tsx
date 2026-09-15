@@ -318,10 +318,12 @@ export const createHandler = ({
       }
 
       const registryStub = registryBinding.getByName(EVENT_HUB_REGISTRY_NAME);
-      const search = new URL(c.req.url).searchParams;
+      const url = new URL(c.req.url);
+      const search = url.searchParams;
       const requestedInstance = search.get("instance") ?? undefined;
       const showStale = search.get("showStale") === "1";
-      const isApiRequest = new URL(c.req.url).pathname.startsWith("/api/");
+      const isApiRequest =
+        url.pathname === "/api" || url.pathname.startsWith("/api/");
       let instances: Awaited<ReturnType<typeof listAllInstances>> = [];
       let selectedInstance: (typeof instances)[number] | undefined;
       let registryError: string | undefined;
