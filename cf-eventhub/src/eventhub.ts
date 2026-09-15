@@ -627,7 +627,6 @@ export abstract class EventHub<
       ),
     );
     await this.reconcileAlarm();
-    this.scheduleRegistrySync();
     return result;
   }
 
@@ -710,7 +709,6 @@ export abstract class EventHub<
       ),
     );
     await this.reconcileAlarm();
-    this.scheduleRegistrySync();
     return result;
   }
 

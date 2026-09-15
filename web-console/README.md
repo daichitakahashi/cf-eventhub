@@ -61,11 +61,12 @@ tombstones its Registry entry but does not delete its EventHub data. The binding
 names default to `EVENT_HUB` and
 `EVENT_HUB_REGISTRY`.
 
-If the instance selector is empty, first make an RPC call such as `list()` or
-`publish()` on a named instance. For example:
+If the instance selector is empty, first perform data-plane activity such as
+`publish()` on a named instance. Observational calls such as `list()` do not
+register or refresh an instance. For example:
 
 ```ts
-await env.EVENT_HUB.getByName("default").list();
+await env.EVENT_HUB.getByName("default").publish({ type: "example.created" });
 ```
 
 Registration is asynchronous, so reload the console after the call completes.
@@ -147,8 +148,10 @@ createWebConsole({
 Registry discovery is eventually consistent. EventHub refreshes its entry at
 most once per 24 hours, so `lastSeenAt` is an approximate synchronization time.
 An instance becomes stale after 30 days without a refresh, but remains fully
-selectable when **Show stale** is enabled. Registry failure does not affect the
-EventHub data plane; the console displays a distinct Registry error state.
+selectable when **Show stale** is enabled. Inspecting it in the console does not
+refresh its liveness or revive a Registry tombstone. Registry failure does not
+affect the EventHub data plane; the console displays a distinct Registry error
+state.
 
 ## Protecting with Cloudflare Access
 
