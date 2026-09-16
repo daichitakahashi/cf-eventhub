@@ -336,10 +336,10 @@ export abstract class EventHub<
   }
 
   private async runInTransactionWithAlarmReconciliation<T>(
-    callback: () => T,
+    callback: () => T | Promise<T>,
   ): Promise<T> {
     return this.ctx.storage.transaction(async () => {
-      const result = callback();
+      const result = await callback();
       await this.reconcileAlarm();
       return result;
     });

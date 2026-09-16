@@ -120,21 +120,24 @@ describe("EventHub integration", () => {
         .spyOn(state.storage, "setAlarm")
         .mockRejectedValueOnce(new Error("alarm scheduling failed"));
 
-      await expect(
-        (instance as TestEventHub).publish({ kind: "culture" }),
-      ).rejects.toThrow("alarm scheduling failed");
+      try {
+        await expect(
+          (instance as TestEventHub).publish({ kind: "culture" }),
+        ).rejects.toThrow("alarm scheduling failed");
 
-      expect({
-        payloads: state.storage.sql
-          .exec<{ count: number }>("SELECT COUNT(*) AS count FROM payloads")
-          .one().count,
-        deliveryJobs: state.storage.sql
-          .exec<{ count: number }>(
-            "SELECT COUNT(*) AS count FROM delivery_jobs",
-          )
-          .one().count,
-      }).toStrictEqual({ payloads: 0, deliveryJobs: 0 });
-      setAlarm.mockRestore();
+        expect({
+          payloads: state.storage.sql
+            .exec<{ count: number }>("SELECT COUNT(*) AS count FROM payloads")
+            .one().count,
+          deliveryJobs: state.storage.sql
+            .exec<{ count: number }>(
+              "SELECT COUNT(*) AS count FROM delivery_jobs",
+            )
+            .one().count,
+        }).toStrictEqual({ payloads: 0, deliveryJobs: 0 });
+      } finally {
+        setAlarm.mockRestore();
+      }
     });
   });
 
