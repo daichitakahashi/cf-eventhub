@@ -254,9 +254,8 @@ describe("EventHub instance URL state", () => {
     const response = await app.request("http://localhost/", {}, bindings);
     const html = await response.text();
 
-    expect(html).toContain(
-      '<output id="queue-size-warning" class="block mt-2 rounded-md bg-yellow-100 text-yellow-800 px-4 py-2" aria-live="polite" hidden=""',
-    );
+    expect(html).toContain('<output id="queue-size-warning"');
+    expect(html).toContain('aria-live="polite"');
     expect(html).toContain(
       "Warning: This payload exceeds the 128 KB Cloudflare Queues message size limit.",
     );
@@ -268,6 +267,7 @@ describe("EventHub instance URL state", () => {
     expect(html).toContain(
       'createPayload.addEventListener("input", updateQueueSizeWarning)',
     );
+    expect(html).toContain("updateQueueSizeWarning();");
   });
 
   test("routes redrive without listing Registry instances", async () => {

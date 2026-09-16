@@ -52,6 +52,7 @@ const pageScript = (
 
   if (createPayload) {
     createPayload.addEventListener("input", updateQueueSizeWarning);
+    updateQueueSizeWarning();
   }
 
   const closeClosestDialog = (target) => {
