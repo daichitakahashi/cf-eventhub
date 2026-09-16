@@ -110,6 +110,36 @@ describe("EventHub integration", () => {
     });
   });
 
+  test("rolls back publish persistence when alarm scheduling fails", async () => {
+    // 1. Make alarm scheduling fail synchronously during publish.
+    // 2. Verify the enclosing storage transaction rolls back every inserted row.
+    const stub = getStub("publish-alarm-rollback");
+
+    await runInDurableObject(stub, async (instance, state) => {
+      const setAlarm = vi
+        .spyOn(state.storage, "setAlarm")
+        .mockImplementationOnce(() => {
+          throw new Error("alarm scheduling failed");
+        });
+
+      await expect(
+        (instance as TestEventHub).publish({ kind: "culture" }),
+      ).rejects.toThrow("alarm scheduling failed");
+
+      expect({
+        payloads: state.storage.sql
+          .exec<{ count: number }>("SELECT COUNT(*) AS count FROM payloads")
+          .one().count,
+        deliveryJobs: state.storage.sql
+          .exec<{ count: number }>(
+            "SELECT COUNT(*) AS count FROM delivery_jobs",
+          )
+          .one().count,
+      }).toStrictEqual({ payloads: 0, deliveryJobs: 0 });
+      setAlarm.mockRestore();
+    });
+  });
+
   test("accepts a Queue payload at the 128,000-byte limit", async () => {
     const stub = getStub("queue-payload-at-size-limit");
 

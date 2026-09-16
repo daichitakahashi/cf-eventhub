@@ -304,37 +304,34 @@ export abstract class EventHub<
     this.ctx.waitUntil(sync);
   }
 
-  private async reconcileAlarm(): Promise<void> {
-    const candidates = this.ctx.storage.transactionSync(() => {
-      const result: number[] = [];
-      const retryAt = getNextRetryAt(this.ctx.storage.sql);
-      if (retryAt) result.push(Date.parse(retryAt));
+  private reconcileAlarmSync(): void {
+    const candidates: number[] = [];
+    const retryAt = getNextRetryAt(this.ctx.storage.sql);
+    if (retryAt) candidates.push(Date.parse(retryAt));
 
-      const eviction = this.eviction;
-      if (!eviction) return result;
+    const eviction = this.eviction;
+    if (eviction) {
       const run = getEvictionRun(this.ctx.storage.sql);
-      if (run) {
-        if (
-          eviction.action.type === "archive" &&
-          eviction.action.prefix === run.archivePrefix
-        ) {
-          result.push(Date.parse(run.nextAttemptAt));
+      if (
+        run &&
+        eviction.action.type === "archive" &&
+        eviction.action.prefix === run.archivePrefix
+      ) {
+        candidates.push(Date.parse(run.nextAttemptAt));
+      } else if (!run && !getActiveEjection(this.ctx.storage.sql)) {
+        const baseline = getNextEvictionBaseline(this.ctx.storage.sql);
+        if (baseline) {
+          candidates.push(Date.parse(baseline) + eviction.afterMs + 1);
         }
-        return result;
       }
-      if (getActiveEjection(this.ctx.storage.sql)) return result;
-
-      const baseline = getNextEvictionBaseline(this.ctx.storage.sql);
-      if (baseline) result.push(Date.parse(baseline) + eviction.afterMs + 1);
-      return result;
-    });
+    }
     if (candidates.some(Number.isNaN)) {
       throw new Error("eventhub: invalid persisted alarm timestamp");
     }
     if (candidates.length === 0) {
-      await this.ctx.storage.deleteAlarm();
+      void this.ctx.storage.deleteAlarm();
     } else {
-      await this.ctx.storage.setAlarm(Math.min(...candidates));
+      void this.ctx.storage.setAlarm(Math.min(...candidates));
     }
   }
 
@@ -364,6 +361,7 @@ export abstract class EventHub<
         onDelivered: async (jobIds) => {
           this.ctx.storage.transactionSync(() => {
             markDeliveryJobsCompleted(this.ctx.storage.sql, jobIds);
+            this.reconcileAlarmSync();
           });
         },
         onFailed: async (jobIds, error) => {
@@ -376,6 +374,7 @@ export abstract class EventHub<
               this.deliveryConfig.maxRetryDelayMs,
               error,
             );
+            this.reconcileAlarmSync();
           });
         },
       },
@@ -425,12 +424,13 @@ export abstract class EventHub<
             cutoff,
             eviction.batchSize,
           );
+          this.reconcileAlarmSync();
         });
         return;
       }
       const archiveAction = eviction.action;
-      run = this.ctx.storage.transactionSync(() =>
-        createAutomaticEjection(
+      run = this.ctx.storage.transactionSync(() => {
+        const created = createAutomaticEjection(
           this.ctx.storage.sql,
           cutoff,
           eviction.batchSize,
@@ -439,8 +439,10 @@ export abstract class EventHub<
           this.ctx.id.toString(),
           this.ctx.id.name,
           now,
-        ),
-      );
+        );
+        this.reconcileAlarmSync();
+        return created;
+      });
       if (!run) return;
     }
 
@@ -478,19 +480,21 @@ export abstract class EventHub<
           httpMetadata: { contentType: "application/json" },
         });
       } catch (error) {
-        this.ctx.storage.transactionSync(() =>
-          recordEvictionFailure(this.ctx.storage.sql, run.ejectionKey, error),
-        );
+        this.ctx.storage.transactionSync(() => {
+          recordEvictionFailure(this.ctx.storage.sql, run.ejectionKey, error);
+          this.reconcileAlarmSync();
+        });
         return;
       }
-      this.ctx.storage.transactionSync(() =>
+      this.ctx.storage.transactionSync(() => {
         advanceEvictionPage(
           this.ctx.storage.sql,
           run.ejectionKey,
           page.cursor,
           page.payloads.length,
-        ),
-      );
+        );
+        this.reconcileAlarmSync();
+      });
       return;
     }
 
@@ -515,14 +519,16 @@ export abstract class EventHub<
         httpMetadata: { contentType: "application/json" },
       });
     } catch (error) {
-      this.ctx.storage.transactionSync(() =>
-        recordEvictionFailure(this.ctx.storage.sql, run.ejectionKey, error),
-      );
+      this.ctx.storage.transactionSync(() => {
+        recordEvictionFailure(this.ctx.storage.sql, run.ejectionKey, error);
+        this.reconcileAlarmSync();
+      });
       return;
     }
-    this.ctx.storage.transactionSync(() =>
-      completeAutomaticEviction(this.ctx.storage.sql, run.ejectionKey),
-    );
+    this.ctx.storage.transactionSync(() => {
+      completeAutomaticEviction(this.ctx.storage.sql, run.ejectionKey);
+      this.reconcileAlarmSync();
+    });
   }
 
   /**
@@ -547,20 +553,21 @@ export abstract class EventHub<
       includeDeliveryMetadata: this.deliveryConfig.includeDeliveryMetadata,
     });
 
-    const persistedJobs = this.ctx.storage.transactionSync(() =>
-      persistDeliveryJobs(
+    const persistedJobs = this.ctx.storage.transactionSync(() => {
+      const jobs = persistDeliveryJobs(
         this.ctx.storage.sql,
         pendingDeliveryJobs,
         (now) => this.idGenerator.generate(now),
         new Date(),
         this.deliveryConfig.initialRetryDelayMs,
-      ),
-    );
-    await this.reconcileAlarm();
+      );
+      this.reconcileAlarmSync();
+      return jobs;
+    });
     this.ctx.waitUntil(
       (async () => {
         await this.deliverPersistedJobs(persistedJobs, resolvedDestinations);
-        await this.reconcileAlarm();
+        this.ctx.storage.transactionSync(() => this.reconcileAlarmSync());
       })(),
     );
     this.scheduleRegistrySync();
@@ -579,26 +586,26 @@ export abstract class EventHub<
       throw new Error("eventhub: deliveryJobId must not be empty");
     }
 
-    const persistedJob = this.ctx.storage.transactionSync(() =>
-      redriveDeliveryJob(
+    const persistedJob = this.ctx.storage.transactionSync(() => {
+      const job = redriveDeliveryJob(
         this.ctx.storage.sql,
         deliveryJobId,
         (now) => this.idGenerator.generate(now),
         new Date(),
         this.deliveryConfig.initialRetryDelayMs,
-      ),
-    );
+      );
+      this.reconcileAlarmSync();
+      return job;
+    });
     if (!persistedJob) {
-      await this.reconcileAlarm();
       this.scheduleRegistrySync();
       return false;
     }
 
-    await this.reconcileAlarm();
     this.ctx.waitUntil(
       (async () => {
         await this.deliverPersistedJobs([persistedJob]);
-        await this.reconcileAlarm();
+        this.ctx.storage.transactionSync(() => this.reconcileAlarmSync());
       })(),
     );
     this.scheduleRegistrySync();
@@ -631,17 +638,17 @@ export abstract class EventHub<
         throw new Error(`eventhub: maxBytes must be <= ${MAX_LIST_BYTES}`);
     }
 
-    const result = this.ctx.storage.transactionSync(() =>
-      listPayloads(
+    return this.ctx.storage.transactionSync(() => {
+      const result = listPayloads(
         this.ctx.storage.sql,
         options?.cursor,
         max ?? 50,
         maxBytes ?? MAX_LIST_BYTES,
         order,
-      ),
-    );
-    await this.reconcileAlarm();
-    return result;
+      );
+      this.reconcileAlarmSync();
+      return result;
+    });
   }
 
   /**
@@ -665,15 +672,16 @@ export abstract class EventHub<
         throw new Error(`eventhub: max must be <= ${MAX_EJECT_PAYLOADS}`);
     }
 
-    const result = this.ctx.storage.transactionSync(() =>
-      ejectPayloads(
+    const result = this.ctx.storage.transactionSync(() => {
+      const ejected = ejectPayloads(
         this.ctx.storage.sql,
         before,
         max ?? 50,
         this.idGenerator.generate(Date.now()),
-      ),
-    );
-    await this.reconcileAlarm();
+      );
+      this.reconcileAlarmSync();
+      return ejected;
+    });
     this.scheduleRegistrySync();
     return result;
   }
@@ -713,17 +721,17 @@ export abstract class EventHub<
         );
     }
 
-    const result = this.ctx.storage.transactionSync(() =>
-      listEjected(
+    return this.ctx.storage.transactionSync(() => {
+      const result = listEjected(
         this.ctx.storage.sql,
         ejectKey,
         options?.cursor,
         max ?? 50,
         maxBytes ?? MAX_LIST_EJECTED_BYTES,
-      ),
-    );
-    await this.reconcileAlarm();
-    return result;
+      );
+      this.reconcileAlarmSync();
+      return result;
+    });
   }
 
   /**
@@ -737,8 +745,8 @@ export abstract class EventHub<
 
     this.ctx.storage.transactionSync(() => {
       evictEjection(this.ctx.storage.sql, ejectKey);
+      this.reconcileAlarmSync();
     });
-    await this.reconcileAlarm();
     this.scheduleRegistrySync();
   }
 
@@ -748,7 +756,7 @@ export abstract class EventHub<
   async alarm(): Promise<void> {
     await this.deliverPersistedJobs();
     await this.processEviction();
-    await this.reconcileAlarm();
+    this.ctx.storage.transactionSync(() => this.reconcileAlarmSync());
     this.scheduleRegistrySync();
   }
 
@@ -830,10 +838,14 @@ export abstract class EventHub<
       throw new Error("eventhub: instanceId does not match this instance");
     }
 
-    const recorded = this.ctx.storage.transactionSync(() =>
-      recordDeliveryJobFailure(this.ctx.storage.sql, deliveryJobId),
-    );
-    await this.reconcileAlarm();
+    const recorded = this.ctx.storage.transactionSync(() => {
+      const result = recordDeliveryJobFailure(
+        this.ctx.storage.sql,
+        deliveryJobId,
+      );
+      this.reconcileAlarmSync();
+      return result;
+    });
     this.scheduleRegistrySync();
     return recorded;
   }
