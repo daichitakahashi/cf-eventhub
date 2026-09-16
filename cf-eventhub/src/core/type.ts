@@ -14,15 +14,22 @@ export type JSONObject = {
 
 export type EventPayload = JSONObject;
 
-/** Converts an authored payload into the canonical representation used by JSON. */
-export const normalizeEventPayload = (payload: EventPayload): EventPayload => {
+export type SerializedEventPayload = {
+  payload: EventPayload;
+  serializedPayload: string;
+};
+
+/** Serializes an authored payload and returns its canonical JSON representation. */
+export const serializeEventPayload = (
+  payload: EventPayload,
+): SerializedEventPayload => {
   try {
-    const body = JSON.stringify(payload);
-    if (body === undefined) {
+    const serializedPayload = JSON.stringify(payload);
+    if (serializedPayload === undefined) {
       throw new Error("payload has no JSON representation");
     }
 
-    const normalized = JSON.parse(body) as unknown;
+    const normalized = JSON.parse(serializedPayload) as unknown;
     if (
       typeof normalized !== "object" ||
       normalized === null ||
@@ -30,8 +37,15 @@ export const normalizeEventPayload = (payload: EventPayload): EventPayload => {
     ) {
       throw new Error("payload is not a JSON object");
     }
-    return normalized as EventPayload;
+    return {
+      payload: normalized as EventPayload,
+      serializedPayload,
+    };
   } catch {
     throw new Error("eventhub: payload must be a JSON-serializable object");
   }
 };
+
+/** Converts an authored payload into the canonical representation used by JSON. */
+export const normalizeEventPayload = (payload: EventPayload): EventPayload =>
+  serializeEventPayload(payload).payload;

@@ -51,6 +51,15 @@ const getArchiveEvictionStub = (name: string) =>
 const getFailingArchiveEvictionStub = (name: string) =>
   env.EVENT_HUB_WITH_FAILING_ARCHIVE_EVICTION.getByName(name);
 
+const createPayloadWithJsonBytes = <T extends Record<string, unknown>>(
+  base: T,
+  bytes: number,
+) => {
+  const empty = { ...base, data: "" };
+  const overhead = new TextEncoder().encode(JSON.stringify(empty)).byteLength;
+  return { ...empty, data: "x".repeat(bytes - overhead) };
+};
+
 // @ts-expect-error
 const getArchiveBucket = (): R2Bucket => env.ARCHIVE as R2Bucket;
 
@@ -98,6 +107,59 @@ describe("EventHub integration", () => {
         "HOKKAIDO",
         "OKINAWA",
       ]);
+    });
+  });
+
+  test("accepts a Queue payload at the 128,000-byte limit", async () => {
+    const stub = getStub("queue-payload-at-size-limit");
+
+    await expect(
+      stub.publish(createPayloadWithJsonBytes({ kind: "culture" }, 128_000)),
+    ).resolves.toBeUndefined();
+  });
+
+  test("rejects an oversized Queue payload before persistence", async () => {
+    const stub = getStub("oversized-queue-payload");
+
+    await runInDurableObject(stub, async (instance, state) => {
+      await expect(
+        (instance as TestEventHub).publish(
+          createPayloadWithJsonBytes({ kind: "culture" }, 128_001),
+        ),
+      ).rejects.toThrow(
+        "eventhub: Queue message size 128001 bytes exceeds limit of 128000 bytes",
+      );
+
+      expect({
+        payloads: state.storage.sql
+          .exec<{ count: number }>("SELECT COUNT(*) AS count FROM payloads")
+          .one().count,
+        deliveryJobs: state.storage.sql
+          .exec<{ count: number }>(
+            "SELECT COUNT(*) AS count FROM delivery_jobs",
+          )
+          .one().count,
+      }).toStrictEqual({ payloads: 0, deliveryJobs: 0 });
+    });
+  });
+
+  test("includes delivery metadata when validating Queue payload size", async () => {
+    const stub = getStubWithJobId("oversized-queue-payload-with-metadata");
+
+    await runInDurableObject(stub, async (instance, state) => {
+      await expect(
+        (instance as TestEventHubWithJobId).publish(
+          createPayloadWithJsonBytes({ type: "queue" }, 127_999),
+        ),
+      ).rejects.toThrow(
+        /eventhub: Queue message size \d+ bytes exceeds limit of 128000 bytes/,
+      );
+
+      expect(
+        state.storage.sql
+          .exec<{ count: number }>("SELECT COUNT(*) AS count FROM payloads")
+          .one().count,
+      ).toBe(0);
     });
   });
 

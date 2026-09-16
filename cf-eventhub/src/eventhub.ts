@@ -1,7 +1,9 @@
 import { DurableObject } from "cloudflare:workers";
 
 import {
+  type ResolvedDestinations,
   assertDestinationBindingsExist,
+  assertPendingQueueMessageSizes,
   deliverPersistedJobs,
 } from "./core/delivery";
 import { MonotonicUlidGenerator } from "./core/id";
@@ -339,6 +341,7 @@ export abstract class EventHub<
   // Delivers persisted jobs immediately or loads the next due batch from storage.
   private async deliverPersistedJobs(
     jobs?: readonly PersistedDeliveryJob[],
+    resolvedDestinations?: ResolvedDestinations<Env>,
   ): Promise<void> {
     const targetJobs =
       jobs ??
@@ -383,6 +386,7 @@ export abstract class EventHub<
           : { instanceName: this.ctx.id.name }),
         includeDeliveryMetadata: this.deliveryConfig.includeDeliveryMetadata,
       },
+      resolvedDestinations,
     );
   }
 
@@ -531,7 +535,17 @@ export abstract class EventHub<
       payload,
       ...rest,
     ]);
-    assertDestinationBindingsExist(this.routing, pendingDeliveryJobs);
+    const resolvedDestinations = assertDestinationBindingsExist(
+      this.routing,
+      pendingDeliveryJobs,
+    );
+    assertPendingQueueMessageSizes(resolvedDestinations, pendingDeliveryJobs, {
+      instanceId: this.ctx.id.toString(),
+      ...(this.ctx.id.name === undefined || this.ctx.id.name.length === 0
+        ? {}
+        : { instanceName: this.ctx.id.name }),
+      includeDeliveryMetadata: this.deliveryConfig.includeDeliveryMetadata,
+    });
 
     const persistedJobs = this.ctx.storage.transactionSync(() =>
       persistDeliveryJobs(
@@ -545,7 +559,7 @@ export abstract class EventHub<
     await this.reconcileAlarm();
     this.ctx.waitUntil(
       (async () => {
-        await this.deliverPersistedJobs(persistedJobs);
+        await this.deliverPersistedJobs(persistedJobs, resolvedDestinations);
         await this.reconcileAlarm();
       })(),
     );

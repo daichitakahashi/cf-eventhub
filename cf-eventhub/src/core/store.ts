@@ -1,5 +1,5 @@
 import type { RoutingStrategy } from "./routing";
-import { type EventPayload, normalizeEventPayload } from "./type";
+import { type EventPayload, serializeEventPayload } from "./type";
 
 // Raw row shape used when loading persisted jobs with their payload body.
 type PersistedDeliveryJobRow = {
@@ -12,6 +12,7 @@ type PersistedDeliveryJobRow = {
 // A payload paired with the destinations selected by routing.
 export type PendingPayload = {
   payload: EventPayload;
+  serializedPayload: string;
   destinations: string[];
 };
 
@@ -26,6 +27,7 @@ export type PersistedDeliveryJob = {
   payloadId: string;
   destination: string;
   payload: EventPayload;
+  serializedPayload?: string;
 };
 
 export type DeliveryFinalStatus = "completed" | "failed";
@@ -102,7 +104,7 @@ export type EvictionRun = {
 const insertPayload = (
   sql: SqlStorage,
   id: string,
-  payload: EventPayload,
+  serializedPayload: string,
   createdAt: string,
 ): void => {
   sql.exec(
@@ -111,7 +113,7 @@ const insertPayload = (
 			VALUES (?, ?, ?)
 		`,
     id,
-    JSON.stringify(payload),
+    serializedPayload,
     createdAt,
   );
 };
@@ -312,9 +314,11 @@ export const createPendingDeliveryJobs = <Env extends object>(
   payloads: readonly [EventPayload, ...EventPayload[]],
 ): PendingDeliveryJobs => ({
   payloads: payloads.map((payload) => {
-    const normalizedPayload = normalizeEventPayload(payload);
+    const { payload: normalizedPayload, serializedPayload } =
+      serializeEventPayload(payload);
     return {
       payload: normalizedPayload,
+      serializedPayload,
       destinations: routing
         .findRoutes(normalizedPayload)
         .map(({ destination }) => String(destination)),
@@ -337,9 +341,13 @@ export const persistDeliveryJobs = (
   const jobs: PersistedDeliveryJob[] = [];
   const nowMs = now.getTime();
 
-  for (const { payload, destinations } of pendingDeliveryJobs.payloads) {
+  for (const {
+    payload,
+    serializedPayload,
+    destinations,
+  } of pendingDeliveryJobs.payloads) {
     const payloadId = generateId(nowMs);
-    insertPayload(sql, payloadId, payload, createdAt);
+    insertPayload(sql, payloadId, serializedPayload, createdAt);
 
     for (const destination of destinations) {
       const jobId = generateId(nowMs);
@@ -356,6 +364,7 @@ export const persistDeliveryJobs = (
         payloadId,
         destination,
         payload,
+        serializedPayload,
       });
     }
   }
@@ -393,7 +402,7 @@ export const redriveDeliveryJob = (
   const payloadId = generateId(nowMs);
   const jobId = generateId(nowMs);
 
-  insertPayload(sql, payloadId, payload, createdAt);
+  insertPayload(sql, payloadId, row.body, createdAt);
   insertDeliveryJob(
     sql,
     jobId,
@@ -408,6 +417,7 @@ export const redriveDeliveryJob = (
     payloadId,
     destination: row.destination,
     payload,
+    serializedPayload: row.body,
   };
 };
 
@@ -529,8 +539,8 @@ export const listDeliverableJobs = (
   sql: SqlStorage,
   limit: number,
   now = new Date(),
-): PersistedDeliveryJob[] =>
-  sql
+): PersistedDeliveryJob[] => {
+  const rows = sql
     .exec<PersistedDeliveryJobRow>(
       `
 				SELECT dj.id, dj.payload_id, dj.destination, p.body
@@ -544,13 +554,25 @@ export const listDeliverableJobs = (
       now.toISOString(),
       limit,
     )
-    .toArray()
-    .map((row) => ({
+    .toArray();
+  const payloadsById = new Map<string, EventPayload>();
+
+  return rows.map((row) => {
+    let payload = payloadsById.get(row.payload_id);
+    if (!payload) {
+      payload = JSON.parse(row.body) as EventPayload;
+      payloadsById.set(row.payload_id, payload);
+    }
+
+    return {
       id: row.id,
       payloadId: row.payload_id,
       destination: row.destination,
-      payload: JSON.parse(row.body) as EventPayload,
-    }));
+      payload,
+      serializedPayload: row.body,
+    };
+  });
+};
 
 // Returns the earliest retry timestamp among active jobs.
 export const getNextRetryAt = (sql: SqlStorage): string | null => {

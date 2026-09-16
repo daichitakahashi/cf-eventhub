@@ -20,6 +20,7 @@ import { factory, listAllInstances } from "../factory";
 import { styles } from "./styles";
 
 const maxPayloadRows = 10;
+const maxQueueMessageBytes = 128_000;
 
 const pageScript = (
   refreshIntervalSeconds: number,
@@ -34,6 +35,25 @@ const pageScript = (
   const deliveryDetailFrame = document.getElementById("deliveryjob-detail-frame");
   const notification = document.getElementById("new-event-notification");
   const dismissNotification = document.getElementById("dismiss-notification");
+  const createPayload = document.getElementById("create-event-payload");
+  const queueSizeWarning = document.getElementById("queue-size-warning");
+  const textEncoder = new TextEncoder();
+
+  const updateQueueSizeWarning = () => {
+    if (!(createPayload instanceof HTMLTextAreaElement) || !queueSizeWarning) return;
+    try {
+      const payload = JSON.parse(createPayload.value);
+      const bytes = textEncoder.encode(JSON.stringify(payload)).byteLength;
+      queueSizeWarning.hidden = bytes <= ${maxQueueMessageBytes};
+    } catch {
+      queueSizeWarning.hidden = true;
+    }
+  };
+
+  if (createPayload) {
+    createPayload.addEventListener("input", updateQueueSizeWarning);
+    updateQueueSizeWarning();
+  }
 
   const closeClosestDialog = (target) => {
     const dialog = target.closest("dialog");
@@ -562,7 +582,9 @@ export const createHandler = ({
                     <div class="my-6">
                       <div class="mb-1">Enter your payload here:</div>
                       <Textarea
+                        id="create-event-payload"
                         name="payload"
+                        aria-describedby="queue-size-warning"
                         placeholder={
                           createEventPlaceholder || defaultPlaceholder
                         }
@@ -571,6 +593,16 @@ export const createHandler = ({
                         minlength={1}
                         required
                       />
+                      <output
+                        id="queue-size-warning"
+                        class="block mt-2 rounded-md bg-yellow-100 text-yellow-800 px-4 py-2"
+                        aria-live="polite"
+                        hidden
+                      >
+                        Warning: This payload exceeds the 128 KB Cloudflare
+                        Queues message size limit. Publishing may fail if this
+                        event is routed to a Queue.
+                      </output>
                     </div>
                     <div class="flex gap-2">
                       <Button

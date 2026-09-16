@@ -12,6 +12,7 @@ Delivery is attempted immediately, and failed jobs are retried via Durable Objec
 - [Public API](#public-api)
 - [EventHub Registry](#eventhub-registry)
 - [Delivery Configuration](#delivery-configuration)
+- [Queue Delivery Limits](#queue-delivery-limits)
 - [Automatic Eviction](#automatic-eviction)
 - [Routing](#routing)
 - [Wrangler Configuration Example](#wrangler-configuration-example)
@@ -149,7 +150,7 @@ The `EventHub` Durable Object exposes the following RPC methods:
 
 | Method | Behavior |
 | --- | --- |
-| `publish(payload, ...rest)` | Persists one or more JSON objects, then starts delivery. |
+| `publish(payload, ...rest)` | Validates and persists one or more JSON objects, then starts delivery. Queue-bound payloads that exceed the per-message size limit are rejected before persistence. |
 | `redrive(deliveryJobId)` | Creates and immediately delivers an independent copy of an existing job. Returns `false` when the source no longer exists. |
 | `reportFailure(payload)` | Idempotently records a downstream failure from EventHub delivery metadata. |
 | `list(options?)` | Lists live payloads and their delivery jobs with cursor pagination. |
@@ -235,6 +236,28 @@ When `includeDeliveryMetadata` is `true`, EventHub injects `instanceId`,
 before sending each payload to Queue or R2 destinations. The delivered payload
 can be used with `reportFailure()` to record downstream processing failures for
 that delivery job.
+
+## Queue Delivery Limits
+
+EventHub applies Cloudflare Queues producer limits to the JSON body actually
+sent to each Queue destination:
+
+| Limit | EventHub behavior |
+| --- | --- |
+| 128,000 bytes per message | `publish()` rejects an oversized Queue-bound payload before persisting any payloads or delivery jobs from that call. |
+| 256,000 bytes per `sendBatch()` call | Delivery jobs are split into destination-local batches whose combined serialized body size does not exceed the limit. |
+| 100 messages per `sendBatch()` call | A new batch starts whenever adding the next message would exceed either limit. |
+
+Sizes are measured as the UTF-8 byte length of `JSON.stringify(body)`, not as
+JavaScript string length. When `includeDeliveryMetadata` is enabled, the
+injected `__eventhub__` object is included in both the per-message and batch
+size calculations.
+
+The per-message validation applies only when a payload has at least one Queue
+destination. Payloads routed exclusively to R2, and payloads with no matching
+destination, are not subject to the Queue message-size limit. If one argument
+in a multi-payload `publish()` call is oversized, the entire call fails before
+any argument from that call is persisted.
 
 ## Automatic Eviction
 
@@ -520,8 +543,10 @@ export default {
 
 Notes:
 
-- `publish()` persists first, then starts delivery
-- Queue destinations are delivered with `sendBatch()`
+- `publish()` validates routing and Queue message size, persists atomically,
+  then starts delivery
+- Queue destinations are delivered with byte-aware, count-bounded
+  `sendBatch()` calls as described in [Queue Delivery Limits](#queue-delivery-limits)
 - R2 destinations are delivered with `put()`
 - Events with no matching route are still persisted as payloads
 - `redrive(deliveryJobId)` creates a new independent payload and delivery job from an existing, non-ejected job, then starts delivery immediately. It returns `false` if the source job no longer exists.
