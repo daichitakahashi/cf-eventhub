@@ -37,12 +37,13 @@ const pageScript = (
   const dismissNotification = document.getElementById("dismiss-notification");
   const createPayload = document.getElementById("create-event-payload");
   const queueSizeWarning = document.getElementById("queue-size-warning");
+  const textEncoder = new TextEncoder();
 
   const updateQueueSizeWarning = () => {
     if (!(createPayload instanceof HTMLTextAreaElement) || !queueSizeWarning) return;
     try {
       const payload = JSON.parse(createPayload.value);
-      const bytes = new TextEncoder().encode(JSON.stringify(payload)).byteLength;
+      const bytes = textEncoder.encode(JSON.stringify(payload)).byteLength;
       queueSizeWarning.hidden = bytes <= ${maxQueueMessageBytes};
     } catch {
       queueSizeWarning.hidden = true;
@@ -594,6 +595,7 @@ export const createHandler = ({
                       <output
                         id="queue-size-warning"
                         class="block mt-2 rounded-md bg-yellow-100 text-yellow-800 px-4 py-2"
+                        aria-live="polite"
                         hidden
                       >
                         Warning: This payload exceeds the 128 KB Cloudflare

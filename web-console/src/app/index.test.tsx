@@ -255,12 +255,16 @@ describe("EventHub instance URL state", () => {
     const html = await response.text();
 
     expect(html).toContain(
-      '<output id="queue-size-warning" class="block mt-2 rounded-md bg-yellow-100 text-yellow-800 px-4 py-2" hidden=""',
+      '<output id="queue-size-warning" class="block mt-2 rounded-md bg-yellow-100 text-yellow-800 px-4 py-2" aria-live="polite" hidden=""',
     );
     expect(html).toContain(
       "Warning: This payload exceeds the 128 KB Cloudflare Queues message size limit.",
     );
     expect(html).toContain("queueSizeWarning.hidden = bytes <= 128000");
+    expect(html).toContain("const textEncoder = new TextEncoder()");
+    expect(html).toContain(
+      "const bytes = textEncoder.encode(JSON.stringify(payload)).byteLength",
+    );
     expect(html).toContain(
       'createPayload.addEventListener("input", updateQueueSizeWarning)',
     );
