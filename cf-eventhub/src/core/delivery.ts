@@ -1,3 +1,4 @@
+import { ULID_LENGTH } from "./id";
 import type {
   Destinations,
   R2Destination,
@@ -8,6 +9,10 @@ import type { PendingDeliveryJobs, PersistedDeliveryJob } from "./store";
 import type { EventPayload } from "./type";
 
 const MAX_SEND_BATCH_COUNT = 100;
+const MAX_SEND_BATCH_BYTES = 256_000;
+const MAX_QUEUE_MESSAGE_BYTES = 128_000;
+const DELIVERY_JOB_ID_PLACEHOLDER = "0".repeat(ULID_LENGTH);
+const textEncoder = new TextEncoder();
 
 // A persisted delivery job with its resolved delivery target.
 export type DeliveryJob<Env extends object> = Omit<
@@ -17,6 +22,11 @@ export type DeliveryJob<Env extends object> = Omit<
   target: ResolvedDestination;
   destination: Destinations<Env>;
 };
+
+export type ResolvedDestinations<Env extends object> = ReadonlyMap<
+  Destinations<Env>,
+  ResolvedDestination
+>;
 
 // Lifecycle callbacks fired after each batch delivery attempt.
 type DeliverJobsHandlers = {
@@ -44,11 +54,9 @@ const groupJobsByDestination = <T extends { destination: string }>(
 export const resolveDeliveryJobs = <Env extends object>(
   routing: RoutingStrategy<Env>,
   jobs: readonly PersistedDeliveryJob[],
+  resolvedDestinations?: ResolvedDestinations<Env>,
 ): DeliveryJob<Env>[] => {
-  const targetsByDestination = new Map<
-    Destinations<Env>,
-    ResolvedDestination
-  >();
+  const targetsByDestination = new Map(resolvedDestinations);
   const destinations = new Set<Destinations<Env>>();
 
   for (const { destination } of jobs) {
@@ -56,10 +64,12 @@ export const resolveDeliveryJobs = <Env extends object>(
   }
 
   for (const destination of destinations) {
-    targetsByDestination.set(
-      destination,
-      routing.resolveDestination(destination),
-    );
+    if (!targetsByDestination.has(destination)) {
+      targetsByDestination.set(
+        destination,
+        routing.resolveDestination(destination),
+      );
+    }
   }
 
   return jobs.map((job) => {
@@ -81,8 +91,12 @@ export const resolveDeliveryJobs = <Env extends object>(
 export const assertDestinationBindingsExist = <Env extends object>(
   routing: RoutingStrategy<Env>,
   pendingDeliveryJobs: PendingDeliveryJobs,
-): void => {
+): ResolvedDestinations<Env> => {
   const destinations = new Set<Destinations<Env>>();
+  const resolvedDestinations = new Map<
+    Destinations<Env>,
+    ResolvedDestination
+  >();
 
   for (const { destinations: items } of pendingDeliveryJobs.payloads) {
     for (const destination of items) {
@@ -91,8 +105,12 @@ export const assertDestinationBindingsExist = <Env extends object>(
   }
 
   for (const destination of destinations) {
-    routing.resolveDestination(destination);
+    resolvedDestinations.set(
+      destination,
+      routing.resolveDestination(destination),
+    );
   }
+  return resolvedDestinations;
 };
 
 type DeliveryMetadataSource = {
@@ -164,28 +182,119 @@ const injectDeliveryMetadata = (
   };
 };
 
+const getQueueMessageBody = (
+  payload: EventPayload,
+  jobId: string,
+  context: DeliveryContext,
+): EventPayload =>
+  context.includeDeliveryMetadata
+    ? injectDeliveryMetadata(payload, jobId, context)
+    : payload;
+
+const getJsonByteLength = (
+  payload: EventPayload,
+  serializedPayload?: string,
+): number =>
+  textEncoder.encode(serializedPayload ?? JSON.stringify(payload)).byteLength;
+
+// Rejects Queue-bound payloads before publish persists any delivery state.
+export const assertPendingQueueMessageSizes = <Env extends object>(
+  resolvedDestinations: ResolvedDestinations<Env>,
+  pendingDeliveryJobs: PendingDeliveryJobs,
+  context: DeliveryContext,
+): void => {
+  for (const {
+    payload,
+    serializedPayload,
+    destinations,
+  } of pendingDeliveryJobs.payloads) {
+    const hasQueueDestination = destinations.some(
+      (destination) =>
+        resolvedDestinations.get(destination as Destinations<Env>)?.kind ===
+        "queue",
+    );
+    if (!hasQueueDestination) continue;
+
+    const queuePayload = getQueueMessageBody(
+      payload,
+      DELIVERY_JOB_ID_PLACEHOLDER,
+      context,
+    );
+    const bytes = getJsonByteLength(
+      queuePayload,
+      context.includeDeliveryMetadata ? undefined : serializedPayload,
+    );
+    if (bytes > MAX_QUEUE_MESSAGE_BYTES) {
+      throw new Error(
+        `eventhub: Queue message size ${bytes} bytes exceeds limit of ${MAX_QUEUE_MESSAGE_BYTES} bytes`,
+      );
+    }
+  }
+};
+
+type QueueJob = {
+  jobId: string;
+  message: MessageSendRequest<EventPayload>;
+};
+
+const sendQueueBatch = async (
+  batch: readonly QueueJob[],
+  queue: Queue<EventPayload>,
+  handlers: DeliverJobsHandlers,
+): Promise<void> => {
+  const jobIds = batch.map(({ jobId }) => jobId);
+  try {
+    await queue.sendBatch(batch.map(({ message }) => message));
+    await handlers.onDelivered(jobIds);
+  } catch (error) {
+    await handlers.onFailed(jobIds, error);
+  }
+};
+
 const deliverQueueJobs = async <Env extends object>(
   jobs: readonly DeliveryJob<Env>[],
   queue: Queue<EventPayload>,
   handlers: DeliverJobsHandlers,
   context: DeliveryContext,
 ): Promise<void> => {
-  for (let i = 0; i < jobs.length; i += MAX_SEND_BATCH_COUNT) {
-    const chunk = jobs.slice(i, i + MAX_SEND_BATCH_COUNT);
-    const jobIds = chunk.map((job) => job.id);
-    try {
-      await queue.sendBatch(
-        chunk.map((job) => ({
-          body: context.includeDeliveryMetadata
-            ? injectDeliveryMetadata(job.payload, job.id, context)
-            : job.payload,
-          contentType: "json",
-        })),
+  let batch: QueueJob[] = [];
+  let batchBytes = 0;
+
+  for (const job of jobs) {
+    const body = getQueueMessageBody(job.payload, job.id, context);
+    const bytes = getJsonByteLength(
+      body,
+      context.includeDeliveryMetadata ? undefined : job.serializedPayload,
+    );
+
+    if (bytes > MAX_QUEUE_MESSAGE_BYTES) {
+      await handlers.onFailed(
+        [job.id],
+        new Error(
+          `eventhub: Queue message size ${bytes} bytes exceeds limit of ${MAX_QUEUE_MESSAGE_BYTES} bytes`,
+        ),
       );
-      await handlers.onDelivered(jobIds);
-    } catch (error) {
-      await handlers.onFailed(jobIds, error);
+      continue;
     }
+
+    if (
+      batch.length === MAX_SEND_BATCH_COUNT ||
+      batchBytes + bytes > MAX_SEND_BATCH_BYTES
+    ) {
+      await sendQueueBatch(batch, queue, handlers);
+      batch = [];
+      batchBytes = 0;
+    }
+
+    batch.push({
+      jobId: job.id,
+      message: { body, contentType: "json" },
+    });
+    batchBytes += bytes;
+  }
+
+  if (batch.length > 0) {
+    await sendQueueBatch(batch, queue, handlers);
   }
 };
 
@@ -201,9 +310,13 @@ const deliverR2Jobs = async <Env extends object>(
         ? injectDeliveryMetadata(job.payload, job.id, context)
         : job.payload;
 
+      const serializedPayload = context.includeDeliveryMetadata
+        ? JSON.stringify(payloadToStore)
+        : (job.serializedPayload ?? JSON.stringify(payloadToStore));
+
       await target.bucket.put(
         getR2ObjectKey(job, target, context),
-        JSON.stringify(payloadToStore),
+        serializedPayload,
         {
           httpMetadata: {
             contentType: "application/json",
@@ -239,11 +352,12 @@ export const deliverPersistedJobs = async <Env extends object>(
   jobs: readonly PersistedDeliveryJob[],
   handlers: DeliverJobsHandlers,
   context: DeliveryContext,
+  resolvedDestinations?: ResolvedDestinations<Env>,
 ): Promise<void> => {
   for (const destinationJobs of groupJobsByDestination(jobs).values()) {
     try {
       await deliverJobs(
-        resolveDeliveryJobs(routing, destinationJobs),
+        resolveDeliveryJobs(routing, destinationJobs, resolvedDestinations),
         handlers,
         context,
       );

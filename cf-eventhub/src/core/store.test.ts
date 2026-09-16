@@ -106,14 +106,17 @@ describe("createPendingDeliveryJobs", () => {
       payloads: [
         {
           payload: payloads[0],
+          serializedPayload: '{"kind":"culture","avoidUrban":true}',
           destinations: ["OKAYAMA"],
         },
         {
           payload: payloads[1],
+          serializedPayload: '{"kind":"nature","avoidUrban":false}',
           destinations: ["HOKKAIDO", "OKINAWA"],
         },
         {
           payload: payloads[2],
+          serializedPayload: '{"kind":"other"}',
           destinations: [],
         },
       ],
@@ -148,6 +151,7 @@ describe("createPendingDeliveryJobs", () => {
         payloads: [
           {
             payload: { kind: "culture", values: [null] },
+            serializedPayload: '{"kind":"culture","values":[null]}',
             destinations: [],
           },
         ],
@@ -167,6 +171,26 @@ describe("createPendingDeliveryJobs", () => {
 });
 
 describe("persistDeliveryJobs", () => {
+  test("reuses the normalized JSON serialization during persistence", () => {
+    const sql = { exec: vi.fn() } as unknown as SqlStorage;
+    const stringify = vi.spyOn(JSON, "stringify");
+
+    const pending = createPendingDeliveryJobs(routing, [
+      { kind: "culture", omitted: undefined },
+    ]);
+    persistDeliveryJobs(sql, pending, () => "01TEST00000000000000000000");
+    const stringifyCallCount = stringify.mock.calls.length;
+    stringify.mockRestore();
+
+    expect(stringifyCallCount).toBe(1);
+    expect(sql.exec).toHaveBeenCalledWith(
+      expect.stringContaining("INSERT INTO payloads"),
+      "01TEST00000000000000000000",
+      '{"kind":"culture"}',
+      expect.any(String),
+    );
+  });
+
   test("persists delivery jobs with monotonic ids from an injected generator", () => {
     // 1. Inject deterministic IDs and persist one routed payload.
     // 2. Verify the generated rows and returned jobs match.
@@ -205,12 +229,14 @@ describe("persistDeliveryJobs", () => {
         payloadId: "01TEST00000000000000000000",
         destination: "HOKKAIDO",
         payload: { kind: "nature", avoidUrban: false },
+        serializedPayload: '{"kind":"nature","avoidUrban":false}',
       },
       {
         id: "01TEST00000000000000000002",
         payloadId: "01TEST00000000000000000000",
         destination: "OKINAWA",
         payload: { kind: "nature", avoidUrban: false },
+        serializedPayload: '{"kind":"nature","avoidUrban":false}',
       },
     ]);
   });
@@ -1751,6 +1777,39 @@ describe("delivery job state transitions", () => {
 });
 
 describe("delivery job scheduling", () => {
+  test("parses a fanned-out payload once when listing deliverable jobs", async () => {
+    const stub = getStub("store-list-deliverable-fanout");
+
+    await runInDurableObject(stub, async (_instance, state) => {
+      let sequence = 0;
+      persistDeliveryJobs(
+        state.storage.sql,
+        createPendingDeliveryJobs(routing, [{ kind: "nature" }]),
+        () => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
+        new Date("2026-05-04T00:00:00.000Z"),
+      );
+      const parse = vi.spyOn(JSON, "parse");
+
+      const jobs = listDeliverableJobs(
+        state.storage.sql,
+        10,
+        new Date("2026-05-04T00:00:01.000Z"),
+      );
+      const parseCallCount = parse.mock.calls.length;
+      parse.mockRestore();
+
+      expect({
+        destinations: jobs.map(({ destination }) => destination),
+        parseCallCount,
+        sharedPayload: jobs[0]?.payload === jobs[1]?.payload,
+      }).toStrictEqual({
+        destinations: ["HOKKAIDO", "OKINAWA"],
+        parseCallCount: 1,
+        sharedPayload: true,
+      });
+    });
+  });
+
   test("lists only due jobs and orders them by retry schedule", async () => {
     // 1. Seed jobs with completed, failed, and due states.
     // 2. Verify only due active jobs are returned in retry order.

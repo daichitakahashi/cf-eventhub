@@ -2,6 +2,7 @@ import { describe, expect, test, vi } from "vitest";
 
 import {
   assertDestinationBindingsExist,
+  assertPendingQueueMessageSizes,
   deliverJobs,
   deliverPersistedJobs,
   resolveDeliveryJobs,
@@ -58,7 +59,46 @@ const deliveryContext = {
   includeDeliveryMetadata: false,
 } as const;
 
+const createPayloadWithJsonBytes = (bytes: number): EventPayload => {
+  const payload = { kind: "culture", data: "" };
+  const overhead = new TextEncoder().encode(JSON.stringify(payload)).byteLength;
+  return { ...payload, data: "x".repeat(bytes - overhead) };
+};
+
 describe("assertDestinationBindingsExist", () => {
+  test("reuses resolved destinations for validation and initial delivery", () => {
+    const env = createEnv();
+    const routing = createRouting(env);
+    const resolveDestination = vi.spyOn(routing, "resolveDestination");
+    const pendingDeliveryJobs = createPendingDeliveryJobs(routing, [
+      { kind: "culture" },
+    ]);
+
+    const resolvedDestinations = assertDestinationBindingsExist(
+      routing,
+      pendingDeliveryJobs,
+    );
+    assertPendingQueueMessageSizes(
+      resolvedDestinations,
+      pendingDeliveryJobs,
+      deliveryContext,
+    );
+    resolveDeliveryJobs(
+      routing,
+      [
+        {
+          id: "01TEST00000000000000000001",
+          payloadId: "01TEST00000000000000000000",
+          destination: "OKAYAMA",
+          payload: { kind: "culture" },
+        },
+      ],
+      resolvedDestinations,
+    );
+
+    expect(resolveDestination).toHaveBeenCalledTimes(1);
+  });
+
   test("fails before persistence when a destination binding is missing", () => {
     // 1. Build a routed job plan with a missing binding.
     // 2. Confirm validation fails before delivery starts.
@@ -245,6 +285,94 @@ describe("deliverJobs", () => {
     ]);
     expect(env.HOKKAIDO.sentBatches).toStrictEqual([]);
     expect(env.OKINAWA.sentBatches).toStrictEqual([]);
+  });
+
+  test("splits Queue batches by serialized UTF-8 JSON byte size", async () => {
+    const env = createEnv();
+    const routing = createRouting(env);
+    const jobs = resolveDeliveryJobs(
+      routing,
+      Array.from({ length: 3 }, (_, i) => ({
+        id: `01TEST0000000000000000000${i}`,
+        payloadId: `01PAYL0000000000000000000${i}`,
+        destination: "OKAYAMA",
+        payload: { kind: "culture", data: "あ".repeat(42_000) },
+      })),
+    );
+
+    await deliverJobs(
+      jobs,
+      { onDelivered: noopOnDelivered, onFailed: noopOnFailed },
+      deliveryContext,
+    );
+
+    expect(env.OKAYAMA.sentBatches.map((batch) => batch.length)).toStrictEqual([
+      2, 1,
+    ]);
+  });
+
+  test("includes injected delivery metadata in Queue batch byte size", async () => {
+    const env = createEnv();
+    const routing = createRouting(env);
+    const jobs = resolveDeliveryJobs(
+      routing,
+      Array.from({ length: 3 }, (_, i) => ({
+        id: `01TEST0000000000000000000${i}`,
+        payloadId: `01PAYL0000000000000000000${i}`,
+        destination: "OKAYAMA",
+        payload: createPayloadWithJsonBytes(85_300),
+      })),
+    );
+
+    await deliverJobs(
+      jobs,
+      { onDelivered: noopOnDelivered, onFailed: noopOnFailed },
+      {
+        instanceId: "test-instance",
+        instanceName: "test-name",
+        includeDeliveryMetadata: true,
+      },
+    );
+
+    expect(env.OKAYAMA.sentBatches.map((batch) => batch.length)).toStrictEqual([
+      2, 1,
+    ]);
+  });
+
+  test("reports an individually oversized Queue message without sending it", async () => {
+    const env = createEnv();
+    const routing = createRouting(env);
+    const [job] = resolveDeliveryJobs(routing, [
+      {
+        id: "01TEST00000000000000000001",
+        payloadId: "01PAYL00000000000000000000",
+        destination: "OKAYAMA",
+        payload: createPayloadWithJsonBytes(128_001),
+      },
+    ]);
+    const onFailed = vi.fn();
+
+    await deliverJobs(
+      [job],
+      { onDelivered: noopOnDelivered, onFailed },
+      deliveryContext,
+    );
+
+    expect({
+      sentBatches: env.OKAYAMA.sentBatches,
+      failure: onFailed.mock.calls,
+    }).toStrictEqual({
+      sentBatches: [],
+      failure: [
+        [
+          ["01TEST00000000000000000001"],
+          expect.objectContaining({
+            message:
+              "eventhub: Queue message size 128001 bytes exceeds limit of 128000 bytes",
+          }),
+        ],
+      ],
+    });
   });
 
   test("does not send anything when any destination queue is missing", () => {
