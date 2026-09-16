@@ -249,6 +249,23 @@ describe("EventHub instance URL state", () => {
     expect(response.headers.get("location")).toBe("/?instance=beta");
   });
 
+  test("warns when a create-event payload exceeds the Queue message limit", async () => {
+    const { app, bindings } = setup();
+    const response = await app.request("http://localhost/", {}, bindings);
+    const html = await response.text();
+
+    expect(html).toContain(
+      '<output id="queue-size-warning" class="block mt-2 rounded-md bg-yellow-100 text-yellow-800 px-4 py-2" hidden=""',
+    );
+    expect(html).toContain(
+      "Warning: This payload exceeds the 128 KB Cloudflare Queues message size limit.",
+    );
+    expect(html).toContain("queueSizeWarning.hidden = bytes <= 128000");
+    expect(html).toContain(
+      'createPayload.addEventListener("input", updateQueueSizeWarning)',
+    );
+  });
+
   test("routes redrive without listing Registry instances", async () => {
     const { app, bindings, hubs, registryGet, registryList } = setup();
     const response = await app.request(
