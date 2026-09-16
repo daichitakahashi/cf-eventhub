@@ -111,16 +111,14 @@ describe("EventHub integration", () => {
   });
 
   test("rolls back publish persistence when alarm scheduling fails", async () => {
-    // 1. Make alarm scheduling fail synchronously during publish.
+    // 1. Make alarm scheduling reject during publish.
     // 2. Verify the enclosing storage transaction rolls back every inserted row.
     const stub = getStub("publish-alarm-rollback");
 
     await runInDurableObject(stub, async (instance, state) => {
       const setAlarm = vi
         .spyOn(state.storage, "setAlarm")
-        .mockImplementationOnce(() => {
-          throw new Error("alarm scheduling failed");
-        });
+        .mockRejectedValueOnce(new Error("alarm scheduling failed"));
 
       await expect(
         (instance as TestEventHub).publish({ kind: "culture" }),

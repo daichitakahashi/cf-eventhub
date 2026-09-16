@@ -304,7 +304,7 @@ export abstract class EventHub<
     this.ctx.waitUntil(sync);
   }
 
-  private reconcileAlarmSync(): void {
+  private async reconcileAlarm(): Promise<void> {
     const candidates: number[] = [];
     const retryAt = getNextRetryAt(this.ctx.storage.sql);
     if (retryAt) candidates.push(Date.parse(retryAt));
@@ -329,10 +329,20 @@ export abstract class EventHub<
       throw new Error("eventhub: invalid persisted alarm timestamp");
     }
     if (candidates.length === 0) {
-      void this.ctx.storage.deleteAlarm();
+      await this.ctx.storage.deleteAlarm();
     } else {
-      void this.ctx.storage.setAlarm(Math.min(...candidates));
+      await this.ctx.storage.setAlarm(Math.min(...candidates));
     }
+  }
+
+  private async runInTransactionWithAlarmReconciliation<T>(
+    callback: () => T,
+  ): Promise<T> {
+    return this.ctx.storage.transaction(async () => {
+      const result = callback();
+      await this.reconcileAlarm();
+      return result;
+    });
   }
 
   // Delivers persisted jobs immediately or loads the next due batch from storage.
@@ -359,13 +369,12 @@ export abstract class EventHub<
       targetJobs,
       {
         onDelivered: async (jobIds) => {
-          this.ctx.storage.transactionSync(() => {
+          await this.runInTransactionWithAlarmReconciliation(() => {
             markDeliveryJobsCompleted(this.ctx.storage.sql, jobIds);
-            this.reconcileAlarmSync();
           });
         },
         onFailed: async (jobIds, error) => {
-          this.ctx.storage.transactionSync(() => {
+          await this.runInTransactionWithAlarmReconciliation(() => {
             markDeliveryJobsFailed(
               this.ctx.storage.sql,
               jobIds,
@@ -374,7 +383,6 @@ export abstract class EventHub<
               this.deliveryConfig.maxRetryDelayMs,
               error,
             );
-            this.reconcileAlarmSync();
           });
         },
       },
@@ -418,19 +426,18 @@ export abstract class EventHub<
       if (activeEjection) return;
       const cutoff = now.getTime() - eviction.afterMs;
       if (eviction.action.type === "delete") {
-        this.ctx.storage.transactionSync(() => {
+        await this.runInTransactionWithAlarmReconciliation(() => {
           deleteEvictionCandidates(
             this.ctx.storage.sql,
             cutoff,
             eviction.batchSize,
           );
-          this.reconcileAlarmSync();
         });
         return;
       }
       const archiveAction = eviction.action;
-      run = this.ctx.storage.transactionSync(() => {
-        const created = createAutomaticEjection(
+      run = await this.runInTransactionWithAlarmReconciliation(() =>
+        createAutomaticEjection(
           this.ctx.storage.sql,
           cutoff,
           eviction.batchSize,
@@ -439,10 +446,8 @@ export abstract class EventHub<
           this.ctx.id.toString(),
           this.ctx.id.name,
           now,
-        );
-        this.reconcileAlarmSync();
-        return created;
-      });
+        ),
+      );
       if (!run) return;
     }
 
@@ -480,20 +485,18 @@ export abstract class EventHub<
           httpMetadata: { contentType: "application/json" },
         });
       } catch (error) {
-        this.ctx.storage.transactionSync(() => {
+        await this.runInTransactionWithAlarmReconciliation(() => {
           recordEvictionFailure(this.ctx.storage.sql, run.ejectionKey, error);
-          this.reconcileAlarmSync();
         });
         return;
       }
-      this.ctx.storage.transactionSync(() => {
+      await this.runInTransactionWithAlarmReconciliation(() => {
         advanceEvictionPage(
           this.ctx.storage.sql,
           run.ejectionKey,
           page.cursor,
           page.payloads.length,
         );
-        this.reconcileAlarmSync();
       });
       return;
     }
@@ -519,15 +522,13 @@ export abstract class EventHub<
         httpMetadata: { contentType: "application/json" },
       });
     } catch (error) {
-      this.ctx.storage.transactionSync(() => {
+      await this.runInTransactionWithAlarmReconciliation(() => {
         recordEvictionFailure(this.ctx.storage.sql, run.ejectionKey, error);
-        this.reconcileAlarmSync();
       });
       return;
     }
-    this.ctx.storage.transactionSync(() => {
+    await this.runInTransactionWithAlarmReconciliation(() => {
       completeAutomaticEviction(this.ctx.storage.sql, run.ejectionKey);
-      this.reconcileAlarmSync();
     });
   }
 
@@ -553,21 +554,20 @@ export abstract class EventHub<
       includeDeliveryMetadata: this.deliveryConfig.includeDeliveryMetadata,
     });
 
-    const persistedJobs = this.ctx.storage.transactionSync(() => {
-      const jobs = persistDeliveryJobs(
-        this.ctx.storage.sql,
-        pendingDeliveryJobs,
-        (now) => this.idGenerator.generate(now),
-        new Date(),
-        this.deliveryConfig.initialRetryDelayMs,
-      );
-      this.reconcileAlarmSync();
-      return jobs;
-    });
+    const persistedJobs = await this.runInTransactionWithAlarmReconciliation(
+      () =>
+        persistDeliveryJobs(
+          this.ctx.storage.sql,
+          pendingDeliveryJobs,
+          (now) => this.idGenerator.generate(now),
+          new Date(),
+          this.deliveryConfig.initialRetryDelayMs,
+        ),
+    );
     this.ctx.waitUntil(
       (async () => {
         await this.deliverPersistedJobs(persistedJobs, resolvedDestinations);
-        this.ctx.storage.transactionSync(() => this.reconcileAlarmSync());
+        await this.runInTransactionWithAlarmReconciliation(() => undefined);
       })(),
     );
     this.scheduleRegistrySync();
@@ -586,17 +586,16 @@ export abstract class EventHub<
       throw new Error("eventhub: deliveryJobId must not be empty");
     }
 
-    const persistedJob = this.ctx.storage.transactionSync(() => {
-      const job = redriveDeliveryJob(
-        this.ctx.storage.sql,
-        deliveryJobId,
-        (now) => this.idGenerator.generate(now),
-        new Date(),
-        this.deliveryConfig.initialRetryDelayMs,
-      );
-      this.reconcileAlarmSync();
-      return job;
-    });
+    const persistedJob = await this.runInTransactionWithAlarmReconciliation(
+      () =>
+        redriveDeliveryJob(
+          this.ctx.storage.sql,
+          deliveryJobId,
+          (now) => this.idGenerator.generate(now),
+          new Date(),
+          this.deliveryConfig.initialRetryDelayMs,
+        ),
+    );
     if (!persistedJob) {
       this.scheduleRegistrySync();
       return false;
@@ -605,7 +604,7 @@ export abstract class EventHub<
     this.ctx.waitUntil(
       (async () => {
         await this.deliverPersistedJobs([persistedJob]);
-        this.ctx.storage.transactionSync(() => this.reconcileAlarmSync());
+        await this.runInTransactionWithAlarmReconciliation(() => undefined);
       })(),
     );
     this.scheduleRegistrySync();
@@ -638,17 +637,15 @@ export abstract class EventHub<
         throw new Error(`eventhub: maxBytes must be <= ${MAX_LIST_BYTES}`);
     }
 
-    return this.ctx.storage.transactionSync(() => {
-      const result = listPayloads(
+    return this.runInTransactionWithAlarmReconciliation(() =>
+      listPayloads(
         this.ctx.storage.sql,
         options?.cursor,
         max ?? 50,
         maxBytes ?? MAX_LIST_BYTES,
         order,
-      );
-      this.reconcileAlarmSync();
-      return result;
-    });
+      ),
+    );
   }
 
   /**
@@ -672,16 +669,14 @@ export abstract class EventHub<
         throw new Error(`eventhub: max must be <= ${MAX_EJECT_PAYLOADS}`);
     }
 
-    const result = this.ctx.storage.transactionSync(() => {
-      const ejected = ejectPayloads(
+    const result = await this.runInTransactionWithAlarmReconciliation(() =>
+      ejectPayloads(
         this.ctx.storage.sql,
         before,
         max ?? 50,
         this.idGenerator.generate(Date.now()),
-      );
-      this.reconcileAlarmSync();
-      return ejected;
-    });
+      ),
+    );
     this.scheduleRegistrySync();
     return result;
   }
@@ -721,17 +716,15 @@ export abstract class EventHub<
         );
     }
 
-    return this.ctx.storage.transactionSync(() => {
-      const result = listEjected(
+    return this.runInTransactionWithAlarmReconciliation(() =>
+      listEjected(
         this.ctx.storage.sql,
         ejectKey,
         options?.cursor,
         max ?? 50,
         maxBytes ?? MAX_LIST_EJECTED_BYTES,
-      );
-      this.reconcileAlarmSync();
-      return result;
-    });
+      ),
+    );
   }
 
   /**
@@ -743,9 +736,8 @@ export abstract class EventHub<
       throw new Error("eventhub: ejectKey must not be empty");
     }
 
-    this.ctx.storage.transactionSync(() => {
+    await this.runInTransactionWithAlarmReconciliation(() => {
       evictEjection(this.ctx.storage.sql, ejectKey);
-      this.reconcileAlarmSync();
     });
     this.scheduleRegistrySync();
   }
@@ -756,7 +748,7 @@ export abstract class EventHub<
   async alarm(): Promise<void> {
     await this.deliverPersistedJobs();
     await this.processEviction();
-    this.ctx.storage.transactionSync(() => this.reconcileAlarmSync());
+    await this.runInTransactionWithAlarmReconciliation(() => undefined);
     this.scheduleRegistrySync();
   }
 
@@ -838,14 +830,9 @@ export abstract class EventHub<
       throw new Error("eventhub: instanceId does not match this instance");
     }
 
-    const recorded = this.ctx.storage.transactionSync(() => {
-      const result = recordDeliveryJobFailure(
-        this.ctx.storage.sql,
-        deliveryJobId,
-      );
-      this.reconcileAlarmSync();
-      return result;
-    });
+    const recorded = await this.runInTransactionWithAlarmReconciliation(() =>
+      recordDeliveryJobFailure(this.ctx.storage.sql, deliveryJobId),
+    );
     this.scheduleRegistrySync();
     return recorded;
   }
