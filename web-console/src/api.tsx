@@ -17,6 +17,45 @@ const parseEventPayload = (value: string): unknown => {
 const redirectWithError = (c: Context<Env>) =>
   c.redirect(c.var.buildUrl("/", { error: "invalid-payload" }));
 
+const getRpcErrorDetails = (
+  error: unknown,
+): { errorCode?: string; errorMessage: string } => {
+  let errorCode: string | undefined;
+  let errorMessage: string | undefined;
+
+  if (typeof error === "object" && error !== null) {
+    try {
+      const record = error as Record<string, unknown>;
+      if (typeof record.code === "string") errorCode = record.code;
+      if (typeof record.message === "string") errorMessage = record.message;
+    } catch {
+      // Fall through to the safe generic message below.
+    }
+  }
+
+  if (!errorMessage) {
+    try {
+      errorMessage = String(error);
+    } catch {
+      errorMessage = "Unknown error";
+    }
+  }
+
+  return { ...(errorCode ? { errorCode } : {}), errorMessage };
+};
+
+const redirectWithRpcError = (
+  c: Context<Env>,
+  operation: "publish" | "redrive",
+  error: unknown,
+) =>
+  c.redirect(
+    c.var.buildUrl("/", {
+      error: `${operation}-failed`,
+      ...getRpcErrorDetails(error),
+    }),
+  );
+
 const handler = factory
   .createApp()
   .use(async (c, next) => {
@@ -66,7 +105,12 @@ const handler = factory
       if (!hub) {
         return c.json({ error: "EventHub instance not found" }, 404);
       }
-      const retried = await hub.redrive(c.req.valid("param").id);
+      let retried: boolean;
+      try {
+        retried = await hub.redrive(c.req.valid("param").id);
+      } catch (error) {
+        return redirectWithRpcError(c, "redrive", error);
+      }
       if (!retried) {
         return c.redirect(c.var.buildUrl("/", { error: "delivery-not-found" }));
       }
@@ -94,7 +138,11 @@ const handler = factory
       ) {
         return redirectWithError(c);
       }
-      await hub.publish(parsed as EventPayload);
+      try {
+        await hub.publish(parsed as EventPayload);
+      } catch (error) {
+        return redirectWithRpcError(c, "publish", error);
+      }
       return c.redirect(c.var.buildUrl("/"));
     },
   );

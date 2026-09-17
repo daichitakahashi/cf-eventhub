@@ -249,6 +249,45 @@ describe("EventHub instance URL state", () => {
     expect(response.headers.get("location")).toBe("/?instance=beta");
   });
 
+  test("displays a coded publish error on the selected instance", async () => {
+    const configured = setup();
+    configured.hubs.get("beta")?.publish.mockRejectedValue({
+      name: "EventHubError",
+      code: "DESTINATION_NOT_CONFIGURED",
+      message: "eventhub: EVENTS not set",
+    });
+
+    const response = await configured.app.request(
+      "http://localhost/api/events?instance=beta",
+      {
+        method: "POST",
+        body: new URLSearchParams({ payload: '{"kind":"test"}' }),
+      },
+      configured.bindings,
+    );
+    const location = response.headers.get("location");
+    expect(location).not.toBeNull();
+    const redirectUrl = new URL(location ?? "/", "http://localhost");
+    expect(Object.fromEntries(redirectUrl.searchParams)).toStrictEqual({
+      instance: "beta",
+      error: "publish-failed",
+      errorCode: "DESTINATION_NOT_CONFIGURED",
+      errorMessage: "eventhub: EVENTS not set",
+    });
+
+    const page = await configured.app.request(
+      redirectUrl.toString(),
+      {},
+      configured.bindings,
+    );
+    const html = await page.text();
+    expect(html).toContain("Failed to publish event.");
+    expect(html).toContain(
+      "Error code: <code>DESTINATION_NOT_CONFIGURED</code>",
+    );
+    expect(html).toContain("eventhub: EVENTS not set");
+  });
+
   test("warns when a create-event payload exceeds the Queue message limit", async () => {
     const { app, bindings } = setup();
     const response = await app.request("http://localhost/", {}, bindings);
@@ -283,6 +322,37 @@ describe("EventHub instance URL state", () => {
     expect(registryList).not.toHaveBeenCalled();
     expect(response.status).toBe(302);
     expect(response.headers.get("location")).toBe("/?instance=beta");
+  });
+
+  test("displays an uncoded redrive error on the selected instance", async () => {
+    const configured = setup();
+    configured.hubs
+      .get("beta")
+      ?.redrive.mockRejectedValue(new Error("storage unavailable"));
+
+    const response = await configured.app.request(
+      "http://localhost/api/delivery-jobs/job-1/retry?instance=beta",
+      { method: "POST" },
+      configured.bindings,
+    );
+    const location = response.headers.get("location");
+    expect(location).not.toBeNull();
+    const redirectUrl = new URL(location ?? "/", "http://localhost");
+    expect(Object.fromEntries(redirectUrl.searchParams)).toStrictEqual({
+      instance: "beta",
+      error: "redrive-failed",
+      errorMessage: "storage unavailable",
+    });
+
+    const page = await configured.app.request(
+      redirectUrl.toString(),
+      {},
+      configured.bindings,
+    );
+    const html = await page.text();
+    expect(html).toContain("Failed to redrive delivery job.");
+    expect(html).toContain("storage unavailable");
+    expect(html).not.toContain("Error code: <code>");
   });
 
   test("discards an EventHub cursor when switching instances", async () => {

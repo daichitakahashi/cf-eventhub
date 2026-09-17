@@ -423,13 +423,21 @@ export const createHandler = ({
             cursor: v.nullish(v.string()),
             pageSize: v.nullish(v.number(), pageSize),
             error: v.nullish(v.string()),
+            errorCode: v.nullish(v.string()),
+            errorMessage: v.nullish(v.string()),
           }),
-          { cursor: null, pageSize, error: null },
+          {
+            cursor: null,
+            pageSize,
+            error: null,
+            errorCode: null,
+            errorMessage: null,
+          },
         ),
       ),
       renderer(environment),
       async (c) => {
-        const { cursor, error } = c.req.valid("query");
+        const { cursor, error, errorCode, errorMessage } = c.req.valid("query");
         const max = c.req.valid("query").pageSize;
         const hub = c.var.getEventHub();
 
@@ -638,6 +646,24 @@ export const createHandler = ({
                 {error === "delivery-not-found" && (
                   <div class="rounded-md bg-red-100 text-red-800 px-4 py-2">
                     Delivery job not found. It may have already been archived.
+                  </div>
+                )}
+                {(error === "publish-failed" || error === "redrive-failed") && (
+                  <div
+                    role="alert"
+                    class="rounded-md bg-red-100 text-red-800 px-4 py-2"
+                  >
+                    <div class="font-medium">
+                      {error === "publish-failed"
+                        ? "Failed to publish event."
+                        : "Failed to redrive delivery job."}
+                    </div>
+                    {errorCode && (
+                      <div class="mt-1">
+                        Error code: <code>{errorCode}</code>
+                      </div>
+                    )}
+                    {errorMessage && <div class="mt-1">{errorMessage}</div>}
                   </div>
                 )}
               </div>
