@@ -1,3 +1,4 @@
+import { eventHubError } from "../errors";
 import {
   type Token,
   parsePath,
@@ -249,7 +250,8 @@ const validateAndCacheCondition = (
 ): void => {
   if ("path" in cond) {
     if (cond.match !== undefined && (cond.match.global || cond.match.sticky)) {
-      throw new Error(
+      throw eventHubError(
+        "INVALID_ARGUMENT",
         "eventhub: routing match expression must not use global or sticky flags",
       );
     }
@@ -264,7 +266,8 @@ const validateAndCacheCondition = (
   }
   const conditions = cond.allOf ?? cond.anyOf;
   if (conditions === undefined) {
-    throw new Error(
+    throw eventHubError(
+      "INVALID_ARGUMENT",
       "eventhub: routing condition must contain path, allOf, anyOf, or not",
     );
   }
@@ -339,7 +342,10 @@ const resolveDestinationBinding = <Env extends object>(
 ): ResolvedDestination => {
   const binding = (env as Record<PropertyKey, unknown>)[destination];
   if (!binding) {
-    throw new Error(`eventhub: ${String(destination)} not set`);
+    throw eventHubError(
+      "DESTINATION_NOT_CONFIGURED",
+      `eventhub: ${String(destination)} not set`,
+    );
   }
   if (isQueue(binding)) {
     return {
@@ -359,7 +365,8 @@ const resolveDestinationBinding = <Env extends object>(
       ...(r2Options === undefined ? {} : { objectKey: r2Options.objectKey }),
     };
   }
-  throw new Error(
+  throw eventHubError(
+    "INVALID_DESTINATION_BINDING",
     `eventhub: value of ${String(destination)} is not a Queue or R2Bucket`,
   );
 };

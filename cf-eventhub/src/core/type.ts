@@ -1,3 +1,5 @@
+import { eventHubError } from "../errors";
+
 type JSONPrimitive = string | boolean | number | null | undefined;
 type JSONArray = readonly NoInfer<JSONPrimitive | JSONObject | JSONArray>[];
 
@@ -42,7 +44,10 @@ export const serializeEventPayload = (
       serializedPayload,
     };
   } catch {
-    throw new Error("eventhub: payload must be a JSON-serializable object");
+    throw eventHubError(
+      "INVALID_ARGUMENT",
+      "eventhub: payload must be a JSON-serializable object",
+    );
   }
 };
 

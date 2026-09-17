@@ -9,6 +9,7 @@ import {
   registerInstance,
   tombstoneInstance,
 } from "./core/registry-store";
+import { eventHubError } from "./errors";
 
 export type EventHubInstanceStatus = RegistryInstanceStatus;
 export type EventHubInstance = RegistryInstance;
@@ -31,7 +32,10 @@ const MAX_LIST_MAX = 100;
 
 const assertName = (name: string): void => {
   if (typeof name !== "string" || name.length === 0) {
-    throw new Error("eventhub registry: name must not be empty");
+    throw eventHubError(
+      "INVALID_ARGUMENT",
+      "eventhub registry: name must not be empty",
+    );
   }
 };
 
@@ -60,7 +64,7 @@ const decodeCursor = (cursor: string): string => {
     if (name.length === 0 || encodeCursor(name) !== cursor) throw new Error();
     return name;
   } catch {
-    throw new Error("eventhub registry: invalid cursor");
+    throw eventHubError("INVALID_CURSOR", "eventhub registry: invalid cursor");
   }
 };
 
@@ -95,11 +99,17 @@ export class EventHubRegistry extends DurableObject<Record<string, never>> {
   ): Promise<ListEventHubInstancesResult> {
     const status = options.status ?? "active";
     if (status !== "active" && status !== "stale" && status !== "deleted") {
-      throw new Error("eventhub registry: invalid status");
+      throw eventHubError(
+        "INVALID_ARGUMENT",
+        "eventhub registry: invalid status",
+      );
     }
     const max = options.max ?? DEFAULT_LIST_MAX;
     if (!Number.isInteger(max) || max < 1 || max > MAX_LIST_MAX) {
-      throw new Error("eventhub registry: max must be an integer in 1..100");
+      throw eventHubError(
+        "INVALID_ARGUMENT",
+        "eventhub registry: max must be an integer in 1..100",
+      );
     }
     const cursorName =
       options.cursor === undefined ? undefined : decodeCursor(options.cursor);

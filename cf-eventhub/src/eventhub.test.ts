@@ -2,12 +2,14 @@ import { runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { assert, describe, expect, test, vi } from "vitest";
 
+import { QueueMock } from "./core/mock";
+import { routeFunc } from "./core/routing";
 import {
   createPendingDeliveryJobs,
   listDeliveryJobStatuses,
   persistDeliveryJobs,
 } from "./core/store";
-import { configureEviction } from "./eventhub";
+import { configureDelivery, configureEviction } from "./eventhub";
 import {
   TestEventHub,
   type TestEventHubWithArchiveEviction,
@@ -64,6 +66,72 @@ const createPayloadWithJsonBytes = <T extends Record<string, unknown>>(
 const getArchiveBucket = (): R2Bucket => env.ARCHIVE as R2Bucket;
 
 describe("EventHub integration", () => {
+  test("preserves an intentional error code across Durable Object RPC", async () => {
+    let caught: unknown;
+    try {
+      await getStub("rpc-error-code").list({ max: 101 });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toMatchObject({
+      name: "EventHubError",
+      code: "INVALID_ARGUMENT",
+      message: "eventhub: max must be <= 100",
+    });
+  });
+
+  test("logs retryable and terminal delivery failures with durable state", async () => {
+    // 1. Fail the immediate delivery and verify the retryable warning.
+    // 2. Make the persisted retry due, fail it again, and verify the terminal error.
+    const stub = getStub("delivery-failure-logs");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await runInDurableObject(stub, async (instance, state) => {
+      const hub = instance as TestEventHub;
+      hub.deliveryConfig = configureDelivery({ maxDeliveryRetries: 1 });
+      // @ts-expect-error: override the routing for this test to a failing queue.
+      hub.routing = routeFunc({ FAILING: new QueueMock([0, 1]) }, () => [
+        { destination: "FAILING" },
+      ]);
+
+      await hub.publish({ kind: "failure" });
+      await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(1));
+      state.storage.sql.exec(
+        "UPDATE delivery_jobs SET next_retry_at = ? WHERE final_status IS NULL",
+        new Date(Date.now() - 1_000).toISOString(),
+      );
+      await hub.alarm();
+    });
+
+    expect(warn).toHaveBeenCalledWith(
+      "eventhub: delivery attempt failed",
+      expect.objectContaining({
+        operation: "delivery",
+        instanceId: stub.id.toString(),
+        deliveryJobId: expect.any(String),
+        payloadId: expect.any(String),
+        destination: "FAILING",
+        failedAttemptCount: 1,
+        nextRetryAt: expect.any(String),
+        error: expect.objectContaining({ message: "failed batch 0" }),
+      }),
+    );
+    expect(error).toHaveBeenCalledWith(
+      "eventhub: delivery permanently failed",
+      expect.objectContaining({
+        operation: "delivery",
+        instanceId: stub.id.toString(),
+        destination: "FAILING",
+        failedAttemptCount: 2,
+        error: expect.objectContaining({ message: "failed batch 1" }),
+      }),
+    );
+    warn.mockRestore();
+    error.mockRestore();
+  });
+
   test("persists payloads and delivery jobs through publish", async () => {
     // 1. Publish routed payloads through the Durable Object entrypoint.
     // 2. Inspect storage to verify the persisted state.
@@ -1598,7 +1666,7 @@ describe("automatic eviction", () => {
       hub.eviction = original;
       await hub.alarm();
       expect(pausedState()).toStrictEqual({ runs: 0, ejected: 0 });
-      expect(error).toHaveBeenCalledTimes(2);
+      expect(error).toHaveBeenCalledTimes(3);
       error.mockRestore();
     });
   });
@@ -1608,6 +1676,7 @@ describe("automatic eviction", () => {
     // 2. Run the alarm and verify the payload is retained in its snapshot.
     // 3. Verify retry state advances without completing or evicting the run.
     const stub = getFailingArchiveEvictionStub("archive-put-failure");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     await runInDurableObject(stub, async (instance, state) => {
       state.storage.transactionSync(() => {
         persistDeliveryJobs(
@@ -1653,6 +1722,21 @@ describe("automatic eviction", () => {
         beforeAlarm + 60_000,
       );
     });
+    expect(warn).toHaveBeenCalledWith(
+      "eventhub: automatic eviction write failed",
+      expect.objectContaining({
+        operation: "automatic_eviction",
+        instanceId: stub.id.toString(),
+        instanceName: "archive-put-failure",
+        phase: "pages",
+        failedAttemptCount: 1,
+        nextRetryAt: expect.any(String),
+        error: expect.objectContaining({
+          message: expect.stringContaining("failed put"),
+        }),
+      }),
+    );
+    warn.mockRestore();
   });
 });
 

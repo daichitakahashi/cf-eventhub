@@ -408,6 +408,7 @@ describe("EventHub registry synchronization", () => {
     // 1. Run an EventHub RPC against a Registry stub that always rejects.
     // 2. Verify the RPC succeeds, no success timestamp is stored, and the next RPC retries.
     const hub = env.EVENT_HUB_WITH_FAILING_REGISTRY.getByName("isolated");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     await expect(hub.publish({ kind: "other" })).resolves.toBeUndefined();
     await vi.waitFor(async () => {
@@ -430,5 +431,15 @@ describe("EventHub registry synchronization", () => {
         ).toBe(2);
       });
     });
+    expect(warn).toHaveBeenCalledWith(
+      "eventhub: registry synchronization failed",
+      expect.objectContaining({
+        operation: "registry_synchronization",
+        instanceId: hub.id.toString(),
+        instanceName: "isolated",
+        error: expect.objectContaining({ message: "registry unavailable" }),
+      }),
+    );
+    warn.mockRestore();
   });
 });

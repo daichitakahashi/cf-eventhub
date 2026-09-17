@@ -1,3 +1,4 @@
+import { eventHubError } from "../errors";
 import type { RoutingStrategy } from "./routing";
 import { type EventPayload, serializeEventPayload } from "./type";
 
@@ -454,7 +455,14 @@ const toErrorMessage = (error: unknown): string => {
   return String(error);
 };
 
-// Updates retry state after a failed queue enqueue attempt.
+export type DeliveryFailureState = {
+  jobId: string;
+  failedAttemptCount: number;
+  finalStatus: "failed" | null;
+  nextRetryAt: string | null;
+};
+
+// Updates retry state after a failed delivery attempt.
 export const markDeliveryJobsFailed = (
   sql: SqlStorage,
   jobIds: readonly string[],
@@ -463,9 +471,9 @@ export const markDeliveryJobsFailed = (
   maxRetryDelayMs: number,
   error: unknown,
   now = new Date(),
-): void => {
+): DeliveryFailureState[] => {
   if (jobIds.length === 0) {
-    return;
+    return [];
   }
 
   const placeholders = jobIds.map(() => "?").join(", ");
@@ -485,6 +493,7 @@ export const markDeliveryJobsFailed = (
     rows.map(({ id, retry_count }) => [id, retry_count + 1]),
   );
   const message = toErrorMessage(error);
+  const states: DeliveryFailureState[] = [];
 
   for (const jobId of jobIds) {
     const nextFailedAttemptCount = failedAttemptCountById.get(jobId);
@@ -509,6 +518,12 @@ export const markDeliveryJobsFailed = (
         failedAt,
         jobId,
       );
+      states.push({
+        jobId,
+        failedAttemptCount: nextFailedAttemptCount,
+        finalStatus: "failed",
+        nextRetryAt: null,
+      });
       continue;
     }
 
@@ -516,6 +531,7 @@ export const markDeliveryJobsFailed = (
       initialRetryDelayMs * 2 ** (nextFailedAttemptCount - 1),
       maxRetryDelayMs,
     );
+    const nextRetryAt = new Date(now.getTime() + delayMs).toISOString();
     sql.exec(
       `
 					UPDATE delivery_jobs
@@ -528,10 +544,17 @@ export const markDeliveryJobsFailed = (
       nextFailedAttemptCount,
       failedAt,
       message,
-      new Date(now.getTime() + delayMs).toISOString(),
+      nextRetryAt,
       jobId,
     );
+    states.push({
+      jobId,
+      failedAttemptCount: nextFailedAttemptCount,
+      finalStatus: null,
+      nextRetryAt,
+    });
   }
+  return states;
 };
 
 // Lists jobs whose retry schedule allows them to be delivered now.
@@ -645,7 +668,7 @@ const decodeCursor = (
   try {
     decoded = JSON.parse(atob(cursor)) as unknown;
   } catch {
-    throw new Error("eventhub: invalid cursor");
+    throw eventHubError("INVALID_CURSOR", "eventhub: invalid cursor");
   }
   if (
     !Array.isArray(decoded) ||
@@ -653,7 +676,7 @@ const decodeCursor = (
     typeof decoded[0] !== "string" ||
     typeof decoded[1] !== "string"
   ) {
-    throw new Error("eventhub: invalid cursor");
+    throw eventHubError("INVALID_CURSOR", "eventhub: invalid cursor");
   }
   return {
     createdAt: decoded[0],
@@ -1641,11 +1664,12 @@ export const recordEvictionFailure = (
   ejectionKey: string,
   error: unknown,
   now = new Date(),
-): void => {
+): { failedAttemptCount: number; nextRetryAt: string } | undefined => {
   const run = getEvictionRun(sql);
   if (!run || run.ejectionKey !== ejectionKey) return;
   const retryCount = run.retryCount + 1;
   const delayMs = Math.min(60_000 * 2 ** (retryCount - 1), 3_600_000);
+  const nextRetryAt = new Date(now.getTime() + delayMs).toISOString();
   sql.exec(
     `
 			UPDATE eviction_runs
@@ -1654,10 +1678,11 @@ export const recordEvictionFailure = (
 		`,
     retryCount,
     toErrorMessage(error),
-    new Date(now.getTime() + delayMs).toISOString(),
+    nextRetryAt,
     now.toISOString(),
     ejectionKey,
   );
+  return { failedAttemptCount: retryCount, nextRetryAt };
 };
 
 export const completeAutomaticEviction = (

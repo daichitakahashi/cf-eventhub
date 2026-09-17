@@ -17,6 +17,7 @@ export type {
   ListedPayload,
 } from "./core/store";
 export type { EventPayload, JSONObject } from "./core/type";
+export type { EventHubErrorCode } from "./errors";
 export { configureDelivery, configureEviction, EventHub } from "./eventhub";
 export { getEventHubFromPayload } from "./payload";
 export {

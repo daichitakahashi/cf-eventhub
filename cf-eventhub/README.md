@@ -10,6 +10,7 @@ Delivery is attempted immediately, and failed jobs are retried via Durable Objec
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [Public API](#public-api)
+- [Error Handling and Observability](#error-handling-and-observability)
 - [EventHub Registry](#eventhub-registry)
 - [Delivery Configuration](#delivery-configuration)
 - [Queue Delivery Limits](#queue-delivery-limits)
@@ -165,6 +166,47 @@ The `EventHub` Durable Object exposes the following RPC methods:
 when the name is unknown. `list()` returns active instances by default and can
 filter `active`, `stale`, or `deleted` entries with name-ordered cursor
 pagination.
+
+## Error Handling and Observability
+
+Intentional validation and configuration errors propagated through EventHub or
+EventHub Registry RPC expose a stable `code` property. Treat the serialized
+fields as the public contract; custom error prototypes and `instanceof` do not
+survive an RPC boundary reliably.
+
+```ts
+try {
+  await hub.list({ max: 200 });
+} catch (error) {
+  if (
+    error &&
+    typeof error === "object" &&
+    "code" in error &&
+    error.code === "INVALID_ARGUMENT"
+  ) {
+    // Handle invalid caller input.
+  }
+}
+```
+
+The exported `EventHubErrorCode` union currently contains:
+
+- `INVALID_ARGUMENT`
+- `INVALID_CURSOR`
+- `DESTINATION_NOT_CONFIGURED`
+- `INVALID_DESTINATION_BINDING`
+- `INSTANCE_MISMATCH`
+
+Messages remain descriptive and may change independently of these codes.
+Unexpected Cloudflare infrastructure errors are not wrapped; runtime properties
+such as `retryable`, `overloaded`, and `remote` therefore remain available.
+
+Failures handled internally are emitted as structured Workers logs without
+payload bodies. Retryable delivery, automatic R2 eviction, and Registry
+synchronization failures use `console.warn()`. Permanently failed deliveries,
+paused eviction runs, and invariant failures requiring attention use
+`console.error()`. Delivery retry state remains authoritative in `list()`;
+logs complement rather than replace the durable fields.
 
 ## EventHub Registry
 

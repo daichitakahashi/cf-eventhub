@@ -1,3 +1,4 @@
+import { eventHubError } from "../errors";
 import { ULID_LENGTH } from "./id";
 import type {
   Destinations,
@@ -225,7 +226,8 @@ export const assertPendingQueueMessageSizes = <Env extends object>(
       context.includeDeliveryMetadata ? undefined : serializedPayload,
     );
     if (bytes > MAX_QUEUE_MESSAGE_BYTES) {
-      throw new Error(
+      throw eventHubError(
+        "INVALID_ARGUMENT",
         `eventhub: Queue message size ${bytes} bytes exceeds limit of ${MAX_QUEUE_MESSAGE_BYTES} bytes`,
       );
     }
