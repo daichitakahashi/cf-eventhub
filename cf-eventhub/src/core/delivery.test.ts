@@ -99,6 +99,36 @@ describe("assertDestinationBindingsExist", () => {
     expect(resolveDestination).toHaveBeenCalledTimes(1);
   });
 
+  test("assigns a stable code to an oversized Queue payload", () => {
+    const env = createEnv();
+    const routing = createRouting(env);
+    const pendingDeliveryJobs = createPendingDeliveryJobs(routing, [
+      createPayloadWithJsonBytes(128_001),
+    ]);
+    const resolvedDestinations = assertDestinationBindingsExist(
+      routing,
+      pendingDeliveryJobs,
+    );
+
+    let caught: unknown;
+    try {
+      assertPendingQueueMessageSizes(
+        resolvedDestinations,
+        pendingDeliveryJobs,
+        deliveryContext,
+      );
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toMatchObject({
+      name: "EventHubError",
+      code: "PAYLOAD_TOO_LARGE",
+      message:
+        "eventhub: Queue message size 128001 bytes exceeds limit of 128000 bytes",
+    });
+  });
+
   test("fails before persistence when a destination binding is missing", () => {
     // 1. Build a routed job plan with a missing binding.
     // 2. Confirm validation fails before delivery starts.

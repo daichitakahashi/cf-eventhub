@@ -91,7 +91,7 @@ describe("EventHub integration", () => {
     await runInDurableObject(stub, async (instance, state) => {
       const hub = instance as TestEventHub;
       hub.deliveryConfig = configureDelivery({ maxDeliveryRetries: 1 });
-      // @ts-expect-error: override the routing for this test to a failing queue.
+      // @ts-ignore: override the routing for this test to a failing queue.
       hub.routing = routeFunc({ FAILING: new QueueMock([0, 1]) }, () => [
         { destination: "FAILING" },
       ]);

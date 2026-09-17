@@ -5,6 +5,7 @@ import * as v from "valibot";
 
 import { getEventsLastUpdatedAt, normalizeEvents } from "./eventhub";
 import { type Env, factory } from "./factory";
+import { getEventHubErrorCode } from "./operation-error";
 
 const parseEventPayload = (value: string): unknown => {
   try {
@@ -17,44 +18,16 @@ const parseEventPayload = (value: string): unknown => {
 const redirectWithError = (c: Context<Env>) =>
   c.redirect(c.var.buildUrl("/", { error: "invalid-payload" }));
 
-const getRpcErrorDetails = (
-  error: unknown,
-): { errorCode?: string; errorMessage: string } => {
-  let errorCode: string | undefined;
-  let errorMessage: string | undefined;
-
-  if (typeof error === "object" && error !== null) {
-    try {
-      const record = error as Record<string, unknown>;
-      if (typeof record.code === "string") errorCode = record.code;
-      if (typeof record.message === "string") errorMessage = record.message;
-    } catch {
-      // Fall through to the safe generic message below.
-    }
-  }
-
-  if (!errorMessage) {
-    try {
-      errorMessage = String(error);
-    } catch {
-      errorMessage = "Unknown error";
-    }
-  }
-
-  return { ...(errorCode ? { errorCode } : {}), errorMessage };
-};
-
 const redirectWithRpcError = (
   c: Context<Env>,
   operation: "publish" | "redrive",
   error: unknown,
-) =>
-  c.redirect(
-    c.var.buildUrl("/", {
-      error: `${operation}-failed`,
-      ...getRpcErrorDetails(error),
-    }),
-  );
+) => {
+  const fragment = new URLSearchParams({ error: `${operation}-failed` });
+  const code = getEventHubErrorCode(error);
+  if (code) fragment.set("code", code);
+  return c.redirect(`${c.var.buildUrl("/")}#${fragment}`);
+};
 
 const handler = factory
   .createApp()

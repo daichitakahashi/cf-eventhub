@@ -227,7 +227,7 @@ export const assertPendingQueueMessageSizes = <Env extends object>(
     );
     if (bytes > MAX_QUEUE_MESSAGE_BYTES) {
       throw eventHubError(
-        "INVALID_ARGUMENT",
+        "PAYLOAD_TOO_LARGE",
         `eventhub: Queue message size ${bytes} bytes exceeds limit of ${MAX_QUEUE_MESSAGE_BYTES} bytes`,
       );
     }

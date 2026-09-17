@@ -192,6 +192,7 @@ try {
 The exported `EventHubErrorCode` union currently contains:
 
 - `INVALID_ARGUMENT`
+- `PAYLOAD_TOO_LARGE`
 - `INVALID_CURSOR`
 - `DESTINATION_NOT_CONFIGURED`
 - `INVALID_DESTINATION_BINDING`

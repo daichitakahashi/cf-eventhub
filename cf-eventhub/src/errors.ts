@@ -1,6 +1,7 @@
 /** Stable categories exposed by intentional cf-eventhub errors over RPC. */
 export type EventHubErrorCode =
   | "INVALID_ARGUMENT"
+  | "PAYLOAD_TOO_LARGE"
   | "INVALID_CURSOR"
   | "DESTINATION_NOT_CONFIGURED"
   | "INVALID_DESTINATION_BINDING"
