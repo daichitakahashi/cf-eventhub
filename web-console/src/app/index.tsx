@@ -17,6 +17,11 @@ import { Textarea } from "../components/Textarea";
 import { getEventsLastUpdatedAt, normalizeEvents } from "../eventhub";
 import type { DateTime } from "../factory";
 import { factory, listAllInstances } from "../factory";
+import {
+  eventHubErrorMessages,
+  operationErrorTitles,
+  unexpectedOperationErrorMessage,
+} from "../operation-error";
 import { styles } from "./styles";
 
 const maxPayloadRows = 10;
@@ -37,7 +42,37 @@ const pageScript = (
   const dismissNotification = document.getElementById("dismiss-notification");
   const createPayload = document.getElementById("create-event-payload");
   const queueSizeWarning = document.getElementById("queue-size-warning");
+  const operationError = document.getElementById("operation-error");
+  const operationErrorTitle = document.getElementById("operation-error-title");
+  const operationErrorCode = document.getElementById("operation-error-code");
+  const operationErrorCodeValue = document.getElementById("operation-error-code-value");
+  const operationErrorMessage = document.getElementById("operation-error-message");
   const textEncoder = new TextEncoder();
+
+  const fragment = new URLSearchParams(window.location.hash.slice(1));
+  const operationErrorType = fragment.get("error");
+  const operationErrorTitles = ${JSON.stringify(operationErrorTitles)};
+  const eventHubErrorMessages = ${JSON.stringify(eventHubErrorMessages)};
+  if (
+    operationError &&
+    operationErrorTitle &&
+    operationErrorCode &&
+    operationErrorCodeValue &&
+    operationErrorMessage &&
+    Object.prototype.hasOwnProperty.call(operationErrorTitles, operationErrorType)
+  ) {
+    const code = fragment.get("code");
+    operationErrorTitle.textContent = operationErrorTitles[operationErrorType];
+    if (code && Object.prototype.hasOwnProperty.call(eventHubErrorMessages, code)) {
+      operationErrorCodeValue.textContent = code;
+      operationErrorCode.hidden = false;
+      operationErrorMessage.textContent = eventHubErrorMessages[code];
+    } else {
+      operationErrorMessage.textContent = ${JSON.stringify(unexpectedOperationErrorMessage)};
+    }
+    operationError.hidden = false;
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
+  }
 
   const updateQueueSizeWarning = () => {
     if (!(createPayload instanceof HTMLTextAreaElement) || !queueSizeWarning) return;
@@ -424,7 +459,11 @@ export const createHandler = ({
             pageSize: v.nullish(v.number(), pageSize),
             error: v.nullish(v.string()),
           }),
-          { cursor: null, pageSize, error: null },
+          {
+            cursor: null,
+            pageSize,
+            error: null,
+          },
         ),
       ),
       renderer(environment),
@@ -640,6 +679,18 @@ export const createHandler = ({
                     Delivery job not found. It may have already been archived.
                   </div>
                 )}
+                <div
+                  id="operation-error"
+                  role="alert"
+                  class="rounded-md bg-red-100 text-red-800 px-4 py-2"
+                  hidden
+                >
+                  <div id="operation-error-title" class="font-medium" />
+                  <div id="operation-error-code" class="mt-1" hidden>
+                    Error code: <code id="operation-error-code-value" />
+                  </div>
+                  <div id="operation-error-message" class="mt-1" />
+                </div>
               </div>
 
               <div class="flex flex-col justify-center gap-12 overflow-hidden pt-1 pb-6">

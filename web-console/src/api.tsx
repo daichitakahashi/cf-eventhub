@@ -5,6 +5,7 @@ import * as v from "valibot";
 
 import { getEventsLastUpdatedAt, normalizeEvents } from "./eventhub";
 import { type Env, factory } from "./factory";
+import { getEventHubErrorCode } from "./operation-error";
 
 const parseEventPayload = (value: string): unknown => {
   try {
@@ -16,6 +17,17 @@ const parseEventPayload = (value: string): unknown => {
 
 const redirectWithError = (c: Context<Env>) =>
   c.redirect(c.var.buildUrl("/", { error: "invalid-payload" }));
+
+const redirectWithRpcError = (
+  c: Context<Env>,
+  operation: "publish" | "redrive",
+  error: unknown,
+) => {
+  const fragment = new URLSearchParams({ error: `${operation}-failed` });
+  const code = getEventHubErrorCode(error);
+  if (code) fragment.set("code", code);
+  return c.redirect(`${c.var.buildUrl("/")}#${fragment}`);
+};
 
 const handler = factory
   .createApp()
@@ -66,7 +78,12 @@ const handler = factory
       if (!hub) {
         return c.json({ error: "EventHub instance not found" }, 404);
       }
-      const retried = await hub.redrive(c.req.valid("param").id);
+      let retried: boolean;
+      try {
+        retried = await hub.redrive(c.req.valid("param").id);
+      } catch (error) {
+        return redirectWithRpcError(c, "redrive", error);
+      }
       if (!retried) {
         return c.redirect(c.var.buildUrl("/", { error: "delivery-not-found" }));
       }
@@ -94,7 +111,11 @@ const handler = factory
       ) {
         return redirectWithError(c);
       }
-      await hub.publish(parsed as EventPayload);
+      try {
+        await hub.publish(parsed as EventPayload);
+      } catch (error) {
+        return redirectWithRpcError(c, "publish", error);
+      }
       return c.redirect(c.var.buildUrl("/"));
     },
   );

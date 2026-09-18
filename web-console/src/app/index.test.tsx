@@ -249,6 +249,49 @@ describe("EventHub instance URL state", () => {
     expect(response.headers.get("location")).toBe("/?instance=beta");
   });
 
+  test("displays a coded publish error on the selected instance", async () => {
+    const configured = setup();
+    configured.hubs.get("beta")?.publish.mockRejectedValue({
+      name: "EventHubError",
+      code: "PAYLOAD_TOO_LARGE",
+      message:
+        "eventhub: Queue message size 128001 bytes exceeds limit of 128000 bytes",
+    });
+
+    const response = await configured.app.request(
+      "http://localhost/api/events?instance=beta",
+      {
+        method: "POST",
+        body: new URLSearchParams({ payload: '{"kind":"test"}' }),
+      },
+      configured.bindings,
+    );
+    const location = response.headers.get("location");
+    expect(location).not.toBeNull();
+    const redirectUrl = new URL(location ?? "/", "http://localhost");
+    expect(Object.fromEntries(redirectUrl.searchParams)).toStrictEqual({
+      instance: "beta",
+    });
+    expect(redirectUrl.hash).toBe(
+      "#error=publish-failed&code=PAYLOAD_TOO_LARGE",
+    );
+    expect(location).not.toContain("128001");
+
+    const page = await configured.app.request(
+      `${redirectUrl.origin}${redirectUrl.pathname}${redirectUrl.search}`,
+      {},
+      configured.bindings,
+    );
+    const html = await page.text();
+    expect(html).toContain('id="operation-error"');
+    expect(html).toContain("window.location.hash.slice(1)");
+    expect(html).toContain("Failed to publish event.");
+    expect(html).toContain(
+      "The event exceeds the 128,000-byte Cloudflare Queues message size limit.",
+    );
+    expect(html).toContain("window.history.replaceState");
+  });
+
   test("warns when a create-event payload exceeds the Queue message limit", async () => {
     const { app, bindings } = setup();
     const response = await app.request("http://localhost/", {}, bindings);
@@ -283,6 +326,41 @@ describe("EventHub instance URL state", () => {
     expect(registryList).not.toHaveBeenCalled();
     expect(response.status).toBe(302);
     expect(response.headers.get("location")).toBe("/?instance=beta");
+  });
+
+  test("does not expose unexpected redrive error details in the URL", async () => {
+    const configured = setup();
+    configured.hubs.get("beta")?.redrive.mockRejectedValue({
+      code: "INTERNAL_SECRET",
+      message: "storage credentials were rejected",
+    });
+
+    const response = await configured.app.request(
+      "http://localhost/api/delivery-jobs/job-1/retry?instance=beta",
+      { method: "POST" },
+      configured.bindings,
+    );
+    const location = response.headers.get("location");
+    expect(location).not.toBeNull();
+    const redirectUrl = new URL(location ?? "/", "http://localhost");
+    expect(Object.fromEntries(redirectUrl.searchParams)).toStrictEqual({
+      instance: "beta",
+    });
+    expect(redirectUrl.hash).toBe("#error=redrive-failed");
+    expect(location).not.toContain("INTERNAL_SECRET");
+    expect(location).not.toContain("storage");
+
+    const page = await configured.app.request(
+      `${redirectUrl.origin}${redirectUrl.pathname}${redirectUrl.search}`,
+      {},
+      configured.bindings,
+    );
+    const html = await page.text();
+    expect(html).toContain("Failed to redrive delivery job.");
+    expect(html).toContain(
+      "The operation failed unexpectedly. Check Workers Logs for details.",
+    );
+    expect(html).not.toContain("storage credentials were rejected");
   });
 
   test("discards an EventHub cursor when switching instances", async () => {
