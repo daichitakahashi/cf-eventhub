@@ -1,9 +1,4 @@
-import type {
-  EventHub,
-  EventPayload,
-  ListResult,
-  ListedDeliveryJob,
-} from "cf-eventhub";
+import type { EventPayload, ListedDeliveryJob, ListResult } from "cf-eventhub";
 
 export type DeliveryStatus =
   | "ongoing"

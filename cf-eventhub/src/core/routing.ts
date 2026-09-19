@@ -1,9 +1,9 @@
 import { eventHubError } from "../errors";
 import {
-  type Token,
   parsePath,
   query,
   queryWithParsedPath,
+  type Token,
 } from "./jsonpath-lite";
 import type { EventPayload, JSONObject } from "./type";
 

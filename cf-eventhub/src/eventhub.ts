@@ -1,19 +1,14 @@
 import { DurableObject } from "cloudflare:workers";
 
 import {
-  type ResolvedDestinations,
   assertDestinationBindingsExist,
   assertPendingQueueMessageSizes,
   deliverPersistedJobs,
+  type ResolvedDestinations,
 } from "./core/delivery";
 import { MonotonicUlidGenerator } from "./core/id";
 import type { RoutingStrategy } from "./core/routing";
 import {
-  type EjectResult,
-  type ListEjectedResult,
-  type ListOrder,
-  type ListResult,
-  type PersistedDeliveryJob,
   advanceEvictionPage,
   claimDeliverableJobs,
   claimDeliveryJobs,
@@ -21,6 +16,7 @@ import {
   createAutomaticEjection,
   createPendingDeliveryJobs,
   deleteEvictionCandidates,
+  type EjectResult,
   ejectPayloads,
   evictEjection,
   getActiveEjection,
@@ -29,10 +25,14 @@ import {
   getNextRetryAt,
   getRegistrySyncedAt,
   initializeSchema,
+  type ListEjectedResult,
+  type ListOrder,
+  type ListResult,
   listEjected,
   list as listPayloads,
   markDeliveryJobsCompleted,
   markDeliveryJobsFailed,
+  type PersistedDeliveryJob,
   persistDeliveryJobs,
   recordDeliveryJobFailure,
   recordEvictionFailure,

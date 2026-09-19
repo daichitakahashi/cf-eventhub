@@ -1,9 +1,9 @@
 import { env } from "cloudflare:workers";
 import { createWebConsole } from "@cf-eventhub/web-console";
 import {
+  configureDelivery,
   EventHub,
   EventHubRegistry,
-  configureDelivery,
   getEventHubFromPayload,
   routeByConfig,
 } from "cf-eventhub";
