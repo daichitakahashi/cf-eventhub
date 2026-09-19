@@ -1,7 +1,4 @@
 import { vValidator } from "@hono/valibot-validator";
-import { jsxRenderer } from "hono/jsx-renderer";
-import * as v from "valibot";
-
 import {
   EVENT_HUB_REGISTRY_NAME,
   type EventHub,
@@ -9,6 +6,8 @@ import {
   type EventHubRegistry,
   type ListResult,
 } from "cf-eventhub";
+import { jsxRenderer } from "hono/jsx-renderer";
+import * as v from "valibot";
 import { Button } from "../components/Button";
 import { Event } from "../components/Event";
 import { SunMedium } from "../components/Icon";
@@ -184,10 +183,7 @@ const renderer = (environment?: string) =>
       <html lang="en">
         <head>
           <title>{title}</title>
-          <style
-            // biome-ignore  lint/security/noDangerouslySetInnerHtml: generated stylesheet
-            dangerouslySetInnerHTML={{ __html: styles }}
-          />
+          <style dangerouslySetInnerHTML={{ __html: styles }} />
         </head>
         <body>{children}</body>
       </html>
@@ -718,7 +714,6 @@ export const createHandler = ({
               </div>
             </div>
             <script
-              // biome-ignore  lint/security/noDangerouslySetInnerHtml: safe
               dangerouslySetInnerHTML={{
                 __html: pageScript(
                   refreshIntervalSeconds,

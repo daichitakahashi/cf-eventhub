@@ -206,10 +206,7 @@ function queryParsed(obj: unknown, tokens: readonly Token[]): unknown[] {
       if (token.type === "property") {
         if (typeof value === "object" && !Array.isArray(value)) {
           const record = value as Record<string, unknown>;
-          const hasOwn = Object.prototype.hasOwnProperty.call(
-            record,
-            token.name,
-          );
+          const hasOwn = Object.hasOwn(record, token.name);
           if (hasOwn) {
             const prop = record[token.name];
             if (prop !== undefined) {

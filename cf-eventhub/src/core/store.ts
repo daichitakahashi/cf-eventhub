@@ -10,6 +10,11 @@ type PersistedDeliveryJobRow = {
   body: string;
 };
 
+export type DeliveryJobClaim = {
+  jobs: PersistedDeliveryJob[];
+  leaseToken: string;
+};
+
 // A payload paired with the destinations selected by routing.
 export type PendingPayload = {
   payload: EventPayload;
@@ -173,6 +178,9 @@ export const initializeSchema = (sql: SqlStorage): void => {
 			last_failed_at TEXT,
 			last_error TEXT,
 			next_retry_at TEXT NOT NULL,
+			attempt_started_at TEXT,
+			lease_expires_at TEXT,
+			lease_token TEXT,
 			FOREIGN KEY (payload_id) REFERENCES payloads(id)
 		)
 	`);
@@ -191,6 +199,16 @@ export const initializeSchema = (sql: SqlStorage): void => {
   sql.exec(`
 		CREATE INDEX IF NOT EXISTS idx_delivery_jobs_retry_schedule
 		ON delivery_jobs (final_status, next_retry_at, created_at, id)
+	`);
+  sql.exec(`
+		CREATE INDEX IF NOT EXISTS idx_delivery_jobs_claim_schedule
+		ON delivery_jobs (
+			final_status,
+			lease_expires_at,
+			next_retry_at,
+			created_at,
+			id
+		)
 	`);
   sql.exec(`
 		CREATE TABLE IF NOT EXISTS ejections (
@@ -427,6 +445,7 @@ export const markDeliveryJobsCompleted = (
   sql: SqlStorage,
   jobIds: readonly string[],
   now = new Date(),
+  leaseToken?: string,
 ): void => {
   if (jobIds.length === 0) {
     return;
@@ -438,12 +457,16 @@ export const markDeliveryJobsCompleted = (
 			UPDATE delivery_jobs
 			SET final_status = 'completed',
 				finalized_at = ?,
-				last_error = NULL
+				last_error = NULL,
+				lease_expires_at = NULL,
+				lease_token = NULL
 			WHERE id IN (${placeholders})
 				AND (final_status IS NULL OR final_status = 'failed')
+				${leaseToken === undefined ? "" : "AND lease_token = ?"}
 		`,
     now.toISOString(),
     ...jobIds,
+    ...(leaseToken === undefined ? [] : [leaseToken]),
   );
 };
 
@@ -471,6 +494,7 @@ export const markDeliveryJobsFailed = (
   maxRetryDelayMs: number,
   error: unknown,
   now = new Date(),
+  leaseToken?: string,
 ): DeliveryFailureState[] => {
   if (jobIds.length === 0) {
     return [];
@@ -485,8 +509,10 @@ export const markDeliveryJobsFailed = (
 				FROM delivery_jobs
 				WHERE id IN (${placeholders})
 					AND final_status IS NULL
+					${leaseToken === undefined ? "" : "AND lease_token = ?"}
 			`,
       ...jobIds,
+      ...(leaseToken === undefined ? [] : [leaseToken]),
     )
     .toArray();
   const failedAttemptCountById = new Map(
@@ -509,14 +535,18 @@ export const markDeliveryJobsFailed = (
 						last_failed_at = ?,
 						last_error = ?,
 						final_status = 'failed',
-						finalized_at = ?
+						finalized_at = ?,
+						lease_expires_at = NULL,
+						lease_token = NULL
 					WHERE id = ?
+						${leaseToken === undefined ? "" : "AND lease_token = ?"}
 				`,
         nextFailedAttemptCount,
         failedAt,
         message,
         failedAt,
         jobId,
+        ...(leaseToken === undefined ? [] : [leaseToken]),
       );
       states.push({
         jobId,
@@ -536,16 +566,20 @@ export const markDeliveryJobsFailed = (
       `
 					UPDATE delivery_jobs
 					SET retry_count = ?,
-						last_failed_at = ?,
-						last_error = ?,
-						next_retry_at = ?
-					WHERE id = ?
-				`,
+					last_failed_at = ?,
+					last_error = ?,
+					next_retry_at = ?,
+					lease_expires_at = NULL,
+					lease_token = NULL
+				WHERE id = ?
+					${leaseToken === undefined ? "" : "AND lease_token = ?"}
+			`,
       nextFailedAttemptCount,
       failedAt,
       message,
       nextRetryAt,
       jobId,
+      ...(leaseToken === undefined ? [] : [leaseToken]),
     );
     states.push({
       jobId,
@@ -555,6 +589,119 @@ export const markDeliveryJobsFailed = (
     });
   }
   return states;
+};
+
+const loadClaimedDeliveryJobs = (
+  sql: SqlStorage,
+  leaseToken: string,
+): PersistedDeliveryJob[] => {
+  const rows = sql
+    .exec<PersistedDeliveryJobRow>(
+      `
+				SELECT dj.id, dj.payload_id, dj.destination, p.body
+				FROM delivery_jobs dj
+				INNER JOIN payloads p ON p.id = dj.payload_id
+				WHERE dj.lease_token = ?
+				ORDER BY dj.next_retry_at ASC, dj.created_at ASC, dj.id ASC
+			`,
+      leaseToken,
+    )
+    .toArray();
+  const payloadsById = new Map<string, EventPayload>();
+
+  return rows.map((row) => {
+    let payload = payloadsById.get(row.payload_id);
+    if (!payload) {
+      payload = JSON.parse(row.body) as EventPayload;
+      payloadsById.set(row.payload_id, payload);
+    }
+
+    return {
+      id: row.id,
+      payloadId: row.payload_id,
+      destination: row.destination,
+      payload,
+      serializedPayload: row.body,
+    };
+  });
+};
+
+const claimJobs = (
+  sql: SqlStorage,
+  candidateSql: string,
+  candidateBindings: readonly (string | number)[],
+  leaseToken: string,
+  leaseDurationMs: number,
+  now: Date,
+): DeliveryJobClaim => {
+  const attemptStartedAt = now.toISOString();
+  const leaseExpiresAt = new Date(
+    now.getTime() + leaseDurationMs,
+  ).toISOString();
+  sql.exec(
+    `
+			UPDATE delivery_jobs
+			SET attempt_started_at = ?,
+				lease_expires_at = ?,
+				lease_token = ?
+			WHERE id IN (${candidateSql})
+				AND final_status IS NULL
+				AND (lease_expires_at IS NULL OR lease_expires_at <= ?)
+		`,
+    attemptStartedAt,
+    leaseExpiresAt,
+    leaseToken,
+    ...candidateBindings,
+    attemptStartedAt,
+  );
+
+  return { jobs: loadClaimedDeliveryJobs(sql, leaseToken), leaseToken };
+};
+
+// Claims newly persisted jobs before their immediate external delivery starts.
+export const claimDeliveryJobs = (
+  sql: SqlStorage,
+  jobIds: readonly string[],
+  leaseToken: string,
+  leaseDurationMs: number,
+  now = new Date(),
+): DeliveryJobClaim => {
+  if (jobIds.length === 0) return { jobs: [], leaseToken };
+  return claimJobs(
+    sql,
+    "SELECT value FROM json_each(?)",
+    [JSON.stringify(jobIds)],
+    leaseToken,
+    leaseDurationMs,
+    now,
+  );
+};
+
+// Atomically selects and claims the next due delivery jobs.
+export const claimDeliverableJobs = (
+  sql: SqlStorage,
+  limit: number,
+  leaseToken: string,
+  leaseDurationMs: number,
+  now = new Date(),
+): DeliveryJobClaim => {
+  const nowIso = now.toISOString();
+  return claimJobs(
+    sql,
+    `
+				SELECT id
+				FROM delivery_jobs
+				WHERE final_status IS NULL
+					AND next_retry_at <= ?
+					AND (lease_expires_at IS NULL OR lease_expires_at <= ?)
+				ORDER BY next_retry_at ASC, created_at ASC, id ASC
+				LIMIT ?
+			`,
+    [nowIso, nowIso, limit],
+    leaseToken,
+    leaseDurationMs,
+    now,
+  );
 };
 
 // Lists jobs whose retry schedule allows them to be delivered now.
@@ -571,9 +718,11 @@ export const listDeliverableJobs = (
 				INNER JOIN payloads p ON p.id = dj.payload_id
 				WHERE dj.final_status IS NULL
 					AND dj.next_retry_at <= ?
+					AND (dj.lease_expires_at IS NULL OR dj.lease_expires_at <= ?)
 				ORDER BY dj.next_retry_at ASC, dj.created_at ASC, dj.id ASC
 				LIMIT ?
 			`,
+      now.toISOString(),
       now.toISOString(),
       limit,
     )
@@ -600,17 +749,22 @@ export const listDeliverableJobs = (
 // Returns the earliest retry timestamp among active jobs.
 export const getNextRetryAt = (sql: SqlStorage): string | null => {
   const row = sql
-    .exec<{ next_retry_at: string }>(
+    .exec<{ delivery_at: string }>(
       `
-				SELECT next_retry_at
+				SELECT CASE
+					WHEN lease_expires_at IS NOT NULL
+						AND lease_expires_at > next_retry_at
+					THEN lease_expires_at
+					ELSE next_retry_at
+				END AS delivery_at
 				FROM delivery_jobs
 				WHERE final_status IS NULL
-				ORDER BY next_retry_at ASC, created_at ASC, id ASC
+				ORDER BY delivery_at ASC, created_at ASC, id ASC
 				LIMIT 1
 			`,
     )
     .toArray()[0];
-  return row?.next_retry_at ?? null;
+  return row?.delivery_at ?? null;
 };
 
 // Returns the full job table in a test- and ops-friendly shape.

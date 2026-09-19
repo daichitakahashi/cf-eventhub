@@ -5,6 +5,7 @@ import { assert, describe, expect, test, vi } from "vitest";
 import { routeByConfig, routeFunc } from "./routing";
 import {
   advanceEvictionPage,
+  claimDeliverableJobs,
   completeAutomaticEviction,
   createAutomaticEjection,
   createPendingDeliveryJobs,
@@ -1777,6 +1778,133 @@ describe("delivery job state transitions", () => {
 });
 
 describe("delivery job scheduling", () => {
+  test("leases due jobs once and makes interrupted attempts retryable after expiry", async () => {
+    // 1. Claim a due job and verify another attempt cannot claim it concurrently.
+    // 2. Advance beyond the lease and verify the interrupted job can be claimed again.
+    const stub = getStub("store-delivery-job-lease-expiry");
+
+    await runInDurableObject(stub, async (_instance, state) => {
+      let sequence = 0;
+      const [job] = state.storage.transactionSync(() =>
+        persistDeliveryJobs(
+          state.storage.sql,
+          createPendingDeliveryJobs(routing, [
+            { kind: "culture", avoidUrban: true },
+          ]),
+          () => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
+          new Date("2026-05-04T00:00:00.000Z"),
+        ),
+      );
+
+      const firstClaim = state.storage.transactionSync(() =>
+        claimDeliverableJobs(
+          state.storage.sql,
+          10,
+          "lease-a",
+          10_000,
+          new Date("2026-05-04T00:00:01.000Z"),
+        ),
+      );
+      const scheduledWhileClaimed = getNextRetryAt(state.storage.sql);
+      const overlappingClaim = state.storage.transactionSync(() =>
+        claimDeliverableJobs(
+          state.storage.sql,
+          10,
+          "lease-b",
+          10_000,
+          new Date("2026-05-04T00:00:02.000Z"),
+        ),
+      );
+      const recoveredClaim = state.storage.transactionSync(() =>
+        claimDeliverableJobs(
+          state.storage.sql,
+          10,
+          "lease-c",
+          10_000,
+          new Date("2026-05-04T00:00:12.000Z"),
+        ),
+      );
+
+      expect({
+        first: firstClaim.jobs.map(({ id }) => id),
+        scheduledWhileClaimed,
+        overlapping: overlappingClaim.jobs.map(({ id }) => id),
+        recovered: recoveredClaim.jobs.map(({ id }) => id),
+      }).toStrictEqual({
+        first: [job.id],
+        scheduledWhileClaimed: "2026-05-04T00:00:11.000Z",
+        overlapping: [],
+        recovered: [job.id],
+      });
+    });
+  });
+
+  test("ignores completion from an expired delivery attempt", async () => {
+    // 1. Reclaim a job after its first lease expires.
+    // 2. Verify the stale owner cannot finalize the new owner's attempt.
+    const stub = getStub("store-stale-delivery-completion");
+
+    await runInDurableObject(stub, async (_instance, state) => {
+      let sequence = 0;
+      const [job] = state.storage.transactionSync(() =>
+        persistDeliveryJobs(
+          state.storage.sql,
+          createPendingDeliveryJobs(routing, [
+            { kind: "culture", avoidUrban: true },
+          ]),
+          () => `01TEST000000000000${String(sequence++).padStart(6, "0")}`,
+          new Date("2026-05-04T00:00:00.000Z"),
+        ),
+      );
+
+      state.storage.transactionSync(() => {
+        claimDeliverableJobs(
+          state.storage.sql,
+          10,
+          "lease-a",
+          1_000,
+          new Date("2026-05-04T00:00:01.000Z"),
+        );
+        claimDeliverableJobs(
+          state.storage.sql,
+          10,
+          "lease-b",
+          10_000,
+          new Date("2026-05-04T00:00:03.000Z"),
+        );
+        markDeliveryJobsCompleted(
+          state.storage.sql,
+          [job.id],
+          new Date("2026-05-04T00:00:04.000Z"),
+          "lease-a",
+        );
+      });
+      const [afterStaleCompletion] = listDeliveryJobStatuses(state.storage.sql);
+
+      state.storage.transactionSync(() => {
+        markDeliveryJobsCompleted(
+          state.storage.sql,
+          [job.id],
+          new Date("2026-05-04T00:00:05.000Z"),
+          "lease-b",
+        );
+      });
+      const [afterCurrentCompletion] = listDeliveryJobStatuses(
+        state.storage.sql,
+      );
+
+      expect({
+        afterStaleCompletion: afterStaleCompletion.finalStatus,
+        afterCurrentCompletion: afterCurrentCompletion.finalStatus,
+        finalizedAt: afterCurrentCompletion.finalizedAt,
+      }).toStrictEqual({
+        afterStaleCompletion: null,
+        afterCurrentCompletion: "completed",
+        finalizedAt: "2026-05-04T00:00:05.000Z",
+      });
+    });
+  });
+
   test("parses a fanned-out payload once when listing deliverable jobs", async () => {
     const stub = getStub("store-list-deliverable-fanout");
 

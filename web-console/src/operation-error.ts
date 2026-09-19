@@ -28,7 +28,7 @@ export const getEventHubErrorCode = (
   try {
     const code = (error as Record<string, unknown>).code;
     return typeof code === "string" &&
-      Object.prototype.hasOwnProperty.call(eventHubErrorMessages, code)
+      Object.hasOwn(eventHubErrorMessages, code)
       ? (code as EventHubErrorCode)
       : undefined;
   } catch {
