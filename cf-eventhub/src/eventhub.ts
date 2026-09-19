@@ -15,6 +15,8 @@ import {
   type ListResult,
   type PersistedDeliveryJob,
   advanceEvictionPage,
+  claimDeliverableJobs,
+  claimDeliveryJobs,
   completeAutomaticEviction,
   createAutomaticEjection,
   createPendingDeliveryJobs,
@@ -27,7 +29,6 @@ import {
   getNextRetryAt,
   getRegistrySyncedAt,
   initializeSchema,
-  listDeliverableJobs,
   listEjected,
   list as listPayloads,
   markDeliveryJobsCompleted,
@@ -76,6 +77,13 @@ export type DeliveryConfig = {
    * @default 900000 (15 minutes)
    */
   maxRetryDelayMs: number;
+
+  /**
+   * Duration in milliseconds for which a delivery attempt owns its jobs.
+   * An interrupted attempt becomes eligible again after this lease expires.
+   * @default 300000 (5 minutes)
+   */
+  deliveryAttemptLeaseMs: number;
 
   /**
    * Whether to include delivery metadata in the payload sent to destinations.
@@ -158,6 +166,7 @@ const DEFAULT_ALARM_BATCH_SIZE = 50;
 const DEFAULT_MAX_DELIVERY_RETRIES = 10;
 const DEFAULT_INITIAL_RETRY_DELAY_MS = 10_000;
 const DEFAULT_MAX_RETRY_DELAY_MS = 900_000;
+const DEFAULT_DELIVERY_ATTEMPT_LEASE_MS = 300_000;
 const DEFAULT_INCLUDE_DELIVERY_METADATA = false;
 const DEFAULT_EVICTION_BATCH_SIZE = 50;
 const REGISTRY_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1_000;
@@ -190,6 +199,7 @@ function assertListOrder(v: string): asserts v is ListOrder {
  *     includeDeliveryMetadata: true,  // Enable job ID injection for reportFailure()
  *     initialRetryDelayMs: 5000,   // Start retry after 5 seconds
  *     maxRetryDelayMs: 300000,     // Cap retry delay at 5 minutes
+ *     deliveryAttemptLeaseMs: 300000, // Recover interrupted attempts after 5 minutes
  *     maxDeliveryRetries: 10,      // Retry up to 10 times
  *     alarmBatchSize: 100,         // Process 100 jobs per alarm
  *   });
@@ -205,6 +215,7 @@ export const configureDelivery = (
     maxDeliveryRetries: DEFAULT_MAX_DELIVERY_RETRIES,
     initialRetryDelayMs: DEFAULT_INITIAL_RETRY_DELAY_MS,
     maxRetryDelayMs: DEFAULT_MAX_RETRY_DELAY_MS,
+    deliveryAttemptLeaseMs: DEFAULT_DELIVERY_ATTEMPT_LEASE_MS,
     includeDeliveryMetadata: DEFAULT_INCLUDE_DELIVERY_METADATA,
     ...c,
   };
@@ -213,6 +224,7 @@ export const configureDelivery = (
   assertPositiveInteger(cfg.maxDeliveryRetries, "maxDeliveryRetries");
   assertPositiveInteger(cfg.initialRetryDelayMs, "initialRetryDelayMs");
   assertPositiveInteger(cfg.maxRetryDelayMs, "maxRetryDelayMs");
+  assertPositiveInteger(cfg.deliveryAttemptLeaseMs, "deliveryAttemptLeaseMs");
 
   if (cfg.alarmBatchSize > 100)
     throw eventHubError(
@@ -373,15 +385,26 @@ export abstract class EventHub<
     jobs?: readonly PersistedDeliveryJob[],
     resolvedDestinations?: ResolvedDestinations<Env>,
   ): Promise<void> {
-    const targetJobs =
-      jobs ??
-      this.ctx.storage.transactionSync(() =>
-        listDeliverableJobs(
-          this.ctx.storage.sql,
-          this.deliveryConfig.alarmBatchSize,
-          new Date(),
-        ),
-      );
+    const now = new Date();
+    const leaseToken = this.idGenerator.generate(now.getTime());
+    const claim = await this.runInTransactionWithAlarmReconciliation(() =>
+      jobs
+        ? claimDeliveryJobs(
+            this.ctx.storage.sql,
+            jobs.map(({ id }) => id),
+            leaseToken,
+            this.deliveryConfig.deliveryAttemptLeaseMs,
+            now,
+          )
+        : claimDeliverableJobs(
+            this.ctx.storage.sql,
+            this.deliveryConfig.alarmBatchSize,
+            leaseToken,
+            this.deliveryConfig.deliveryAttemptLeaseMs,
+            now,
+          ),
+    );
+    const targetJobs = claim.jobs;
 
     if (targetJobs.length === 0) {
       return;
@@ -393,7 +416,12 @@ export abstract class EventHub<
       {
         onDelivered: async (jobIds) => {
           await this.runInTransactionWithAlarmReconciliation(() => {
-            markDeliveryJobsCompleted(this.ctx.storage.sql, jobIds);
+            markDeliveryJobsCompleted(
+              this.ctx.storage.sql,
+              jobIds,
+              new Date(),
+              claim.leaseToken,
+            );
           });
         },
         onFailed: async (jobIds, error) => {
@@ -406,6 +434,8 @@ export abstract class EventHub<
                 this.deliveryConfig.initialRetryDelayMs,
                 this.deliveryConfig.maxRetryDelayMs,
                 error,
+                new Date(),
+                claim.leaseToken,
               ),
             );
           const jobsById = new Map(targetJobs.map((job) => [job.id, job]));

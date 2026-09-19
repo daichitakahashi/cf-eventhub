@@ -9,6 +9,7 @@ import {
   listDeliveryJobStatuses,
   persistDeliveryJobs,
 } from "./core/store";
+import type { EventPayload } from "./core/type";
 import { configureDelivery, configureEviction } from "./eventhub";
 import {
   TestEventHub,
@@ -62,6 +63,37 @@ const createPayloadWithJsonBytes = <T extends Record<string, unknown>>(
   return { ...empty, data: "x".repeat(bytes - overhead) };
 };
 
+class DelayedQueueMock extends QueueMock {
+  private releaseDelivery!: () => void;
+  private reportStarted!: () => void;
+  readonly deliveryStarted = new Promise<void>((resolve) => {
+    this.reportStarted = resolve;
+  });
+  private readonly deliveryReleased = new Promise<void>((resolve) => {
+    this.releaseDelivery = resolve;
+  });
+
+  release(): void {
+    this.releaseDelivery();
+  }
+
+  override async sendBatch(
+    messages: Iterable<MessageSendRequest<EventPayload>>,
+  ): Promise<QueueSendBatchResponse> {
+    this.sentBatches.push(Array.from(messages));
+    this.reportStarted();
+    await this.deliveryReleased;
+    return {
+      metadata: {
+        metrics: {
+          backlogBytes: 0,
+          backlogCount: 0,
+        },
+      },
+    };
+  }
+}
+
 // @ts-expect-error
 const getArchiveBucket = (): R2Bucket => env.ARCHIVE as R2Bucket;
 
@@ -91,7 +123,7 @@ describe("EventHub integration", () => {
     await runInDurableObject(stub, async (instance, state) => {
       const hub = instance as TestEventHub;
       hub.deliveryConfig = configureDelivery({ maxDeliveryRetries: 1 });
-      // @ts-ignore: override the routing for this test to a failing queue.
+      // @ts-expect-error: override the routing for this test to a failing queue.
       hub.routing = routeFunc({ FAILING: new QueueMock([0, 1]) }, () => [
         { destination: "FAILING" },
       ]);
@@ -471,6 +503,68 @@ describe("EventHub integration", () => {
             finalized_at: expect.any(String),
           },
         ]);
+      });
+    });
+  });
+
+  test("does not overlap alarm delivery with a delayed immediate attempt", async () => {
+    // 1. Hold immediate Queue delivery open after its job is leased.
+    // 2. Make the retry schedule due and verify alarm delivery does not send it again.
+    // 3. Release the Queue operation and verify completion clears the lease.
+    const stub = getStub("delivery-attempt-overlap");
+
+    await runInDurableObject(stub, async (instance, state) => {
+      const hub = instance as TestEventHub;
+      const queue = new DelayedQueueMock();
+      // @ts-expect-error
+      hub.routing = routeFunc({ DELAYED: queue }, () => [
+        { destination: "DELAYED" },
+      ]);
+
+      await hub.publish({ kind: "delayed" });
+      await queue.deliveryStarted;
+
+      const activeLease = state.storage.sql
+        .exec<{
+          attempt_started_at: string | null;
+          lease_expires_at: string | null;
+          lease_token: string | null;
+        }>(
+          "SELECT attempt_started_at, lease_expires_at, lease_token FROM delivery_jobs",
+        )
+        .one();
+      state.storage.sql.exec(
+        "UPDATE delivery_jobs SET next_retry_at = ? WHERE final_status IS NULL",
+        new Date(Date.now() - 1_000).toISOString(),
+      );
+
+      await hub.alarm();
+
+      expect({ activeLease, sends: queue.sentBatches.length }).toMatchObject({
+        activeLease: {
+          attempt_started_at: expect.any(String),
+          lease_expires_at: expect.any(String),
+          lease_token: expect.any(String),
+        },
+        sends: 1,
+      });
+
+      queue.release();
+      await vi.waitFor(() => {
+        const completed = state.storage.sql
+          .exec<{
+            final_status: string | null;
+            lease_expires_at: string | null;
+            lease_token: string | null;
+          }>(
+            "SELECT final_status, lease_expires_at, lease_token FROM delivery_jobs",
+          )
+          .one();
+        expect(completed).toStrictEqual({
+          final_status: "completed",
+          lease_expires_at: null,
+          lease_token: null,
+        });
       });
     });
   });
