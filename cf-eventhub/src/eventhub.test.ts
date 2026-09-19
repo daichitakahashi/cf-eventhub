@@ -123,7 +123,8 @@ describe("EventHub integration", () => {
     await runInDurableObject(stub, async (instance, state) => {
       const hub = instance as TestEventHub;
       hub.deliveryConfig = configureDelivery({ maxDeliveryRetries: 1 });
-      // @ts-expect-error: override the routing for this test to a failing queue.
+      // biome-ignore lint/suspicious/noTsIgnore: safe
+      // @ts-ignore
       hub.routing = routeFunc({ FAILING: new QueueMock([0, 1]) }, () => [
         { destination: "FAILING" },
       ]);
@@ -516,7 +517,8 @@ describe("EventHub integration", () => {
     await runInDurableObject(stub, async (instance, state) => {
       const hub = instance as TestEventHub;
       const queue = new DelayedQueueMock();
-      // @ts-expect-error
+      // biome-ignore lint/suspicious/noTsIgnore: safe
+      // @ts-ignore
       hub.routing = routeFunc({ DELAYED: queue }, () => [
         { destination: "DELAYED" },
       ]);
