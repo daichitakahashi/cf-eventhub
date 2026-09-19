@@ -83,7 +83,7 @@ export type DeliveryConfig = {
    * An interrupted attempt becomes eligible again after this lease expires.
    * @default 300000 (5 minutes)
    */
-  deliveryAttemptLeaseMs: number;
+  deliveryAttemptLeaseMs?: number;
 
   /**
    * Whether to include delivery metadata in the payload sent to destinations.
@@ -387,20 +387,23 @@ export abstract class EventHub<
   ): Promise<void> {
     const now = new Date();
     const leaseToken = this.idGenerator.generate(now.getTime());
+    const leaseDurationMs =
+      this.deliveryConfig.deliveryAttemptLeaseMs ??
+      DEFAULT_DELIVERY_ATTEMPT_LEASE_MS;
     const claim = await this.runInTransactionWithAlarmReconciliation(() =>
       jobs
         ? claimDeliveryJobs(
             this.ctx.storage.sql,
             jobs.map(({ id }) => id),
             leaseToken,
-            this.deliveryConfig.deliveryAttemptLeaseMs,
+            leaseDurationMs,
             now,
           )
         : claimDeliverableJobs(
             this.ctx.storage.sql,
             this.deliveryConfig.alarmBatchSize,
             leaseToken,
-            this.deliveryConfig.deliveryAttemptLeaseMs,
+            leaseDurationMs,
             now,
           ),
     );
