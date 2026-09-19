@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { createWebConsole } from "@cf-eventhub/web-console";
 import {
   configureDelivery,
+  EVENT_HUB_REGISTRY_NAME,
   EventHub,
   EventHubRegistry,
   getEventHubFromPayload,
@@ -52,13 +53,14 @@ const placeholder = `// example payload for this demo
 export default {
   fetch: async (request, env) => {
     if (new URL(request.url).pathname === "/setup") {
+      const registry = env.EVENT_HUB_REGISTRY.getByName(
+        EVENT_HUB_REGISTRY_NAME,
+      );
       await Promise.all(
-        exampleEventHubNames.map((name) =>
-          env.EVENT_HUB.getByName(name).list(),
-        ),
+        exampleEventHubNames.map((name) => registry.register(name)),
       );
       return new Response(
-        "Initialized default, tenant:acme, and orders. Reload the console after Registry synchronization completes.",
+        "Registered default, tenant:acme, and orders. Reload the console.",
       );
     }
 
