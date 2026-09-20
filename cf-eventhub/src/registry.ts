@@ -1,11 +1,11 @@
 import { DurableObject } from "cloudflare:workers";
 
 import {
-  type RegistryInstance,
-  type RegistryInstanceStatus,
   getInstance,
   initializeRegistrySchema,
   listInstances,
+  type RegistryInstance,
+  type RegistryInstanceStatus,
   registerInstance,
   tombstoneInstance,
 } from "./core/registry-store";

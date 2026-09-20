@@ -3,10 +3,11 @@ import { EventHub } from ".";
 import { QueueMock, R2BucketMock } from "./core/mock";
 import { routeByConfig, routeFunc } from "./core/routing";
 import {
-  type EvictionConfig,
   configureDelivery,
   configureEviction,
+  type EvictionConfig,
 } from "./eventhub";
+
 export { EventHubRegistry } from "./registry";
 
 type Env = {

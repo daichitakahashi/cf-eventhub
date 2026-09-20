@@ -92,7 +92,7 @@ test("reports shared-queue failures to their originating instances", async () =>
       ).toStrictEqual([
         {
           delivery_job_id: (payload?.__eventhub__ as { deliveryJobId: string })
-            .deliveryJobId,
+            ?.deliveryJobId,
         },
       ]);
     });
