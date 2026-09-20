@@ -1,10 +1,15 @@
-import { runInDurableObject } from "cloudflare:test";
+import {
+  evictDurableObject,
+  runDurableObjectAlarm,
+  runInDurableObject,
+} from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { assert, describe, expect, test, vi } from "vitest";
 
-import { QueueMock } from "./core/mock";
+import { QueueMock, R2BucketMock } from "./core/mock";
 import { routeFunc } from "./core/routing";
 import {
+  claimDeliverableJobs,
   createPendingDeliveryJobs,
   listDeliveryJobStatuses,
   persistDeliveryJobs,
@@ -567,6 +572,191 @@ describe("EventHub integration", () => {
           lease_expires_at: null,
           lease_token: null,
         });
+      });
+    });
+  });
+
+  test.each(["queue", "r2"] as const)(
+    "protects running and waiting %s jobs across lease expiry without blocking other jobs",
+    async (kind) => {
+      // 1. Hold the first send while subsequent batches/objects wait in the same attempt.
+      // 2. Expire all leases twice and run alarms alongside an unrelated due job.
+      // 3. Release delivery and verify each batch/object was sent only once.
+      const stub = getStub(`live-lease-${kind}`);
+      await runInDurableObject(stub, async (instance, state) => {
+        const hub = instance as TestEventHub;
+        const queue = new QueueMock();
+        const bucket = new R2BucketMock();
+        const other = new QueueMock();
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        const send =
+          kind === "queue"
+            ? vi
+                .spyOn(queue, "sendBatch")
+                .mockImplementationOnce(async (messages) => {
+                  await gate;
+                  return QueueMock.prototype.sendBatch.call(queue, messages);
+                })
+            : vi
+                .spyOn(bucket, "put")
+                .mockImplementationOnce(async (key, value, options) => {
+                  await gate;
+                  return R2BucketMock.prototype.put.call(
+                    bucket,
+                    key,
+                    value,
+                    options,
+                  );
+                });
+        const target =
+          kind === "queue" ? queue : (bucket as unknown as R2Bucket);
+        hub.routing = routeFunc({ HELD: target, OTHER: other }, (payload) => [
+          { destination: payload.other ? "OTHER" : "HELD" },
+        ]) as unknown as typeof hub.routing;
+        const count = kind === "queue" ? 101 : 2;
+        const payloads = Array.from({ length: count }, (_, n) => ({ n }));
+        try {
+          await hub.publish(payloads[0], ...payloads.slice(1));
+          await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+          let sequence = 0;
+          persistDeliveryJobs(
+            state.storage.sql,
+            createPendingDeliveryJobs(hub.routing, [{ other: true }]),
+            () => `unrelated-${sequence++}`,
+            new Date(Date.now() - 60_000),
+          );
+          for (let attempt = 0; attempt < 2; attempt++) {
+            const past = new Date(Date.now() - 1000).toISOString();
+            state.storage.sql.exec(
+              "UPDATE delivery_jobs SET lease_expires_at = ?, next_retry_at = ? WHERE final_status IS NULL",
+              past,
+              past,
+            );
+            await hub.alarm();
+            expect({
+              sends: send.mock.calls.length,
+              otherSends: other.sentBatches.length,
+            }).toStrictEqual({
+              sends: 1,
+              otherSends: 1,
+            });
+            expect(await state.storage.getAlarm()).toBeGreaterThan(Date.now());
+          }
+        } finally {
+          release();
+          await vi.waitFor(() => {
+            expect(
+              listDeliveryJobStatuses(state.storage.sql).every(
+                (job) => job.finalStatus === "completed",
+              ),
+            ).toBe(true);
+          });
+        }
+        expect(send).toHaveBeenCalledTimes(2);
+      });
+    },
+  );
+
+  test("retries a failed attempt after its live lease was renewed", async () => {
+    // 1. Keep a failing send open past its lease and trigger renewal via alarm.
+    // 2. Let it fail, then verify the next alarm can retry successfully.
+    const stub = getStub("renewed-lease-failure");
+    await runInDurableObject(stub, async (instance, state) => {
+      const hub = instance as TestEventHub;
+      const queue = new QueueMock();
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const send = vi
+        .spyOn(queue, "sendBatch")
+        .mockImplementationOnce(async () => {
+          await gate;
+          throw new Error("delayed failure");
+        });
+      hub.routing = routeFunc({ HELD: queue }, () => [
+        { destination: "HELD" },
+      ]) as unknown as typeof hub.routing;
+      try {
+        await hub.publish({ kind: "delayed-failure" });
+        await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+        const past = new Date(Date.now() - 1000).toISOString();
+        state.storage.sql.exec(
+          "UPDATE delivery_jobs SET lease_expires_at = ?, next_retry_at = ?",
+          past,
+          past,
+        );
+        await hub.alarm();
+        expect(send).toHaveBeenCalledTimes(1);
+      } finally {
+        release();
+        await vi.waitFor(() =>
+          expect(
+            listDeliveryJobStatuses(state.storage.sql)[0].failedAttemptCount,
+          ).toBe(1),
+        );
+      }
+      state.storage.sql.exec(
+        "UPDATE delivery_jobs SET next_retry_at = ?",
+        new Date(Date.now() - 1000).toISOString(),
+      );
+      await hub.alarm();
+      expect({
+        sends: send.mock.calls.length,
+        job: listDeliveryJobStatuses(state.storage.sql)[0],
+        alarm: await state.storage.getAlarm(),
+      }).toMatchObject({
+        sends: 2,
+        job: { finalStatus: "completed", failedAttemptCount: 1 },
+        alarm: null,
+      });
+    });
+  });
+
+  test("recovers an orphaned lease through the persisted alarm after instance eviction", async () => {
+    // 1. Persist a claimed job and its recovery alarm without starting external I/O.
+    // 2. Evict the instance, preserving storage, and verify a pre-expiry alarm cannot deliver it.
+    // 3. Expire the lease and run the stored alarm to recover and finalize the job.
+    const stub = getStub("restart-lease-recovery");
+    let recoveryAt = 0;
+    await runInDurableObject(stub, async (instance, state) => {
+      let sequence = 0;
+      persistDeliveryJobs(
+        state.storage.sql,
+        createPendingDeliveryJobs(testRouting, [{ kind: "archive" }]),
+        () => `restart-${sequence++}`,
+        new Date(Date.now() - 60_000),
+      );
+      claimDeliverableJobs(state.storage.sql, 10, "interrupted", 300_000);
+      await (instance as TestEventHub).alarm();
+      const alarm = await state.storage.getAlarm();
+      assert(alarm !== null, "expected a persisted recovery alarm");
+      recoveryAt = alarm;
+    });
+    await evictDurableObject(stub);
+    await runInDurableObject(stub, async (instance, state) => {
+      expect(await state.storage.getAlarm()).toBe(recoveryAt);
+      await (instance as TestEventHub).alarm();
+      expect(
+        listDeliveryJobStatuses(state.storage.sql)[0].finalStatus,
+      ).toBeNull();
+      const past = new Date(Date.now() - 1000).toISOString();
+      state.storage.sql.exec(
+        "UPDATE delivery_jobs SET lease_expires_at = ?",
+        past,
+      );
+    });
+    expect(await runDurableObjectAlarm(stub)).toBe(true);
+    await runInDurableObject(stub, async (_instance, state) => {
+      expect({
+        job: listDeliveryJobStatuses(state.storage.sql)[0],
+        alarm: await state.storage.getAlarm(),
+      }).toMatchObject({
+        job: { finalStatus: "completed" },
+        alarm: null,
       });
     });
   });

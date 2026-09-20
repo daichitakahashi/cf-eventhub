@@ -451,7 +451,6 @@ export const markDeliveryJobsCompleted = (
     return;
   }
 
-  const placeholders = jobIds.map(() => "?").join(", ");
   sql.exec(
     `
 			UPDATE delivery_jobs
@@ -460,12 +459,12 @@ export const markDeliveryJobsCompleted = (
 				last_error = NULL,
 				lease_expires_at = NULL,
 				lease_token = NULL
-			WHERE id IN (${placeholders})
+			WHERE id IN (SELECT value FROM json_each(?))
 				AND (final_status IS NULL OR final_status = 'failed')
 				${leaseToken === undefined ? "" : "AND lease_token = ?"}
 		`,
     now.toISOString(),
-    ...jobIds,
+    JSON.stringify(jobIds),
     ...(leaseToken === undefined ? [] : [leaseToken]),
   );
 };
@@ -500,18 +499,17 @@ export const markDeliveryJobsFailed = (
     return [];
   }
 
-  const placeholders = jobIds.map(() => "?").join(", ");
   const failedAt = now.toISOString();
   const rows = sql
     .exec<{ id: string; retry_count: number }>(
       `
 				SELECT id, retry_count
 				FROM delivery_jobs
-				WHERE id IN (${placeholders})
+				WHERE id IN (SELECT value FROM json_each(?))
 					AND final_status IS NULL
 					${leaseToken === undefined ? "" : "AND lease_token = ?"}
 			`,
-      ...jobIds,
+      JSON.stringify(jobIds),
       ...(leaseToken === undefined ? [] : [leaseToken]),
     )
     .toArray();
@@ -624,6 +622,27 @@ const loadClaimedDeliveryJobs = (
       serializedPayload: row.body,
     };
   });
+};
+
+// Only the live Durable Object instance knows which attempts are still running.
+// Renew expired leases before claiming, in the same transaction as the claim.
+export const renewDeliveryJobLeases = (
+  sql: SqlStorage,
+  leaseTokens: readonly string[],
+  leaseDurationMs: number,
+  now = new Date(),
+): void => {
+  if (leaseTokens.length === 0) return;
+  sql.exec(
+    `UPDATE delivery_jobs
+     SET lease_expires_at = ?
+     WHERE final_status IS NULL
+       AND lease_token IN (SELECT value FROM json_each(?))
+       AND lease_expires_at <= ?`,
+    new Date(now.getTime() + leaseDurationMs).toISOString(),
+    JSON.stringify(leaseTokens),
+    now.toISOString(),
+  );
 };
 
 const claimJobs = (

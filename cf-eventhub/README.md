@@ -277,8 +277,16 @@ export class MyEventHub extends EventHub<Env> {
 
 Before Queue or R2 I/O starts, EventHub atomically leases each delivery job.
 Immediate delivery and alarm retries use the same claim path, so an alarm cannot
-start a second attempt while the first lease is active. If an attempt is
-interrupted, the job becomes eligible again after `deliveryAttemptLeaseMs`.
+start a second attempt while the first attempt is running. The live instance
+tracks running attempts (including jobs waiting in the same delivery batch)
+and renews their expired leases before another attempt can claim them.
+After an instance restart, interrupted jobs become eligible once their persisted
+lease and retry timestamps have passed. `deliveryAttemptLeaseMs` controls this
+recovery window; it does not impose a delivery timeout.
+
+Delivery is at least once: if a destination accepts a message but the instance
+stops before recording completion, recovery can deliver it again. Consumers
+can enable `includeDeliveryMetadata` and use `deliveryJobId` to deduplicate.
 
 When `includeDeliveryMetadata` is `true`, EventHub injects `instanceId`,
 `deliveryJobId`, and, for named instances, `instanceName` under `__eventhub__`

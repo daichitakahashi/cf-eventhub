@@ -37,6 +37,7 @@ import {
   recordDeliveryJobFailure,
   recordEvictionFailure,
   redriveDeliveryJob,
+  renewDeliveryJobLeases,
   setRegistrySyncedAt,
 } from "./core/store";
 import type { EventPayload } from "./core/type";
@@ -291,6 +292,7 @@ export abstract class EventHub<
   Env extends object = {},
 > extends DurableObject<Env> {
   private readonly idGenerator: MonotonicUlidGenerator;
+  private readonly activeDeliveryAttempts = new Set<string>();
   private registrySyncInFlight?: Promise<void>;
   protected deliveryConfig = configureDelivery({});
   protected eviction?: EvictionConfig;
@@ -385,94 +387,109 @@ export abstract class EventHub<
     jobs?: readonly PersistedDeliveryJob[],
     resolvedDestinations?: ResolvedDestinations<Env>,
   ): Promise<void> {
-    const now = new Date();
-    const leaseToken = this.idGenerator.generate(now.getTime());
+    const leaseToken = this.idGenerator.generate(Date.now());
     const leaseDurationMs =
       this.deliveryConfig.deliveryAttemptLeaseMs ??
       DEFAULT_DELIVERY_ATTEMPT_LEASE_MS;
-    const claim = await this.runInTransactionWithAlarmReconciliation(() =>
-      jobs
-        ? claimDeliveryJobs(
-            this.ctx.storage.sql,
-            jobs.map(({ id }) => id),
-            leaseToken,
-            leaseDurationMs,
-            now,
-          )
-        : claimDeliverableJobs(
-            this.ctx.storage.sql,
-            this.deliveryConfig.alarmBatchSize,
-            leaseToken,
-            leaseDurationMs,
-            now,
-          ),
-    );
-    const targetJobs = claim.jobs;
-
-    if (targetJobs.length === 0) {
-      return;
-    }
-
-    await deliverPersistedJobs(
-      this.routing,
-      targetJobs,
-      {
-        onDelivered: async (jobIds) => {
-          await this.runInTransactionWithAlarmReconciliation(() => {
-            markDeliveryJobsCompleted(
+    // Register before the first await so a concurrent claim cannot steal jobs
+    // between committing this attempt's lease and resuming its delivery.
+    this.activeDeliveryAttempts.add(leaseToken);
+    try {
+      const claim = await this.runInTransactionWithAlarmReconciliation(() => {
+        const now = new Date();
+        renewDeliveryJobLeases(
+          this.ctx.storage.sql,
+          [...this.activeDeliveryAttempts],
+          leaseDurationMs,
+          now,
+        );
+        return jobs
+          ? claimDeliveryJobs(
               this.ctx.storage.sql,
-              jobIds,
-              new Date(),
-              claim.leaseToken,
+              jobs.map(({ id }) => id),
+              leaseToken,
+              leaseDurationMs,
+              now,
+            )
+          : claimDeliverableJobs(
+              this.ctx.storage.sql,
+              this.deliveryConfig.alarmBatchSize,
+              leaseToken,
+              leaseDurationMs,
+              now,
             );
-          });
-        },
-        onFailed: async (jobIds, error) => {
-          const failureStates =
-            await this.runInTransactionWithAlarmReconciliation(() =>
-              markDeliveryJobsFailed(
+      });
+      const targetJobs = claim.jobs;
+
+      if (targetJobs.length === 0) {
+        return;
+      }
+
+      await deliverPersistedJobs(
+        this.routing,
+        targetJobs,
+        {
+          onDelivered: async (jobIds) => {
+            await this.runInTransactionWithAlarmReconciliation(() => {
+              markDeliveryJobsCompleted(
                 this.ctx.storage.sql,
                 jobIds,
-                this.deliveryConfig.maxDeliveryRetries,
-                this.deliveryConfig.initialRetryDelayMs,
-                this.deliveryConfig.maxRetryDelayMs,
-                error,
                 new Date(),
                 claim.leaseToken,
-              ),
-            );
-          const jobsById = new Map(targetJobs.map((job) => [job.id, job]));
-          for (const state of failureStates) {
-            const job = jobsById.get(state.jobId);
-            const context = {
-              operation: "delivery",
-              instanceId: this.ctx.id.toString(),
-              ...(this.ctx.id.name ? { instanceName: this.ctx.id.name } : {}),
-              deliveryJobId: state.jobId,
-              ...(job
-                ? { payloadId: job.payloadId, destination: job.destination }
-                : {}),
-              failedAttemptCount: state.failedAttemptCount,
-              ...(state.nextRetryAt ? { nextRetryAt: state.nextRetryAt } : {}),
-              error: serializeError(error),
-            };
-            if (state.finalStatus === "failed") {
-              console.error("eventhub: delivery permanently failed", context);
-            } else {
-              console.warn("eventhub: delivery attempt failed", context);
+              );
+            });
+          },
+          onFailed: async (jobIds, error) => {
+            const failureStates =
+              await this.runInTransactionWithAlarmReconciliation(() =>
+                markDeliveryJobsFailed(
+                  this.ctx.storage.sql,
+                  jobIds,
+                  this.deliveryConfig.maxDeliveryRetries,
+                  this.deliveryConfig.initialRetryDelayMs,
+                  this.deliveryConfig.maxRetryDelayMs,
+                  error,
+                  new Date(),
+                  claim.leaseToken,
+                ),
+              );
+            const jobsById = new Map(targetJobs.map((job) => [job.id, job]));
+            for (const state of failureStates) {
+              const job = jobsById.get(state.jobId);
+              const context = {
+                operation: "delivery",
+                instanceId: this.ctx.id.toString(),
+                ...(this.ctx.id.name ? { instanceName: this.ctx.id.name } : {}),
+                deliveryJobId: state.jobId,
+                ...(job
+                  ? { payloadId: job.payloadId, destination: job.destination }
+                  : {}),
+                failedAttemptCount: state.failedAttemptCount,
+                ...(state.nextRetryAt
+                  ? { nextRetryAt: state.nextRetryAt }
+                  : {}),
+                error: serializeError(error),
+              };
+              if (state.finalStatus === "failed") {
+                console.error("eventhub: delivery permanently failed", context);
+              } else {
+                console.warn("eventhub: delivery attempt failed", context);
+              }
             }
-          }
+          },
         },
-      },
-      {
-        instanceId: this.ctx.id.toString(),
-        ...(this.ctx.id.name === undefined || this.ctx.id.name.length === 0
-          ? {}
-          : { instanceName: this.ctx.id.name }),
-        includeDeliveryMetadata: this.deliveryConfig.includeDeliveryMetadata,
-      },
-      resolvedDestinations,
-    );
+        {
+          instanceId: this.ctx.id.toString(),
+          ...(this.ctx.id.name === undefined || this.ctx.id.name.length === 0
+            ? {}
+            : { instanceName: this.ctx.id.name }),
+          includeDeliveryMetadata: this.deliveryConfig.includeDeliveryMetadata,
+        },
+        resolvedDestinations,
+      );
+    } finally {
+      this.activeDeliveryAttempts.delete(leaseToken);
+    }
   }
 
   private async processEviction(now = new Date()): Promise<void> {

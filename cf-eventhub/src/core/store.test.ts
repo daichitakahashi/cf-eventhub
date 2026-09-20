@@ -26,6 +26,7 @@ import {
   recordDeliveryJobFailure,
   recordEvictionFailure,
   redriveDeliveryJob,
+  renewDeliveryJobLeases,
 } from "./store";
 import type { JSONObject } from "./type";
 
@@ -1903,6 +1904,163 @@ describe("delivery job scheduling", () => {
         finalizedAt: "2026-05-04T00:00:05.000Z",
       });
     });
+  });
+
+  test("ignores stale failures and records failures for a full claimed batch", async () => {
+    // 1. Claim 100 jobs, then recover them under a new token at the exact expiry boundary.
+    // 2. Verify stale retry/terminal-failure callbacks cannot change the new claim.
+    // 3. Fail the current owner and verify every job is scheduled and unlocked.
+    await runInDurableObject(
+      getStub("store-stale-batch-failure"),
+      async (_instance, state) => {
+        let sequence = 0;
+        persistDeliveryJobs(
+          state.storage.sql,
+          createPendingDeliveryJobs(routing, [
+            { kind: "culture", avoidUrban: true },
+            ...Array.from({ length: 99 }, () => ({
+              kind: "culture",
+              avoidUrban: true,
+            })),
+          ]),
+          () => `batch-failure-${sequence++}`,
+          new Date("2026-05-04T00:00:00.000Z"),
+        );
+        claimDeliverableJobs(
+          state.storage.sql,
+          100,
+          "old",
+          1000,
+          new Date("2026-05-04T00:00:01.000Z"),
+        );
+        const claim = claimDeliverableJobs(
+          state.storage.sql,
+          100,
+          "current",
+          10_000,
+          new Date("2026-05-04T00:00:02.000Z"),
+        );
+        expect(claim.jobs).toHaveLength(100);
+        const ids = claim.jobs.map(({ id }) => id);
+        const before = state.storage.sql
+          .exec("SELECT * FROM delivery_jobs ORDER BY id")
+          .toArray();
+        for (const maxRetries of [0, 10]) {
+          expect(
+            markDeliveryJobsFailed(
+              state.storage.sql,
+              ids,
+              maxRetries,
+              1000,
+              10_000,
+              new Error("stale"),
+              new Date("2026-05-04T00:00:03.000Z"),
+              "old",
+            ),
+          ).toStrictEqual([]);
+        }
+        expect(
+          state.storage.sql
+            .exec("SELECT * FROM delivery_jobs ORDER BY id")
+            .toArray(),
+        ).toStrictEqual(before);
+        const failures = markDeliveryJobsFailed(
+          state.storage.sql,
+          ids,
+          10,
+          1000,
+          10_000,
+          new Error("current failure"),
+          new Date("2026-05-04T00:00:04.000Z"),
+          "current",
+        );
+        expect(failures).toHaveLength(100);
+        const states = state.storage.sql
+          .exec(
+            "SELECT DISTINCT retry_count, last_error, final_status, lease_token, lease_expires_at FROM delivery_jobs",
+          )
+          .toArray();
+        expect(states).toStrictEqual([
+          {
+            retry_count: 1,
+            last_error: "current failure",
+            final_status: null,
+            lease_token: null,
+            lease_expires_at: null,
+          },
+        ]);
+      },
+    );
+  });
+
+  test("renews only expired leases belonging to live attempts", async () => {
+    // 1. Create live, orphaned, unexpired, and completed claims.
+    // 2. Renew at the exact expiry boundary and inspect persisted ownership/scheduling.
+    await runInDurableObject(
+      getStub("store-renew-leases"),
+      async (_instance, state) => {
+        let sequence = 0;
+        persistDeliveryJobs(
+          state.storage.sql,
+          createPendingDeliveryJobs(routing, [
+            { kind: "culture", avoidUrban: true },
+            ...Array.from({ length: 3 }, () => ({
+              kind: "culture",
+              avoidUrban: true,
+            })),
+          ]),
+          () => `renew-${sequence++}`,
+          new Date("2026-05-04T00:00:00.000Z"),
+        );
+        for (const [token, duration] of [
+          ["live", 1000],
+          ["orphan", 1000],
+          ["future", 30_000],
+          ["done", 1000],
+        ] as const) {
+          const claim = claimDeliverableJobs(
+            state.storage.sql,
+            1,
+            token,
+            duration,
+            new Date("2026-05-04T00:00:01.000Z"),
+          );
+          if (token === "done")
+            markDeliveryJobsCompleted(
+              state.storage.sql,
+              claim.jobs.map(({ id }) => id),
+              new Date("2026-05-04T00:00:01.500Z"),
+              token,
+            );
+        }
+        renewDeliveryJobLeases(
+          state.storage.sql,
+          ["live", "future", "done"],
+          10_000,
+          new Date("2026-05-04T00:00:02.000Z"),
+        );
+        expect(
+          state.storage.sql
+            .exec(
+              "SELECT lease_token, lease_expires_at FROM delivery_jobs WHERE final_status IS NULL ORDER BY lease_token",
+            )
+            .toArray(),
+        ).toStrictEqual([
+          {
+            lease_token: "future",
+            lease_expires_at: "2026-05-04T00:00:31.000Z",
+          },
+          { lease_token: "live", lease_expires_at: "2026-05-04T00:00:12.000Z" },
+          {
+            lease_token: "orphan",
+            lease_expires_at: "2026-05-04T00:00:02.000Z",
+          },
+        ]);
+        expect(getNextRetryAt(state.storage.sql)).toBe(
+          "2026-05-04T00:00:02.000Z",
+        );
+      },
+    );
   });
 
   test("parses a fanned-out payload once when listing deliverable jobs", async () => {
