@@ -79,7 +79,10 @@ const handler = factory
       return c.json({ error: "EventHub instance unavailable" }, 502);
     }
     if (!result.ok) {
-      return c.json({ error: result.error.message }, 502);
+      return c.json(
+        { error: result.error.message, code: result.error.code },
+        502,
+      );
     }
     return c.json({
       lastUpdatedAt: getEventsLastUpdatedAt(normalizeEvents(result.value)),

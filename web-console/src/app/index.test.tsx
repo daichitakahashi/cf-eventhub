@@ -593,4 +593,27 @@ describe("latest event polling", () => {
       error: "EventHub instance unavailable",
     });
   });
+
+  test("returns the EventHub error code when listing fails", async () => {
+    const configured = setup();
+    configured.hubs.get("alpha")?.list.mockResolvedValue({
+      ok: false,
+      error: {
+        code: "INTERNAL_ERROR",
+        message: "eventhub: internal error",
+      },
+    });
+
+    const response = await configured.app.request(
+      "http://localhost/api/events/latest?instance=alpha",
+      {},
+      configured.bindings,
+    );
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toStrictEqual({
+      error: "eventhub: internal error",
+      code: "INTERNAL_ERROR",
+    });
+  });
 });
