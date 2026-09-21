@@ -45,6 +45,15 @@ const handler = factory
   .createApp()
   .use(async (c, next) => {
     if (c.var.registryError) {
+      if ("code" in c.var.registryError) {
+        return c.json(
+          {
+            error: c.var.registryError.message,
+            code: c.var.registryError.code,
+          },
+          503,
+        );
+      }
       return c.json({ error: "EventHub Registry unavailable" }, 503);
     }
     return next();
@@ -60,7 +69,10 @@ const handler = factory
     try {
       const result = await c.var.registry.delete(instance.name);
       if (!result.ok) {
-        return c.json({ error: "EventHub Registry unavailable" }, 503);
+        return c.json(
+          { error: result.error.message, code: result.error.code },
+          503,
+        );
       }
     } catch {
       return c.json({ error: "EventHub Registry unavailable" }, 503);

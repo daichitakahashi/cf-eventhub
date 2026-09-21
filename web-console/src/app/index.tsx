@@ -5,6 +5,7 @@ import {
   type EventHubInstance,
   type EventHubRegistry,
   type ListResult,
+  type ResultError,
 } from "cf-eventhub";
 import { jsxRenderer } from "hono/jsx-renderer";
 import * as v from "valibot";
@@ -375,9 +376,9 @@ export const createHandler = ({
       const showStale = search.get("showStale") === "1";
       const isApiRequest =
         url.pathname === "/api" || url.pathname.startsWith("/api/");
-      let instances: Awaited<ReturnType<typeof listAllInstances>> = [];
+      let instances: EventHubInstance[] = [];
       let selectedInstance: (typeof instances)[number] | undefined;
-      let registryError: string | undefined;
+      let registryError: ResultError["error"] | { message: string } | undefined;
 
       try {
         if (isApiRequest) {
@@ -385,31 +386,46 @@ export const createHandler = ({
             ? await registryStub.get(requestedInstance)
             : null;
           if (requestedResult && !requestedResult.ok) {
-            throw new Error(requestedResult.error.message);
+            registryError = requestedResult.error;
+          } else {
+            const requested = requestedResult?.value ?? null;
+            selectedInstance =
+              requested?.status === "active" || requested?.status === "stale"
+                ? requested
+                : undefined;
           }
-          const requested = requestedResult?.value ?? null;
-          selectedInstance =
-            requested?.status === "active" || requested?.status === "stale"
-              ? requested
-              : undefined;
         } else {
-          const active = await listAllInstances(registryStub, "active");
-          const requestedIsActive = active.some(
-            (instance) => instance.name === requestedInstance,
-          );
-          const stale =
-            showStale ||
-            active.length === 0 ||
-            (requestedInstance && !requestedIsActive)
+          const activeResult = await listAllInstances(registryStub, "active");
+          if (!activeResult.ok) {
+            registryError = activeResult.error;
+          } else {
+            const active = activeResult.value;
+            const requestedIsActive = active.some(
+              (instance) => instance.name === requestedInstance,
+            );
+            const shouldListStale =
+              showStale ||
+              active.length === 0 ||
+              Boolean(requestedInstance && !requestedIsActive);
+            const staleResult = shouldListStale
               ? await listAllInstances(registryStub, "stale")
-              : [];
-          instances = [...active, ...stale];
-          selectedInstance = requestedInstance
-            ? instances.find((instance) => instance.name === requestedInstance)
-            : active[0];
+              : ({ ok: true, value: [] } as const);
+            if (!staleResult.ok) {
+              registryError = staleResult.error;
+            } else {
+              instances = [...active, ...staleResult.value];
+              selectedInstance = requestedInstance
+                ? instances.find(
+                    (instance) => instance.name === requestedInstance,
+                  )
+                : active[0];
+            }
+          }
         }
       } catch (error) {
-        registryError = error instanceof Error ? error.message : String(error);
+        registryError = {
+          message: error instanceof Error ? error.message : String(error),
+        };
       }
 
       const buildUrl = (
@@ -474,10 +490,18 @@ export const createHandler = ({
 
         if (c.var.registryError) {
           c.status(503);
+          const code =
+            "code" in c.var.registryError
+              ? c.var.registryError.code
+              : undefined;
           return c.render(
             <ConsoleState
               title="Registry unavailable"
-              detail="The EventHub Registry could not be read. EventHub data-plane operations are unaffected. Check the Registry binding and try again."
+              detail={
+                code
+                  ? `${eventHubErrorMessages[code]} Error code: ${code}.`
+                  : "The EventHub Registry could not be read. EventHub data-plane operations are unaffected. Check the Registry binding and try again."
+              }
             />,
           );
         }
@@ -512,21 +536,12 @@ export const createHandler = ({
           );
         }
 
-        let listed: ListResult;
-        let latest: ListResult;
-        try {
-          const listedResult = await hub.list({
-            max,
-            cursor: cursor ?? undefined,
-            order: "desc",
-          });
-          const latestResult = await hub.list({ max: 10, order: "desc" });
-          if (!listedResult.ok) throw new Error(listedResult.error.message);
-          if (!latestResult.ok) throw new Error(latestResult.error.message);
-          listed = listedResult.value;
-          latest = latestResult.value;
-        } catch {
-          c.status(502);
+        const renderEventHubFailure = (
+          status: 400 | 502,
+          title: string,
+          detail: string,
+        ) => {
+          c.status(status);
           return c.render(
             <div>
               <ConsoleHeader
@@ -538,13 +553,53 @@ export const createHandler = ({
                 showStale={c.var.showStale}
                 buildUrl={c.var.buildUrl}
               />
-              <ConsoleState
-                title="EventHub instance unavailable"
-                detail={`The selected instance (${c.var.selectedInstance?.name}) could not be read. Try again or select another instance.`}
-              />
+              <ConsoleState title={title} detail={detail} />
             </div>,
           );
+        };
+
+        const renderResultError = (resultError: ResultError["error"]) => {
+          const status =
+            resultError.code === "INVALID_ARGUMENT" ||
+            resultError.code === "INVALID_CURSOR"
+              ? 400
+              : 502;
+          return renderEventHubFailure(
+            status,
+            "Unable to list events",
+            `${eventHubErrorMessages[resultError.code]} Error code: ${resultError.code}.`,
+          );
+        };
+
+        let listedResult: Awaited<ReturnType<typeof hub.list>>;
+        try {
+          listedResult = await hub.list({
+            max,
+            cursor: cursor ?? undefined,
+            order: "desc",
+          });
+        } catch {
+          return renderEventHubFailure(
+            502,
+            "EventHub instance unavailable",
+            `The selected instance (${c.var.selectedInstance?.name}) could not be read. Try again or select another instance.`,
+          );
         }
+        if (!listedResult.ok) return renderResultError(listedResult.error);
+
+        let latestResult: Awaited<ReturnType<typeof hub.list>>;
+        try {
+          latestResult = await hub.list({ max: 10, order: "desc" });
+        } catch {
+          return renderEventHubFailure(
+            502,
+            "EventHub instance unavailable",
+            `The selected instance (${c.var.selectedInstance?.name}) could not be read. Try again or select another instance.`,
+          );
+        }
+        if (!latestResult.ok) return renderResultError(latestResult.error);
+        const listed: ListResult = listedResult.value;
+        const latest: ListResult = latestResult.value;
         const events = normalizeEvents(listed);
         const latestEvents = normalizeEvents(latest);
         const hasOngoingDelivery = events.some((event) =>

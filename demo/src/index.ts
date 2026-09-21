@@ -56,12 +56,21 @@ export default {
       const registry = env.EVENT_HUB_REGISTRY.getByName(
         EVENT_HUB_REGISTRY_NAME,
       );
-      const results = await Promise.all(
-        exampleEventHubNames.map((name) => registry.register(name)),
-      );
-      const failure = results.find((result) => !result.ok);
-      if (failure && !failure.ok) {
-        return Response.json(failure.error, { status: 500 });
+      let results: Awaited<ReturnType<typeof registry.register>>[];
+      try {
+        results = await Promise.all(
+          exampleEventHubNames.map((name) => registry.register(name)),
+        );
+      } catch {
+        return Response.json(
+          { error: "EventHub Registry unavailable" },
+          { status: 503 },
+        );
+      }
+      for (const result of results) {
+        if (!result.ok) {
+          return Response.json(result.error, { status: 500 });
+        }
       }
       return new Response(
         "Registered default, tenant:acme, and orders. Reload the console.",
