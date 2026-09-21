@@ -24,8 +24,8 @@ export type Result<T = void> = ResultOk<T> | ResultError;
 
 export function resultOk(): Result;
 export function resultOk<T>(value: T): Result<T>;
-export function resultOk<T>(value?: T): Result<T> | Result {
-  return (value === undefined ? { ok: true } : { ok: true, value }) as
+export function resultOk<T>(...args: [] | [T]): Result<T> | Result {
+  return (args.length === 0 ? { ok: true } : { ok: true, value: args[0] }) as
     | Result<T>
     | Result;
 }

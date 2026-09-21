@@ -575,4 +575,22 @@ describe("latest event polling", () => {
     expect(configured.registryGet).toHaveBeenCalledExactlyOnceWith("alpha");
     expect(configured.registryList).not.toHaveBeenCalled();
   });
+
+  test("reports EventHub unavailability when listing rejects", async () => {
+    const configured = setup();
+    configured.hubs
+      .get("alpha")
+      ?.list.mockRejectedValue(new Error("eventhub offline"));
+
+    const response = await configured.app.request(
+      "http://localhost/api/events/latest?instance=alpha",
+      {},
+      configured.bindings,
+    );
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toStrictEqual({
+      error: "EventHub instance unavailable",
+    });
+  });
 });

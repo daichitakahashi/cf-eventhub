@@ -45,6 +45,13 @@ describe("rpcBoundary", () => {
     });
   });
 
+  test("preserves an explicit undefined value", () => {
+    expect(resultOk<string | undefined>(undefined)).toStrictEqual({
+      ok: true,
+      value: undefined,
+    });
+  });
+
   test("logs unexpected exceptions without exposing their details", async () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     const thrown = new Error("database password is secret");

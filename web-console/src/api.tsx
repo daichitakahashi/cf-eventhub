@@ -1,5 +1,5 @@
 import { vValidator } from "@hono/valibot-validator";
-import type { EventPayload } from "cf-eventhub";
+import type { EventHubErrorCode, EventPayload } from "cf-eventhub";
 import type { Context } from "hono";
 import * as v from "valibot";
 
@@ -32,7 +32,7 @@ const redirectWithRpcError = (
 const redirectWithResultError = (
   c: Context<Env>,
   operation: "publish" | "redrive",
-  code: string,
+  code: EventHubErrorCode,
 ) => {
   const fragment = new URLSearchParams({
     error: `${operation}-failed`,
@@ -72,7 +72,12 @@ const handler = factory
     if (!hub) {
       return c.json({ error: "EventHub instance not found" }, 404);
     }
-    const result = await hub.list({ max: 10, order: "desc" });
+    let result: Awaited<ReturnType<typeof hub.list>>;
+    try {
+      result = await hub.list({ max: 10, order: "desc" });
+    } catch {
+      return c.json({ error: "EventHub instance unavailable" }, 502);
+    }
     if (!result.ok) {
       return c.json({ error: result.error.message }, 502);
     }
