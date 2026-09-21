@@ -1,18 +1,6 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
-import { eventHubError, serializeError } from "./errors";
-
-describe("eventHubError", () => {
-  test("exposes stable fields as serializable own properties", () => {
-    const error = eventHubError("INVALID_ARGUMENT", "invalid input");
-
-    expect(JSON.parse(JSON.stringify(error))).toStrictEqual({
-      name: "EventHubError",
-      message: "invalid input",
-      code: "INVALID_ARGUMENT",
-    });
-  });
-});
+import { resultError, resultOk, rpcBoundary, serializeError } from "./errors";
 
 describe("serializeError", () => {
   test("preserves diagnostics while making circular causes serializable", () => {
@@ -29,5 +17,71 @@ describe("serializeError", () => {
       cause: { requestId: "request-1", self: "[Circular]" },
     });
     expect(() => JSON.stringify(serialized)).not.toThrow();
+  });
+});
+
+describe("rpcBoundary", () => {
+  test.each([
+    "INVALID_ARGUMENT",
+    "INVALID_CURSOR",
+    "PAYLOAD_TOO_LARGE",
+    "DESTINATION_NOT_CONFIGURED",
+    "INVALID_DESTINATION_BINDING",
+    "INSTANCE_MISMATCH",
+  ] as const)("creates the %s application error result", (code) => {
+    expect(resultError(code, `message for ${code}`)).toStrictEqual({
+      ok: false,
+      error: { code, message: `message for ${code}` },
+    });
+  });
+
+  test("returns distinct success shapes for void and value results", async () => {
+    expect({
+      voidResult: await rpcBoundary<void>("void", () => resultOk()),
+      valueResult: await rpcBoundary<number>("value", () => resultOk(42)),
+    }).toStrictEqual({
+      voidResult: { ok: true },
+      valueResult: { ok: true, value: 42 },
+    });
+  });
+
+  test("logs unexpected exceptions without exposing their details", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const thrown = new Error("database password is secret");
+
+    expect(
+      await rpcBoundary("test.internal", () => {
+        throw thrown;
+      }),
+    ).toStrictEqual({
+      ok: false,
+      error: { code: "INTERNAL_ERROR", message: "eventhub: internal error" },
+    });
+    expect(log).toHaveBeenCalledWith(
+      "eventhub: RPC request failed",
+      expect.objectContaining({
+        operation: "test.internal",
+        error: expect.objectContaining({
+          message: "database password is secret",
+          stack: expect.any(String),
+        }),
+      }),
+    );
+    log.mockRestore();
+  });
+
+  test("does not infer application failures from thrown errors", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    expect(
+      await rpcBoundary("test.thrown-application-error", () => {
+        throw new Error("must be returned explicitly");
+      }),
+    ).toStrictEqual({
+      ok: false,
+      error: { code: "INTERNAL_ERROR", message: "eventhub: internal error" },
+    });
+    expect(log).toHaveBeenCalledOnce();
+    log.mockRestore();
   });
 });

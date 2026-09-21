@@ -29,6 +29,18 @@ const redirectWithRpcError = (
   return c.redirect(`${c.var.buildUrl("/")}#${fragment}`);
 };
 
+const redirectWithResultError = (
+  c: Context<Env>,
+  operation: "publish" | "redrive",
+  code: string,
+) => {
+  const fragment = new URLSearchParams({
+    error: `${operation}-failed`,
+    code,
+  });
+  return c.redirect(`${c.var.buildUrl("/")}#${fragment}`);
+};
+
 const handler = factory
   .createApp()
   .use(async (c, next) => {
@@ -46,7 +58,10 @@ const handler = factory
       return c.json({ error: "Only stale instances can be deleted" }, 409);
     }
     try {
-      await c.var.registry.delete(instance.name);
+      const result = await c.var.registry.delete(instance.name);
+      if (!result.ok) {
+        return c.json({ error: "EventHub Registry unavailable" }, 503);
+      }
     } catch {
       return c.json({ error: "EventHub Registry unavailable" }, 503);
     }
@@ -57,12 +72,12 @@ const handler = factory
     if (!hub) {
       return c.json({ error: "EventHub instance not found" }, 404);
     }
-    const list = await hub.list({
-      max: 10,
-      order: "desc",
-    });
+    const result = await hub.list({ max: 10, order: "desc" });
+    if (!result.ok) {
+      return c.json({ error: result.error.message }, 502);
+    }
     return c.json({
-      lastUpdatedAt: getEventsLastUpdatedAt(normalizeEvents(list)),
+      lastUpdatedAt: getEventsLastUpdatedAt(normalizeEvents(result.value)),
     });
   })
   .post(
@@ -78,13 +93,16 @@ const handler = factory
       if (!hub) {
         return c.json({ error: "EventHub instance not found" }, 404);
       }
-      let retried: boolean;
+      let result: Awaited<ReturnType<typeof hub.redrive>>;
       try {
-        retried = await hub.redrive(c.req.valid("param").id);
+        result = await hub.redrive(c.req.valid("param").id);
       } catch (error) {
         return redirectWithRpcError(c, "redrive", error);
       }
-      if (!retried) {
+      if (!result.ok) {
+        return redirectWithResultError(c, "redrive", result.error.code);
+      }
+      if (!result.value) {
         return c.redirect(c.var.buildUrl("/", { error: "delivery-not-found" }));
       }
       return c.redirect(c.var.buildUrl("/"));
@@ -112,7 +130,10 @@ const handler = factory
         return redirectWithError(c);
       }
       try {
-        await hub.publish(parsed as EventPayload);
+        const result = await hub.publish(parsed as EventPayload);
+        if (!result.ok) {
+          return redirectWithResultError(c, "publish", result.error.code);
+        }
       } catch (error) {
         return redirectWithRpcError(c, "publish", error);
       }

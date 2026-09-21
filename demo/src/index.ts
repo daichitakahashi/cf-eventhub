@@ -56,9 +56,13 @@ export default {
       const registry = env.EVENT_HUB_REGISTRY.getByName(
         EVENT_HUB_REGISTRY_NAME,
       );
-      await Promise.all(
+      const results = await Promise.all(
         exampleEventHubNames.map((name) => registry.register(name)),
       );
+      const failure = results.find((result) => !result.ok);
+      if (failure && !failure.ok) {
+        return Response.json(failure.error, { status: 500 });
+      }
       return new Response(
         "Registered default, tenant:acme, and orders. Reload the console.",
       );
@@ -108,8 +112,13 @@ export default {
             msg.retry();
             continue;
           }
-          await eventHub.reportFailure(msg.body);
-          msg.ack();
+          const result = await eventHub.reportFailure(msg.body);
+          if (result.ok) {
+            msg.ack();
+          } else {
+            console.error("Failed to report failure", result.error);
+            msg.retry();
+          }
         }
     }
   },

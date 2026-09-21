@@ -5,39 +5,35 @@ export type EventHubErrorCode =
   | "INVALID_CURSOR"
   | "DESTINATION_NOT_CONFIGURED"
   | "INVALID_DESTINATION_BINDING"
-  | "INSTANCE_MISMATCH";
+  | "INSTANCE_MISMATCH"
+  | "INTERNAL_ERROR";
 
-export type EventHubError = Error & {
-  code: EventHubErrorCode;
+export type ResultError = {
+  ok: false;
+  error: {
+    code: EventHubErrorCode;
+    message: string;
+  };
 };
 
-/**
- * Creates an Error whose public fields are enumerable own properties so they
- * survive Durable Object RPC serialization. Consumers should inspect `code`,
- * rather than relying on `instanceof` across the RPC boundary.
- */
-export const eventHubError = (
+export type ResultOk<T = void> =
+  // biome-ignore lint/suspicious/noConfusingVoidType: void distinguishes value-less RPC success results.
+  [T] extends [void] ? { ok: true } : { ok: true; value: T };
+
+export type Result<T = void> = ResultOk<T> | ResultError;
+
+export function resultOk(): Result;
+export function resultOk<T>(value: T): Result<T>;
+export function resultOk<T>(value?: T): Result<T> | Result {
+  return (value === undefined ? { ok: true } : { ok: true, value }) as
+    | Result<T>
+    | Result;
+}
+
+export const resultError = (
   code: EventHubErrorCode,
   message: string,
-): EventHubError => {
-  const error = new Error(message) as EventHubError;
-  Object.defineProperties(error, {
-    name: {
-      value: "EventHubError",
-      enumerable: true,
-      configurable: true,
-      writable: true,
-    },
-    message: {
-      value: message,
-      enumerable: true,
-      configurable: true,
-      writable: true,
-    },
-    code: { value: code, enumerable: true, configurable: true, writable: true },
-  });
-  return error;
-};
+): ResultError => ({ ok: false, error: { code, message } });
 
 type SerializableErrorCause =
   | null
@@ -141,4 +137,31 @@ export const serializeError = (error: unknown): SerializedError => {
     return { message: safeString(error) };
   }
   return { message: safeString(error) };
+};
+
+/**
+ * Runs an RPC implementation that returns expected failures explicitly.
+ * Only unexpected exceptions are caught and converted to `INTERNAL_ERROR`.
+ */
+export const rpcBoundary = async <T>(
+  operation: string,
+  callback: () => Result<T> | Promise<Result<T>>,
+  context: Record<string, unknown> = {},
+): Promise<Result<T>> => {
+  try {
+    return await callback();
+  } catch (error) {
+    console.error("eventhub: RPC request failed", {
+      operation,
+      ...context,
+      error: serializeError(error),
+    });
+    return {
+      ok: false,
+      error: {
+        code: "INTERNAL_ERROR",
+        message: "eventhub: internal error",
+      },
+    };
+  }
 };

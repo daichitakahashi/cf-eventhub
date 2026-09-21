@@ -42,9 +42,10 @@ export const listAllInstances = async (
   let cursor: string | undefined;
   for (let page = 0; page < MAX_REGISTRY_PAGES; page += 1) {
     const result = await registry.list({ status, cursor, max: 100 });
-    instances.push(...result.instances);
-    if (!result.cursor) return instances;
-    cursor = result.cursor;
+    if (!result.ok) throw new Error(result.error.message);
+    instances.push(...result.value.instances);
+    if (!result.value.cursor) return instances;
+    cursor = result.value.cursor;
   }
   throw new Error("EventHub Registry contains too many pages");
 };

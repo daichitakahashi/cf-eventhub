@@ -2,13 +2,14 @@ import { runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { assert, describe, expect, test, vi } from "vitest";
 
+import type { Result } from "../errors";
 import { routeByConfig, routeFunc } from "./routing";
 import {
   advanceEvictionPage,
   claimDeliverableJobs,
   completeAutomaticEviction,
   createAutomaticEjection,
-  createPendingDeliveryJobs,
+  createPendingDeliveryJobs as createPendingDeliveryJobsResult,
   deleteEvictionCandidates,
   ejectPayloads,
   evictEjection,
@@ -16,10 +17,10 @@ import {
   getEvictionRun,
   getNextEvictionBaseline,
   getNextRetryAt,
-  list,
   listDeliverableJobs,
   listDeliveryJobStatuses,
-  listEjected,
+  listEjected as listEjectedResult,
+  list as listResult,
   markDeliveryJobsCompleted,
   markDeliveryJobsFailed,
   persistDeliveryJobs,
@@ -29,6 +30,20 @@ import {
   renewDeliveryJobLeases,
 } from "./store";
 import type { JSONObject } from "./type";
+
+const unwrap = <T>(result: Result<T>): T => {
+  if (!result.ok) throw new Error(result.error.message);
+  if (!("value" in result)) throw new Error("expected a result value");
+  return result.value as T;
+};
+
+const createPendingDeliveryJobs = <Env extends object>(
+  ...args: Parameters<typeof createPendingDeliveryJobsResult<Env>>
+) => unwrap(createPendingDeliveryJobsResult(...args));
+const list = (...args: Parameters<typeof listResult>) =>
+  unwrap(listResult(...args));
+const listEjected = (...args: Parameters<typeof listEjectedResult>) =>
+  unwrap(listEjectedResult(...args));
 
 type PayloadRow = {
   id: string;
@@ -166,9 +181,15 @@ describe("createPendingDeliveryJobs", () => {
     const circular: Record<string, unknown> = {};
     circular.self = circular;
 
-    expect(() =>
-      createPendingDeliveryJobs(routing, [circular as never]),
-    ).toThrow("eventhub: payload must be a JSON-serializable object");
+    expect(
+      createPendingDeliveryJobsResult(routing, [circular as never]),
+    ).toStrictEqual({
+      ok: false,
+      error: {
+        code: "INVALID_ARGUMENT",
+        message: "eventhub: payload must be a JSON-serializable object",
+      },
+    });
   });
 });
 
@@ -825,11 +846,14 @@ describe("list", () => {
     const stub = getStub("store-list-live-invalid-cursor");
 
     await runInDurableObject(stub, async (_instance, state) => {
-      expect(() =>
+      expect(
         state.storage.transactionSync(() =>
-          list(state.storage.sql, "not-base64", 50, 262_144),
+          listResult(state.storage.sql, "not-base64", 50, 262_144),
         ),
-      ).toThrow("eventhub: invalid cursor");
+      ).toStrictEqual({
+        ok: false,
+        error: { code: "INVALID_CURSOR", message: "eventhub: invalid cursor" },
+      });
     });
   });
 });

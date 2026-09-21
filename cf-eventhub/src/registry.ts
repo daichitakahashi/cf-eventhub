@@ -9,7 +9,7 @@ import {
   registerInstance,
   tombstoneInstance,
 } from "./core/registry-store";
-import { eventHubError } from "./errors";
+import { type Result, resultError, resultOk, rpcBoundary } from "./errors";
 
 export type EventHubInstanceStatus = RegistryInstanceStatus;
 export type EventHubInstance = RegistryInstance;
@@ -30,13 +30,14 @@ export const EVENT_HUB_STALE_AFTER_MS = 30 * 24 * 60 * 60 * 1_000;
 const DEFAULT_LIST_MAX = 50;
 const MAX_LIST_MAX = 100;
 
-const assertName = (name: string): void => {
+const validateName = (name: string): Result<string> => {
   if (typeof name !== "string" || name.length === 0) {
-    throw eventHubError(
+    return resultError(
       "INVALID_ARGUMENT",
       "eventhub registry: name must not be empty",
     );
   }
+  return resultOk(name);
 };
 
 const encodeCursor = (name: string): string => {
@@ -49,7 +50,8 @@ const encodeCursor = (name: string): string => {
     .replace(/=+$/, "");
 };
 
-const decodeCursor = (cursor: string): string => {
+const decodeCursor = (cursor: string): Result<string> => {
+  let name: string;
   try {
     const base64 = cursor.replaceAll("-", "+").replaceAll("_", "/");
     const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, "=");
@@ -57,15 +59,16 @@ const decodeCursor = (cursor: string): string => {
     const bytes = Uint8Array.from(binary, (character) =>
       character.charCodeAt(0),
     );
-    const name = new TextDecoder("utf-8", {
+    name = new TextDecoder("utf-8", {
       fatal: true,
       ignoreBOM: false,
     }).decode(bytes);
-    if (name.length === 0 || encodeCursor(name) !== cursor) throw new Error();
-    return name;
   } catch {
-    throw eventHubError("INVALID_CURSOR", "eventhub registry: invalid cursor");
+    return resultError("INVALID_CURSOR", "eventhub registry: invalid cursor");
   }
+  return name.length > 0 && encodeCursor(name) === cursor
+    ? resultOk(name)
+    : resultError("INVALID_CURSOR", "eventhub registry: invalid cursor");
 };
 
 export class EventHubRegistry extends DurableObject<Record<string, never>> {
@@ -74,8 +77,59 @@ export class EventHubRegistry extends DurableObject<Record<string, never>> {
     initializeRegistrySchema(this.ctx.storage.sql);
   }
 
-  async register(name: string): Promise<EventHubInstance> {
-    assertName(name);
+  register(name: string): Promise<Result<EventHubInstance>> {
+    return rpcBoundary("registry.register", async () => {
+      const validated = validateName(name);
+      if (!validated.ok) return validated;
+      return resultOk(await this.#register(validated.value));
+    });
+  }
+
+  get(name: string): Promise<Result<EventHubInstance | null>> {
+    return rpcBoundary("registry.get", async () => {
+      const validated = validateName(name);
+      if (!validated.ok) return validated;
+      return resultOk(await this.#get(validated.value));
+    });
+  }
+
+  list(
+    options: ListEventHubInstancesOptions = {},
+  ): Promise<Result<ListEventHubInstancesResult>> {
+    return rpcBoundary("registry.list", async () => {
+      const status = options.status ?? "active";
+      if (status !== "active" && status !== "stale" && status !== "deleted") {
+        return resultError(
+          "INVALID_ARGUMENT",
+          "eventhub registry: invalid status",
+        );
+      }
+      const max = options.max ?? DEFAULT_LIST_MAX;
+      if (!Number.isInteger(max) || max < 1 || max > MAX_LIST_MAX) {
+        return resultError(
+          "INVALID_ARGUMENT",
+          "eventhub registry: max must be an integer in 1..100",
+        );
+      }
+      let cursorName: string | undefined;
+      if (options.cursor !== undefined) {
+        const cursor = decodeCursor(options.cursor);
+        if (!cursor.ok) return cursor;
+        cursorName = cursor.value;
+      }
+      return resultOk(await this.#list(status, cursorName, max));
+    });
+  }
+
+  delete(name: string): Promise<Result<boolean>> {
+    return rpcBoundary("registry.delete", async () => {
+      const validated = validateName(name);
+      if (!validated.ok) return validated;
+      return resultOk(await this.#delete(validated.value));
+    });
+  }
+
+  async #register(name: string): Promise<EventHubInstance> {
     const now = Date.now();
     return registerInstance(
       this.ctx.storage.sql,
@@ -85,8 +139,7 @@ export class EventHubRegistry extends DurableObject<Record<string, never>> {
     );
   }
 
-  async get(name: string): Promise<EventHubInstance | null> {
-    assertName(name);
+  async #get(name: string): Promise<EventHubInstance | null> {
     return getInstance(
       this.ctx.storage.sql,
       name,
@@ -94,25 +147,11 @@ export class EventHubRegistry extends DurableObject<Record<string, never>> {
     );
   }
 
-  async list(
-    options: ListEventHubInstancesOptions = {},
+  async #list(
+    status: EventHubInstanceStatus,
+    cursorName: string | undefined,
+    max: number,
   ): Promise<ListEventHubInstancesResult> {
-    const status = options.status ?? "active";
-    if (status !== "active" && status !== "stale" && status !== "deleted") {
-      throw eventHubError(
-        "INVALID_ARGUMENT",
-        "eventhub registry: invalid status",
-      );
-    }
-    const max = options.max ?? DEFAULT_LIST_MAX;
-    if (!Number.isInteger(max) || max < 1 || max > MAX_LIST_MAX) {
-      throw eventHubError(
-        "INVALID_ARGUMENT",
-        "eventhub registry: max must be an integer in 1..100",
-      );
-    }
-    const cursorName =
-      options.cursor === undefined ? undefined : decodeCursor(options.cursor);
     const now = Date.now();
     const result = listInstances(
       this.ctx.storage.sql,
@@ -127,8 +166,7 @@ export class EventHubRegistry extends DurableObject<Record<string, never>> {
     };
   }
 
-  async delete(name: string): Promise<boolean> {
-    assertName(name);
+  async #delete(name: string): Promise<boolean> {
     return tombstoneInstance(this.ctx.storage.sql, name, Date.now());
   }
 }

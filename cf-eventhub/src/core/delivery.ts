@@ -1,4 +1,4 @@
-import { eventHubError } from "../errors";
+import { type Result, resultError, resultOk } from "../errors";
 import { ULID_LENGTH } from "./id";
 import type {
   Destinations,
@@ -56,7 +56,7 @@ export const resolveDeliveryJobs = <Env extends object>(
   routing: RoutingStrategy<Env>,
   jobs: readonly PersistedDeliveryJob[],
   resolvedDestinations?: ResolvedDestinations<Env>,
-): DeliveryJob<Env>[] => {
+): Result<DeliveryJob<Env>[]> => {
   const targetsByDestination = new Map(resolvedDestinations);
   const destinations = new Set<Destinations<Env>>();
 
@@ -66,33 +66,37 @@ export const resolveDeliveryJobs = <Env extends object>(
 
   for (const destination of destinations) {
     if (!targetsByDestination.has(destination)) {
-      targetsByDestination.set(
-        destination,
-        routing.resolveDestination(destination),
-      );
+      const result = routing.resolveDestination(destination);
+      if (!result.ok) return result;
+      targetsByDestination.set(destination, result.value);
     }
   }
 
-  return jobs.map((job) => {
+  const deliveryJobs: DeliveryJob<Env>[] = [];
+  for (const job of jobs) {
     const destination = job.destination as Destinations<Env>;
     const target = targetsByDestination.get(destination);
     if (!target) {
-      throw new Error(`eventhub: ${job.destination} not resolved`);
+      return resultError(
+        "INTERNAL_ERROR",
+        `eventhub: ${job.destination} not resolved`,
+      );
     }
 
-    return {
+    deliveryJobs.push({
       ...job,
       destination,
       target,
-    };
-  });
+    });
+  }
+  return resultOk(deliveryJobs);
 };
 
 // Fails fast if any configured destination binding is missing.
-export const assertDestinationBindingsExist = <Env extends object>(
+export const resolveDestinationBindings = <Env extends object>(
   routing: RoutingStrategy<Env>,
   pendingDeliveryJobs: PendingDeliveryJobs,
-): ResolvedDestinations<Env> => {
+): Result<ResolvedDestinations<Env>> => {
   const destinations = new Set<Destinations<Env>>();
   const resolvedDestinations = new Map<
     Destinations<Env>,
@@ -106,12 +110,11 @@ export const assertDestinationBindingsExist = <Env extends object>(
   }
 
   for (const destination of destinations) {
-    resolvedDestinations.set(
-      destination,
-      routing.resolveDestination(destination),
-    );
+    const result = routing.resolveDestination(destination);
+    if (!result.ok) return result;
+    resolvedDestinations.set(destination, result.value);
   }
-  return resolvedDestinations;
+  return resultOk(resolvedDestinations);
 };
 
 type DeliveryMetadataSource = {
@@ -199,11 +202,11 @@ const getJsonByteLength = (
   textEncoder.encode(serializedPayload ?? JSON.stringify(payload)).byteLength;
 
 // Rejects Queue-bound payloads before publish persists any delivery state.
-export const assertPendingQueueMessageSizes = <Env extends object>(
+export const validatePendingQueueMessageSizes = <Env extends object>(
   resolvedDestinations: ResolvedDestinations<Env>,
   pendingDeliveryJobs: PendingDeliveryJobs,
   context: DeliveryContext,
-): void => {
+): Result => {
   for (const {
     payload,
     serializedPayload,
@@ -226,12 +229,13 @@ export const assertPendingQueueMessageSizes = <Env extends object>(
       context.includeDeliveryMetadata ? undefined : serializedPayload,
     );
     if (bytes > MAX_QUEUE_MESSAGE_BYTES) {
-      throw eventHubError(
+      return resultError(
         "PAYLOAD_TOO_LARGE",
         `eventhub: Queue message size ${bytes} bytes exceeds limit of ${MAX_QUEUE_MESSAGE_BYTES} bytes`,
       );
     }
   }
+  return resultOk();
 };
 
 type QueueJob = {
@@ -358,11 +362,19 @@ export const deliverPersistedJobs = async <Env extends object>(
 ): Promise<void> => {
   for (const destinationJobs of groupJobsByDestination(jobs).values()) {
     try {
-      await deliverJobs(
-        resolveDeliveryJobs(routing, destinationJobs, resolvedDestinations),
-        handlers,
-        context,
+      const resolved = resolveDeliveryJobs(
+        routing,
+        destinationJobs,
+        resolvedDestinations,
       );
+      if (!resolved.ok) {
+        await handlers.onFailed(
+          destinationJobs.map((job) => job.id),
+          resolved.error.message,
+        );
+        continue;
+      }
+      await deliverJobs(resolved.value, handlers, context);
     } catch (error) {
       await handlers.onFailed(
         destinationJobs.map((job) => job.id),

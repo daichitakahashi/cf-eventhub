@@ -381,9 +381,13 @@ export const createHandler = ({
 
       try {
         if (isApiRequest) {
-          const requested = requestedInstance
+          const requestedResult = requestedInstance
             ? await registryStub.get(requestedInstance)
             : null;
+          if (requestedResult && !requestedResult.ok) {
+            throw new Error(requestedResult.error.message);
+          }
+          const requested = requestedResult?.value ?? null;
           selectedInstance =
             requested?.status === "active" || requested?.status === "stale"
               ? requested
@@ -511,12 +515,16 @@ export const createHandler = ({
         let listed: ListResult;
         let latest: ListResult;
         try {
-          listed = await hub.list({
+          const listedResult = await hub.list({
             max,
             cursor: cursor ?? undefined,
             order: "desc",
           });
-          latest = await hub.list({ max: 10, order: "desc" });
+          const latestResult = await hub.list({ max: 10, order: "desc" });
+          if (!listedResult.ok) throw new Error(listedResult.error.message);
+          if (!latestResult.ok) throw new Error(latestResult.error.message);
+          listed = listedResult.value;
+          latest = latestResult.value;
         } catch {
           c.status(502);
           return c.render(

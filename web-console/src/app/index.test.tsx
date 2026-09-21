@@ -3,6 +3,7 @@ import type {
   EventHubInstance,
   EventHubRegistry,
   ListResult,
+  Result,
 } from "cf-eventhub";
 import { describe, expect, test, vi } from "vitest";
 
@@ -35,25 +36,44 @@ const setup = ({
     [...active, ...stale].map(({ name }) => [
       name,
       {
-        list: vi.fn(async () => emptyList()),
-        publish: vi.fn(async () => undefined),
-        redrive: vi.fn(async () => true),
+        list: vi.fn(
+          async (_options?: unknown): Promise<Result<ListResult>> => ({
+            ok: true,
+            value: emptyList(),
+          }),
+        ),
+        publish: vi.fn(async (): Promise<Result> => ({ ok: true })),
+        redrive: vi.fn(
+          async (): Promise<Result<boolean>> => ({
+            ok: true,
+            value: true,
+          }),
+        ),
       },
     ]),
   );
   const eventHubGetByName = vi.fn((name: string) => hubs.get(name));
   const registryList = vi.fn(
     async ({ status }: { status?: EventHubInstance["status"] } = {}) => ({
-      instances:
-        status === "stale" ? stale : status === "deleted" ? [] : active,
+      ok: true as const,
+      value: {
+        instances:
+          status === "stale" ? stale : status === "deleted" ? [] : active,
+      },
     }),
   );
   const registryGet = vi.fn(async (name: string) => {
-    return (
-      [...active, ...stale].find((candidate) => candidate.name === name) ?? null
-    );
+    return {
+      ok: true as const,
+      value:
+        [...active, ...stale].find((candidate) => candidate.name === name) ??
+        null,
+    };
   });
-  const registryDelete = vi.fn(async () => true);
+  const registryDelete = vi.fn(async () => ({
+    ok: true as const,
+    value: true,
+  }));
   const bindings = {
     EVENT_HUB: {
       getByName: eventHubGetByName,
@@ -188,31 +208,34 @@ describe("EventHub instance URL state", () => {
     if (!hub) throw new Error("test hub not found");
     hub.list
       .mockResolvedValueOnce({
-        payloads: [
-          {
-            payloadId: "payload-1",
-            createdAt: "2026-09-01T00:00:00.000Z",
-            payload: { hello: "world" },
-            deliveryJobs: [
-              {
-                id: "job-1",
-                payloadId: "payload-1",
-                destination: "QUEUE",
-                createdAt: "2026-09-01T00:00:00.000Z",
-                failedAttemptCount: 0,
-                lastFailedAt: null,
-                lastError: null,
-                nextRetryAt: "2026-09-01T00:00:10.000Z",
-                finalStatus: "failed",
-                finalizedAt: "2026-09-01T00:00:20.000Z",
-                failureReportedAt: null,
-              },
-            ],
-          },
-        ],
-        cursor: "next-cursor",
+        ok: true,
+        value: {
+          payloads: [
+            {
+              payloadId: "payload-1",
+              createdAt: "2026-09-01T00:00:00.000Z",
+              payload: { hello: "world" },
+              deliveryJobs: [
+                {
+                  id: "job-1",
+                  payloadId: "payload-1",
+                  destination: "QUEUE",
+                  createdAt: "2026-09-01T00:00:00.000Z",
+                  failedAttemptCount: 0,
+                  lastFailedAt: null,
+                  lastError: null,
+                  nextRetryAt: "2026-09-01T00:00:10.000Z",
+                  finalStatus: "failed",
+                  finalizedAt: "2026-09-01T00:00:20.000Z",
+                  failureReportedAt: null,
+                },
+              ],
+            },
+          ],
+          cursor: "next-cursor",
+        },
       })
-      .mockResolvedValueOnce(emptyList());
+      .mockResolvedValueOnce({ ok: true, value: emptyList() });
     const response = await configured.app.request(
       "http://localhost/?instance=tenant%3Aacme",
       {},
@@ -251,11 +274,13 @@ describe("EventHub instance URL state", () => {
 
   test("displays a coded publish error on the selected instance", async () => {
     const configured = setup();
-    configured.hubs.get("beta")?.publish.mockRejectedValue({
-      name: "EventHubError",
-      code: "PAYLOAD_TOO_LARGE",
-      message:
-        "eventhub: Queue message size 128001 bytes exceeds limit of 128000 bytes",
+    configured.hubs.get("beta")?.publish.mockResolvedValue({
+      ok: false,
+      error: {
+        code: "PAYLOAD_TOO_LARGE",
+        message:
+          "eventhub: Queue message size 128001 bytes exceeds limit of 128000 bytes",
+      },
     });
 
     const response = await configured.app.request(
@@ -443,7 +468,10 @@ describe("EventHub instance URL state", () => {
 
   test("does not resolve a deleted instance", async () => {
     const configured = setup();
-    configured.registryGet.mockResolvedValue(instance("deleted", "deleted"));
+    configured.registryGet.mockResolvedValue({
+      ok: true,
+      value: instance("deleted", "deleted"),
+    });
 
     const response = await configured.app.request(
       "http://localhost/api/events/latest?instance=deleted",
@@ -522,14 +550,17 @@ describe("latest event polling", () => {
   test("returns the creation time of an event without delivery jobs", async () => {
     const configured = setup();
     configured.hubs.get("alpha")?.list.mockResolvedValue({
-      payloads: [
-        {
-          payloadId: "payload-no-route",
-          createdAt: "2026-09-15T01:02:03.000Z",
-          payload: { kind: "other" },
-          deliveryJobs: [],
-        },
-      ],
+      ok: true,
+      value: {
+        payloads: [
+          {
+            payloadId: "payload-no-route",
+            createdAt: "2026-09-15T01:02:03.000Z",
+            payload: { kind: "other" },
+            deliveryJobs: [],
+          },
+        ],
+      },
     });
 
     const response = await configured.app.request(

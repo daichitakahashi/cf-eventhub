@@ -1,4 +1,4 @@
-import { eventHubError } from "../errors";
+import { type Result, resultError, resultOk } from "../errors";
 import type { RoutingStrategy } from "./routing";
 import { type EventPayload, serializeEventPayload } from "./type";
 
@@ -331,19 +331,21 @@ export const setRegistrySyncedAt = (
 export const createPendingDeliveryJobs = <Env extends object>(
   routing: RoutingStrategy<Env>,
   payloads: readonly [EventPayload, ...EventPayload[]],
-): PendingDeliveryJobs => ({
-  payloads: payloads.map((payload) => {
-    const { payload: normalizedPayload, serializedPayload } =
-      serializeEventPayload(payload);
-    return {
-      payload: normalizedPayload,
-      serializedPayload,
+): Result<PendingDeliveryJobs> => {
+  const pendingPayloads: PendingPayload[] = [];
+  for (const payload of payloads) {
+    const serialized = serializeEventPayload(payload);
+    if (!serialized.ok) return serialized;
+    pendingPayloads.push({
+      payload: serialized.value.payload,
+      serializedPayload: serialized.value.serializedPayload,
       destinations: routing
-        .findRoutes(normalizedPayload)
+        .findRoutes(serialized.value.payload)
         .map(({ destination }) => String(destination)),
-    };
-  }),
-});
+    });
+  }
+  return resultOk({ payloads: pendingPayloads });
+};
 
 // Persists payloads and delivery jobs and returns the created jobs for dispatch.
 export const persistDeliveryJobs = (
@@ -834,14 +836,14 @@ export const listDeliveryJobStatuses = (sql: SqlStorage): DeliveryJobStatus[] =>
 const encodeCursor = (createdAt: string, payloadId: string): string =>
   btoa(JSON.stringify([createdAt, payloadId]));
 
-const decodeCursor = (
-  cursor: string,
-): { createdAt: string; payloadId: string } => {
+type DecodedCursor = { createdAt: string; payloadId: string };
+
+const tryDecodeCursor = (cursor: string): DecodedCursor | undefined => {
   let decoded: unknown;
   try {
     decoded = JSON.parse(atob(cursor)) as unknown;
   } catch {
-    throw eventHubError("INVALID_CURSOR", "eventhub: invalid cursor");
+    return undefined;
   }
   if (
     !Array.isArray(decoded) ||
@@ -849,12 +851,27 @@ const decodeCursor = (
     typeof decoded[0] !== "string" ||
     typeof decoded[1] !== "string"
   ) {
-    throw eventHubError("INVALID_CURSOR", "eventhub: invalid cursor");
+    return undefined;
   }
   return {
     createdAt: decoded[0],
     payloadId: decoded[1],
   };
+};
+
+const decodeCursor = (cursor: string): Result<DecodedCursor> => {
+  const decoded = tryDecodeCursor(cursor);
+  if (!decoded) {
+    return resultError("INVALID_CURSOR", "eventhub: invalid cursor");
+  }
+  return resultOk(decoded);
+};
+
+export const validatePaginationCursor = (cursor?: string): Result => {
+  if (cursor === undefined) return resultOk();
+  return tryDecodeCursor(cursor)
+    ? resultOk()
+    : resultError("INVALID_CURSOR", "eventhub: invalid cursor");
 };
 
 const groupBy = <T, K>(
@@ -890,7 +907,7 @@ type PayloadPageRow = {
 
 const listPayloadRows = (
   sql: SqlStorage,
-  cursor: string | undefined,
+  cursor: DecodedCursor | undefined,
   limit: number,
   maxBytes: number,
   order: ListOrder,
@@ -990,7 +1007,7 @@ const listPayloadRows = (
       .toArray();
   }
 
-  const { createdAt, payloadId } = decodeCursor(cursor);
+  const { createdAt, payloadId } = cursor;
   return sql
     .exec<PayloadPageRow>(
       `
@@ -1066,10 +1083,21 @@ export const list = (
   max = 50,
   maxBytes = 262_144, // 256KiB
   order: ListOrder = "asc",
-): ListResult => {
-  const payloadRows = listPayloadRows(sql, cursor, max, maxBytes, order);
+): Result<ListResult> => {
+  const decodedCursor =
+    cursor === undefined
+      ? resultOk<DecodedCursor | undefined>(undefined)
+      : decodeCursor(cursor);
+  if (!decodedCursor.ok) return decodedCursor;
+  const payloadRows = listPayloadRows(
+    sql,
+    decodedCursor.value,
+    max,
+    maxBytes,
+    order,
+  );
   if (payloadRows.length === 0) {
-    return { payloads: [] };
+    return resultOk({ payloads: [] });
   }
 
   const payloadIds = payloadRows.map(({ payload_id }) => payload_id);
@@ -1152,7 +1180,7 @@ export const list = (
       )
       .toArray().length > 0;
 
-  return {
+  return resultOk({
     cursor: hasMore
       ? encodeCursor(lastRow.created_at, lastRow.payload_id)
       : undefined,
@@ -1162,13 +1190,13 @@ export const list = (
       payload: JSON.parse(body) as EventPayload,
       deliveryJobs: jobsByPayloadId.get(payload_id) ?? [],
     })),
-  };
+  });
 };
 
 const listEjectedPayloadRows = (
   sql: SqlStorage,
   ejectionKey: string,
-  cursor: string | undefined,
+  cursor: DecodedCursor | undefined,
   limit: number,
   maxBytes: number,
 ): EjectedPayloadRow[] => {
@@ -1249,7 +1277,7 @@ const listEjectedPayloadRows = (
       .toArray();
   }
 
-  const { createdAt, payloadId } = decodeCursor(cursor);
+  const { createdAt, payloadId } = cursor;
   return sql
     .exec<EjectedPayloadRow>(
       `
@@ -1338,16 +1366,21 @@ export const listEjected = (
   cursor?: string,
   max = 50,
   maxBytes = 262_144, // 256KiB
-): ListEjectedResult => {
+): Result<ListEjectedResult> => {
+  const decodedCursor =
+    cursor === undefined
+      ? resultOk<DecodedCursor | undefined>(undefined)
+      : decodeCursor(cursor);
+  if (!decodedCursor.ok) return decodedCursor;
   const payloadRows = listEjectedPayloadRows(
     sql,
     ejectionKey,
-    cursor,
+    decodedCursor.value,
     max,
     maxBytes,
   );
   if (payloadRows.length === 0) {
-    return { payloads: [] };
+    return resultOk({ payloads: [] });
   }
 
   const payloadIds = payloadRows.map(({ payload_id }) => payload_id);
@@ -1427,7 +1460,7 @@ export const listEjected = (
       )
       .toArray().length > 0;
 
-  return {
+  return resultOk({
     cursor: hasMore
       ? encodeCursor(lastRow.created_at, lastRow.payload_id)
       : undefined,
@@ -1437,7 +1470,7 @@ export const listEjected = (
       payload: JSON.parse(body) as EventPayload,
       deliveryJobs: jobsByPayloadId.get(payload_id) ?? [],
     })),
-  };
+  });
 };
 
 export const ejectPayloads = (
