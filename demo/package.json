@@ -11,10 +11,11 @@
     "test": "node --test test/setup.test.mts"
   },
   "dependencies": {
-    "cf-eventhub": "workspace:*",
-    "@cf-eventhub/web-console": "workspace:*"
+    "@cf-eventhub/web-console": "workspace:*",
+    "cf-eventhub": "workspace:*"
   },
   "devDependencies": {
+    "@types/node": "^25.6.0",
     "typescript": "catalog:",
     "wrangler": "catalog:"
   }
