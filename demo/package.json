@@ -2,11 +2,13 @@
   "name": "eventhub-demo",
   "version": "0.0.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
     "start": "wrangler dev",
-    "cf-typegen": "wrangler types"
+    "cf-typegen": "wrangler types",
+    "test": "node --test test/setup.test.mts"
   },
   "dependencies": {
     "cf-eventhub": "workspace:*",

@@ -93,6 +93,7 @@ export const listInstances = (
   cursorName: string | undefined,
   max: number,
   staleCutoff: number,
+  nameContains?: string,
 ): { instances: RegistryInstance[]; nextName?: string } => {
   const predicate =
     status === "deleted"
@@ -102,6 +103,7 @@ export const listInstances = (
         : "deleted_at IS NULL AND last_seen_at >= ?";
   const bindings: (string | number)[] = [];
   if (status !== "deleted") bindings.push(staleCutoff);
+  if (nameContains) bindings.push(nameContains);
   if (cursorName !== undefined) bindings.push(cursorName);
   bindings.push(max + 1);
 
@@ -111,6 +113,7 @@ export const listInstances = (
 			SELECT name, first_seen_at, last_seen_at, deleted_at
 			FROM eventhub_instances
 			WHERE ${predicate}
+			${nameContains ? "AND instr(name, ?) > 0" : ""}
 			${cursorName === undefined ? "" : "AND name > ?"}
 			ORDER BY name ASC
 			LIMIT ?

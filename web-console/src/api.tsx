@@ -58,6 +58,31 @@ const handler = factory
     }
     return next();
   })
+  .get("/instances/search", async (c) => {
+    const status = c.req.query("status") ?? "active";
+    const search = c.req.query("search") ?? "";
+    const cursor = c.req.query("cursor");
+    if ((status !== "active" && status !== "stale") || search.length > 200) {
+      return c.json({ error: "Invalid instance search" }, 400);
+    }
+    try {
+      const result = await c.var.registry.list({
+        status,
+        nameContains: search,
+        cursor,
+        max: 50,
+      });
+      if (!result.ok) {
+        return c.json(
+          { error: result.error.message, code: result.error.code },
+          result.error.code === "INVALID_CURSOR" ? 400 : 503,
+        );
+      }
+      return c.json(result.value);
+    } catch {
+      return c.json({ error: "EventHub Registry unavailable" }, 503);
+    }
+  })
   .post("/instances/delete", async (c) => {
     const instance = c.var.selectedInstance;
     if (!instance || c.var.requestedInstance !== instance.name) {

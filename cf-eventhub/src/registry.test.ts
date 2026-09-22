@@ -126,6 +126,23 @@ describe("EventHubRegistry", () => {
     expect(second.cursor).toBeUndefined();
   });
 
+  test("searches names through the Registry RPC", async () => {
+    const stub = registry("name-search");
+    for (const name of ["alpha", "tenant:acme", "tenant:beta"]) {
+      await stub.register(name);
+    }
+    const result = unwrap(await stub.list({ nameContains: "tenant:", max: 1 }));
+    expect(result).toMatchObject({
+      instances: [{ name: "tenant:acme" }],
+      cursor: expect.any(String),
+    });
+    expect(
+      unwrap(
+        await stub.list({ nameContains: "tenant:", cursor: result.cursor }),
+      ).instances,
+    ).toMatchObject([{ name: "tenant:beta" }]);
+  });
+
   test("rejects invalid inputs and does not tombstone unknown names", async () => {
     const stub = registry("validation");
     await expect(stub.get("unknown")).resolves.toStrictEqual({

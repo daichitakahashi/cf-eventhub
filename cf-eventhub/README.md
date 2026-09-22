@@ -167,7 +167,8 @@ The `EventHub` Durable Object exposes the following RPC methods:
 result contains one active, stale, or deleted entry, or `null` when the name is
 unknown. A successful `list()` result contains active instances by default and
 can filter `active`, `stale`, or `deleted` entries with name-ordered cursor
-pagination.
+pagination. Set `nameContains` to search for a literal, case-sensitive name
+fragment; the same filter applies across cursor pages.
 
 ## Error Handling and Observability
 

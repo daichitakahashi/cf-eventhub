@@ -35,7 +35,10 @@ pnpm dev
 ```
 
 This starts the local demo with Wrangler. Open the URL printed by Wrangler, then
-visit `/setup` once to register the example EventHub instances. The repository
+visit `/setup` to register three example EventHub instances, or use
+`/setup?count=150` to choose the total number (1–1000). Each run registers
+`default` and creates the remaining names as `tenant:` followed by eight random
+hex digits. The repository
 uses Node.js 24 and pnpm 11, as declared in `package.json`.
 
 For installation, Durable Object bindings and migrations, API details, and
