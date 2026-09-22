@@ -10,11 +10,12 @@ import { QueueMock, R2BucketMock } from "./core/mock";
 import { routeFunc } from "./core/routing";
 import {
   claimDeliverableJobs,
-  createPendingDeliveryJobs,
+  createPendingDeliveryJobs as createPendingDeliveryJobsResult,
   listDeliveryJobStatuses,
   persistDeliveryJobs,
 } from "./core/store";
 import type { EventPayload } from "./core/type";
+import type { Result } from "./errors";
 import { configureDelivery, configureEviction } from "./eventhub";
 import {
   TestEventHub,
@@ -30,6 +31,16 @@ type PayloadRow = {
   body: string;
   created_at: string;
 };
+
+const unwrap = <T>(result: Result<T>): T => {
+  assert(result.ok, result.ok ? undefined : result.error.message);
+  assert("value" in result);
+  return result.value as T;
+};
+
+const createPendingDeliveryJobs = <Env extends object>(
+  ...args: Parameters<typeof createPendingDeliveryJobsResult<Env>>
+) => unwrap(createPendingDeliveryJobsResult(...args));
 
 type DeliveryJobRow = {
   id: string;
@@ -103,18 +114,13 @@ class DelayedQueueMock extends QueueMock {
 const getArchiveBucket = (): R2Bucket => env.ARCHIVE as R2Bucket;
 
 describe("EventHub integration", () => {
-  test("preserves an intentional error code across Durable Object RPC", async () => {
-    let caught: unknown;
-    try {
-      await getStub("rpc-error-code").list({ max: 101 });
-    } catch (error) {
-      caught = error;
-    }
-
-    expect(caught).toMatchObject({
-      name: "EventHubError",
-      code: "INVALID_ARGUMENT",
-      message: "eventhub: max must be <= 100",
+  test("returns an intentional error across Durable Object RPC", async () => {
+    expect(await getStub("rpc-error-code").list({ max: 101 })).toStrictEqual({
+      ok: false,
+      error: {
+        code: "INVALID_ARGUMENT",
+        message: "eventhub: max must be <= 100",
+      },
     });
   });
 
@@ -227,9 +233,15 @@ describe("EventHub integration", () => {
         .mockRejectedValueOnce(new Error("alarm scheduling failed"));
 
       try {
-        await expect(
-          (instance as TestEventHub).publish({ kind: "culture" }),
-        ).rejects.toThrow("alarm scheduling failed");
+        expect(
+          await (instance as TestEventHub).publish({ kind: "culture" }),
+        ).toStrictEqual({
+          ok: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "eventhub: internal error",
+          },
+        });
 
         expect({
           payloads: state.storage.sql
@@ -252,20 +264,25 @@ describe("EventHub integration", () => {
 
     await expect(
       stub.publish(createPayloadWithJsonBytes({ kind: "culture" }, 128_000)),
-    ).resolves.toBeUndefined();
+    ).resolves.toStrictEqual({ ok: true });
   });
 
   test("rejects an oversized Queue payload before persistence", async () => {
     const stub = getStub("oversized-queue-payload");
 
     await runInDurableObject(stub, async (instance, state) => {
-      await expect(
-        (instance as TestEventHub).publish(
+      expect(
+        await (instance as TestEventHub).publish(
           createPayloadWithJsonBytes({ kind: "culture" }, 128_001),
         ),
-      ).rejects.toThrow(
-        "eventhub: Queue message size 128001 bytes exceeds limit of 128000 bytes",
-      );
+      ).toStrictEqual({
+        ok: false,
+        error: {
+          code: "PAYLOAD_TOO_LARGE",
+          message:
+            "eventhub: Queue message size 128001 bytes exceeds limit of 128000 bytes",
+        },
+      });
 
       expect({
         payloads: state.storage.sql
@@ -284,13 +301,19 @@ describe("EventHub integration", () => {
     const stub = getStubWithJobId("oversized-queue-payload-with-metadata");
 
     await runInDurableObject(stub, async (instance, state) => {
-      await expect(
-        (instance as TestEventHubWithJobId).publish(
+      expect(
+        await (instance as TestEventHubWithJobId).publish(
           createPayloadWithJsonBytes({ type: "queue" }, 127_999),
         ),
-      ).rejects.toThrow(
-        /eventhub: Queue message size \d+ bytes exceeds limit of 128000 bytes/,
-      );
+      ).toMatchObject({
+        ok: false,
+        error: {
+          code: "PAYLOAD_TOO_LARGE",
+          message: expect.stringMatching(
+            /eventhub: Queue message size \d+ bytes exceeds limit of 128000 bytes/,
+          ),
+        },
+      });
 
       expect(
         state.storage.sql
@@ -397,12 +420,14 @@ describe("EventHub integration", () => {
       { kind: "other", ordinal: 3 },
     );
 
-    const firstPage = await stub.list({ max: 2, maxBytes: 262_144 });
-    const secondPage = await stub.list({
-      cursor: firstPage.cursor,
-      max: 2,
-      maxBytes: 262_144,
-    });
+    const firstPage = unwrap(await stub.list({ max: 2, maxBytes: 262_144 }));
+    const secondPage = unwrap(
+      await stub.list({
+        cursor: firstPage.cursor,
+        max: 2,
+        maxBytes: 262_144,
+      }),
+    );
 
     expect({
       firstPage,
@@ -449,12 +474,14 @@ describe("EventHub integration", () => {
       });
     });
 
-    const firstPage = await stub.list({ order: "desc", max: 2 });
-    const secondPage = await stub.list({
-      order: "desc",
-      cursor: firstPage.cursor,
-      max: 2,
-    });
+    const firstPage = unwrap(await stub.list({ order: "desc", max: 2 }));
+    const secondPage = unwrap(
+      await stub.list({
+        order: "desc",
+        cursor: firstPage.cursor,
+        max: 2,
+      }),
+    );
 
     expect({
       firstPayloads: firstPage.payloads.map(({ payload }) => payload),
@@ -1025,8 +1052,8 @@ describe("EventHub integration", () => {
       });
     });
 
-    const firstEjection = await stub.eject(
-      new Date("2026-05-05T00:00:00.000Z").getTime(),
+    const firstEjection = unwrap(
+      await stub.eject(new Date("2026-05-05T00:00:00.000Z").getTime()),
     );
     expect(firstEjection).toStrictEqual({
       ejectKey: expect.any(String),
@@ -1038,17 +1065,19 @@ describe("EventHub integration", () => {
 
     await seedEjectionScenario(stub);
 
-    const firstEjection = await stub.eject(
-      new Date("2026-05-05T00:00:00.000Z").getTime(),
+    const firstEjection = unwrap(
+      await stub.eject(new Date("2026-05-05T00:00:00.000Z").getTime()),
     );
     if (firstEjection.ejectKey === null) {
       throw new Error("expected an ejection key");
     }
 
-    const firstPage = await stub.listEjected(firstEjection.ejectKey, {
-      max: 2,
-      maxBytes: 262_144,
-    });
+    const firstPage = unwrap(
+      await stub.listEjected(firstEjection.ejectKey, {
+        max: 2,
+        maxBytes: 262_144,
+      }),
+    );
     expect(firstPage).toMatchObject({
       cursor: expect.any(String),
       payloads: [
@@ -1076,23 +1105,27 @@ describe("EventHub integration", () => {
 
     await seedEjectionScenario(stub);
 
-    const firstEjection = await stub.eject(
-      new Date("2026-05-05T00:00:00.000Z").getTime(),
+    const firstEjection = unwrap(
+      await stub.eject(new Date("2026-05-05T00:00:00.000Z").getTime()),
     );
     if (firstEjection.ejectKey === null) {
       throw new Error("expected an ejection key");
     }
 
-    const firstPage = await stub.listEjected(firstEjection.ejectKey, {
-      max: 2,
-      maxBytes: 262_144,
-    });
+    const firstPage = unwrap(
+      await stub.listEjected(firstEjection.ejectKey, {
+        max: 2,
+        maxBytes: 262_144,
+      }),
+    );
 
-    const secondPage = await stub.listEjected(firstEjection.ejectKey, {
-      cursor: firstPage.cursor,
-      max: 2,
-      maxBytes: 262_144,
-    });
+    const secondPage = unwrap(
+      await stub.listEjected(firstEjection.ejectKey, {
+        cursor: firstPage.cursor,
+        max: 2,
+        maxBytes: 262_144,
+      }),
+    );
     const allPayloads = [...firstPage.payloads, ...secondPage.payloads].map(
       ({ payload }) => payload,
     );
@@ -1124,11 +1157,11 @@ describe("EventHub integration", () => {
 
     await seedEjectionScenario(stub);
 
-    const firstEjection = await stub.eject(
-      new Date("2026-05-05T00:00:00.000Z").getTime(),
+    const firstEjection = unwrap(
+      await stub.eject(new Date("2026-05-05T00:00:00.000Z").getTime()),
     );
-    const repeatedEjection = await stub.eject(
-      new Date("2026-05-06T00:00:00.000Z").getTime(),
+    const repeatedEjection = unwrap(
+      await stub.eject(new Date("2026-05-06T00:00:00.000Z").getTime()),
     );
     expect(repeatedEjection).toStrictEqual(firstEjection);
   });
@@ -1138,8 +1171,8 @@ describe("EventHub integration", () => {
 
     await seedEjectionScenario(stub);
 
-    const firstEjection = await stub.eject(
-      new Date("2026-05-05T00:00:00.000Z").getTime(),
+    const firstEjection = unwrap(
+      await stub.eject(new Date("2026-05-05T00:00:00.000Z").getTime()),
     );
     if (firstEjection.ejectKey === null) {
       throw new Error("expected an ejection key");
@@ -1161,11 +1194,13 @@ describe("EventHub integration", () => {
     await stub.evict(firstEjection.ejectKey);
     await stub.evict(firstEjection.ejectKey);
 
-    const afterEviction = await stub.eject(
-      new Date("2026-05-05T00:00:00.000Z").getTime(),
+    const afterEviction = unwrap(
+      await stub.eject(new Date("2026-05-05T00:00:00.000Z").getTime()),
     );
     expect(afterEviction).toStrictEqual({ ejectKey: null });
-    expect(await stub.listEjected(firstEjection.ejectKey)).toStrictEqual({
+    expect(
+      unwrap(await stub.listEjected(firstEjection.ejectKey)),
+    ).toStrictEqual({
       payloads: [],
     });
   });
@@ -1176,32 +1211,76 @@ describe("EventHub integration", () => {
     await runInDurableObject(stub, async (instance) => {
       assert(instance instanceof TestEventHub);
 
-      await expect(instance.list({ max: 101 })).rejects.toThrow(
-        "eventhub: max must be <= 100",
-      );
-      await expect(instance.list({ maxBytes: 262_145 })).rejects.toThrow(
-        "eventhub: maxBytes must be <= 262144",
-      );
-      await expect(instance.list({ order: "newest" as "asc" })).rejects.toThrow(
-        'eventhub: order must be "asc" or "desc"',
-      );
-      await expect(instance.eject(Date.now(), { max: 101 })).rejects.toThrow(
-        "eventhub: max must be <= 100",
-      );
-      await expect(instance.listEjected("", {})).rejects.toThrow(
-        "eventhub: ejectKey must not be empty",
-      );
-      await expect(
+      const results = await Promise.all([
+        instance.list({ max: 101 }),
+        instance.list({ maxBytes: 262_145 }),
+        instance.list({ order: "newest" as "asc" }),
+        instance.eject(Date.now(), { max: 101 }),
+        instance.listEjected("", {}),
         instance.listEjected("01EJECT00000000000000000010", { max: 101 }),
-      ).rejects.toThrow("eventhub: max must be <= 100");
-      await expect(
         instance.listEjected("01EJECT00000000000000000010", {
           maxBytes: 262_145,
         }),
-      ).rejects.toThrow("eventhub: maxBytes must be <= 262144");
-      await expect(instance.evict("")).rejects.toThrow(
-        "eventhub: ejectKey must not be empty",
-      );
+        instance.evict(""),
+      ]);
+      expect(results).toStrictEqual([
+        {
+          ok: false,
+          error: {
+            code: "INVALID_ARGUMENT",
+            message: "eventhub: max must be <= 100",
+          },
+        },
+        {
+          ok: false,
+          error: {
+            code: "INVALID_ARGUMENT",
+            message: "eventhub: maxBytes must be <= 262144",
+          },
+        },
+        {
+          ok: false,
+          error: {
+            code: "INVALID_ARGUMENT",
+            message: 'eventhub: order must be "asc" or "desc"',
+          },
+        },
+        {
+          ok: false,
+          error: {
+            code: "INVALID_ARGUMENT",
+            message: "eventhub: max must be <= 100",
+          },
+        },
+        {
+          ok: false,
+          error: {
+            code: "INVALID_ARGUMENT",
+            message: "eventhub: ejectKey must not be empty",
+          },
+        },
+        {
+          ok: false,
+          error: {
+            code: "INVALID_ARGUMENT",
+            message: "eventhub: max must be <= 100",
+          },
+        },
+        {
+          ok: false,
+          error: {
+            code: "INVALID_ARGUMENT",
+            message: "eventhub: maxBytes must be <= 262144",
+          },
+        },
+        {
+          ok: false,
+          error: {
+            code: "INVALID_ARGUMENT",
+            message: "eventhub: ejectKey must not be empty",
+          },
+        },
+      ]);
     });
   });
 });
@@ -1309,7 +1388,9 @@ describe("reportFailure", () => {
           deliveryJobId: jobs[0]?.id ?? "",
         },
       };
-      const recorded = await (instance as TestEventHub).reportFailure(payload);
+      const recorded = unwrap(
+        await (instance as TestEventHub).reportFailure(payload),
+      );
 
       const failures = state.storage.sql
         .exec<{
@@ -1351,8 +1432,8 @@ describe("reportFailure", () => {
         },
       };
 
-      const firstRecorded = await (instance as TestEventHub).reportFailure(
-        payload,
+      const firstRecorded = unwrap(
+        await (instance as TestEventHub).reportFailure(payload),
       );
       const firstFailures = state.storage.sql
         .exec<{
@@ -1361,8 +1442,8 @@ describe("reportFailure", () => {
         }>("SELECT delivery_job_id, reported_at FROM delivery_job_failures")
         .toArray();
 
-      const secondRecorded = await (instance as TestEventHub).reportFailure(
-        payload,
+      const secondRecorded = unwrap(
+        await (instance as TestEventHub).reportFailure(payload),
       );
       const secondFailures = state.storage.sql
         .exec<{
@@ -1379,60 +1460,72 @@ describe("reportFailure", () => {
     });
   });
 
-  test("throws when payload is not an object", async () => {
+  test("returns an error when payload is not an object", async () => {
     // 1. Attempt to call reportFailure with a non-object value.
-    // 2. Verify it throws an error.
+    // 2. Verify it returns an error result.
     const stub = getStub("report-failure-not-object");
 
     await runInDurableObject(stub, async (instance, _state) => {
-      await expect(
-        (instance as TestEventHub).reportFailure("string"),
-      ).rejects.toThrow("eventhub: payload must be an object");
-      await expect(
-        (instance as TestEventHub).reportFailure(123),
-      ).rejects.toThrow("eventhub: payload must be an object");
-      await expect(
-        (instance as TestEventHub).reportFailure(null),
-      ).rejects.toThrow("eventhub: payload must be an object");
-      await expect(
-        (instance as TestEventHub).reportFailure(undefined),
-      ).rejects.toThrow("eventhub: payload must be an object");
+      const results = await Promise.all(
+        ["string", 123, null, undefined].map((payload) =>
+          (instance as TestEventHub).reportFailure(payload),
+        ),
+      );
+      expect(results).toStrictEqual(
+        Array.from({ length: 4 }, () => ({
+          ok: false,
+          error: {
+            code: "INVALID_ARGUMENT",
+            message: "eventhub: payload must be an object",
+          },
+        })),
+      );
     });
   });
 
-  test("throws when __eventhub__ is not present in payload", async () => {
+  test("returns an error when __eventhub__ is not present in payload", async () => {
     // 1. Attempt to call reportFailure with a payload that lacks __eventhub__.
-    // 2. Verify it throws an error.
+    // 2. Verify it returns an error result.
     const stub = getStub("report-failure-missing-eventhub");
 
     await runInDurableObject(stub, async (instance, _state) => {
       const payload = { kind: "culture" };
-      await expect(
-        (instance as TestEventHub).reportFailure(payload),
-      ).rejects.toThrow(
-        "eventhub: __eventhub__ metadata not found or invalid in payload",
-      );
+      expect(
+        await (instance as TestEventHub).reportFailure(payload),
+      ).toStrictEqual({
+        ok: false,
+        error: {
+          code: "INVALID_ARGUMENT",
+          message:
+            "eventhub: __eventhub__ metadata not found or invalid in payload",
+        },
+      });
     });
   });
 
-  test("throws when __eventhub__ is an array", async () => {
+  test("returns an error when __eventhub__ is an array", async () => {
     // 1. Attempt to call reportFailure with __eventhub__ as an array.
-    // 2. Verify it throws an error.
+    // 2. Verify it returns an error result.
     const stub = getStub("report-failure-eventhub-array");
 
     await runInDurableObject(stub, async (instance, _state) => {
       const payload = { kind: "culture", __eventhub__: [] };
-      await expect(
-        (instance as TestEventHub).reportFailure(payload),
-      ).rejects.toThrow(
-        "eventhub: __eventhub__ metadata not found or invalid in payload",
-      );
+      expect(
+        await (instance as TestEventHub).reportFailure(payload),
+      ).toStrictEqual({
+        ok: false,
+        error: {
+          code: "INVALID_ARGUMENT",
+          message:
+            "eventhub: __eventhub__ metadata not found or invalid in payload",
+        },
+      });
     });
   });
 
-  test("throws when deliveryJobId is not present in __eventhub__", async () => {
+  test("returns an error when deliveryJobId is not present in __eventhub__", async () => {
     // 1. Attempt to call reportFailure with __eventhub__ that lacks deliveryJobId.
-    // 2. Verify it throws an error.
+    // 2. Verify it returns an error result.
     const stub = getStub("report-failure-missing-id");
 
     await runInDurableObject(stub, async (instance, _state) => {
@@ -1440,15 +1533,21 @@ describe("reportFailure", () => {
         kind: "culture",
         __eventhub__: { otherField: "value" },
       };
-      await expect(
-        (instance as TestEventHub).reportFailure(payload),
-      ).rejects.toThrow("eventhub: deliveryJobId must be a non-empty string");
+      expect(
+        await (instance as TestEventHub).reportFailure(payload),
+      ).toStrictEqual({
+        ok: false,
+        error: {
+          code: "INVALID_ARGUMENT",
+          message: "eventhub: deliveryJobId must be a non-empty string",
+        },
+      });
     });
   });
 
-  test("throws when deliveryJobId is empty string", async () => {
+  test("returns an error when deliveryJobId is empty string", async () => {
     // 1. Attempt to call reportFailure with a payload containing an empty job ID.
-    // 2. Verify it throws an error.
+    // 2. Verify it returns an error result.
     const stub = getStub("report-failure-empty-id");
 
     await runInDurableObject(stub, async (instance, _state) => {
@@ -1456,15 +1555,21 @@ describe("reportFailure", () => {
         kind: "culture",
         __eventhub__: { instanceId: stub.id.toString(), deliveryJobId: "" },
       };
-      await expect(
-        (instance as TestEventHub).reportFailure(payload),
-      ).rejects.toThrow("eventhub: deliveryJobId must be a non-empty string");
+      expect(
+        await (instance as TestEventHub).reportFailure(payload),
+      ).toStrictEqual({
+        ok: false,
+        error: {
+          code: "INVALID_ARGUMENT",
+          message: "eventhub: deliveryJobId must be a non-empty string",
+        },
+      });
     });
   });
 
-  test("throws when deliveryJobId is not a string", async () => {
+  test("returns an error when deliveryJobId is not a string", async () => {
     // 1. Attempt to call reportFailure with a payload containing a non-string job ID.
-    // 2. Verify it throws an error.
+    // 2. Verify it returns an error result.
     const stub = getStub("report-failure-non-string-id");
 
     await runInDurableObject(stub, async (instance, _state) => {
@@ -1472,9 +1577,15 @@ describe("reportFailure", () => {
         kind: "culture",
         __eventhub__: { instanceId: stub.id.toString(), deliveryJobId: 12345 },
       };
-      await expect(
-        (instance as TestEventHub).reportFailure(payload),
-      ).rejects.toThrow("eventhub: deliveryJobId must be a non-empty string");
+      expect(
+        await (instance as TestEventHub).reportFailure(payload),
+      ).toStrictEqual({
+        ok: false,
+        error: {
+          code: "INVALID_ARGUMENT",
+          message: "eventhub: deliveryJobId must be a non-empty string",
+        },
+      });
     });
   });
 
@@ -1508,10 +1619,12 @@ describe("reportFailure", () => {
         },
       };
 
-      const recorded = await Promise.all([
-        (instance as TestEventHub).reportFailure(payload1),
-        (instance as TestEventHub).reportFailure(payload2),
-      ]);
+      const recorded = (
+        await Promise.all([
+          (instance as TestEventHub).reportFailure(payload1),
+          (instance as TestEventHub).reportFailure(payload2),
+        ])
+      ).map(unwrap);
 
       const failures = state.storage.sql
         .exec<{
@@ -1535,13 +1648,15 @@ describe("reportFailure", () => {
     const stub = getStub("report-failure-missing-job");
 
     await runInDurableObject(stub, async (instance, state) => {
-      const recorded = await (instance as TestEventHub).reportFailure({
-        kind: "culture",
-        __eventhub__: {
-          instanceId: stub.id.toString(),
-          deliveryJobId: "missing_job_id",
-        },
-      });
+      const recorded = unwrap(
+        await (instance as TestEventHub).reportFailure({
+          kind: "culture",
+          __eventhub__: {
+            instanceId: stub.id.toString(),
+            deliveryJobId: "missing_job_id",
+          },
+        }),
+      );
 
       const failures = state.storage.sql
         .exec<{
@@ -1875,8 +1990,8 @@ describe("automatic eviction", () => {
           new Date(Date.now() - 10_000),
         );
       });
-      const manual = await (instance as TestEventHubWithArchiveEviction).eject(
-        Date.now(),
+      const manual = unwrap(
+        await (instance as TestEventHubWithArchiveEviction).eject(Date.now()),
       );
       expect(manual.ejectKey).toEqual(expect.any(String));
 
@@ -2068,7 +2183,7 @@ describe("redrive", () => {
       });
     });
 
-    const redriven = await stub.redrive(originalJobId);
+    const redriven = unwrap(await stub.redrive(originalJobId));
 
     expect(redriven).toBe(true);
     await vi.waitFor(async () => {
@@ -2149,7 +2264,7 @@ describe("redrive", () => {
   test("returns false when the source job does not exist", async () => {
     const stub = getStub("redrive-missing-job");
 
-    expect(await stub.redrive("missing_job_id")).toBe(false);
+    expect(unwrap(await stub.redrive("missing_job_id"))).toBe(false);
     await runInDurableObject(stub, async (_instance, state) => {
       const jobs = state.storage.sql
         .exec<DeliveryJobRow>("SELECT id FROM delivery_jobs")
@@ -2158,13 +2273,19 @@ describe("redrive", () => {
     });
   });
 
-  test("throws when deliveryJobId is empty", async () => {
+  test("returns an error when deliveryJobId is empty", async () => {
     const stub = getStub("redrive-empty-id");
 
     await runInDurableObject(stub, async (instance, _state) => {
-      await expect((instance as TestEventHub).redrive("")).rejects.toThrow(
-        "eventhub: deliveryJobId must not be empty",
-      );
+      await expect(
+        (instance as TestEventHub).redrive(""),
+      ).resolves.toStrictEqual({
+        ok: false,
+        error: {
+          code: "INVALID_ARGUMENT",
+          message: "eventhub: deliveryJobId must not be empty",
+        },
+      });
     });
   });
 });

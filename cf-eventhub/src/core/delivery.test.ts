@@ -1,16 +1,33 @@
 import { describe, expect, test, vi } from "vitest";
 
+import type { Result } from "../errors";
 import {
-  assertDestinationBindingsExist,
-  assertPendingQueueMessageSizes,
   deliverJobs,
   deliverPersistedJobs,
-  resolveDeliveryJobs,
+  resolveDeliveryJobs as resolveDeliveryJobsResult,
+  resolveDestinationBindings,
+  validatePendingQueueMessageSizes,
 } from "./delivery";
 import { QueueMock, R2BucketMock } from "./mock";
 import { type Route, type RoutingStrategy, routeByConfig } from "./routing";
-import { createPendingDeliveryJobs, type PersistedDeliveryJob } from "./store";
+import {
+  createPendingDeliveryJobs as createPendingDeliveryJobsResult,
+  type PersistedDeliveryJob,
+} from "./store";
 import type { EventPayload } from "./type";
+
+const unwrap = <T>(result: Result<T>): T => {
+  if (!result.ok) throw new Error(result.error.message);
+  if (!("value" in result)) throw new Error("expected a result value");
+  return result.value as T;
+};
+
+const createPendingDeliveryJobs = <Env extends object>(
+  ...args: Parameters<typeof createPendingDeliveryJobsResult<Env>>
+) => unwrap(createPendingDeliveryJobsResult(...args));
+const resolveDeliveryJobs = <Env extends object>(
+  ...args: Parameters<typeof resolveDeliveryJobsResult<Env>>
+) => unwrap(resolveDeliveryJobsResult(...args));
 
 const createEnv = () => ({
   OKAYAMA: new QueueMock(),
@@ -65,7 +82,7 @@ const createPayloadWithJsonBytes = (bytes: number): EventPayload => {
   return { ...payload, data: "x".repeat(bytes - overhead) };
 };
 
-describe("assertDestinationBindingsExist", () => {
+describe("resolveDestinationBindings", () => {
   test("reuses resolved destinations for validation and initial delivery", () => {
     const env = createEnv();
     const routing = createRouting(env);
@@ -74,15 +91,15 @@ describe("assertDestinationBindingsExist", () => {
       { kind: "culture" },
     ]);
 
-    const resolvedDestinations = assertDestinationBindingsExist(
-      routing,
-      pendingDeliveryJobs,
-    );
-    assertPendingQueueMessageSizes(
-      resolvedDestinations,
-      pendingDeliveryJobs,
-      deliveryContext,
-    );
+    const resolved = resolveDestinationBindings(routing, pendingDeliveryJobs);
+    if (!resolved.ok) throw new Error(resolved.error.message);
+    expect(
+      validatePendingQueueMessageSizes(
+        resolved.value,
+        pendingDeliveryJobs,
+        deliveryContext,
+      ),
+    ).toStrictEqual({ ok: true });
     resolveDeliveryJobs(
       routing,
       [
@@ -93,7 +110,7 @@ describe("assertDestinationBindingsExist", () => {
           payload: { kind: "culture" },
         },
       ],
-      resolvedDestinations,
+      resolved.value,
     );
 
     expect(resolveDestination).toHaveBeenCalledTimes(1);
@@ -105,27 +122,22 @@ describe("assertDestinationBindingsExist", () => {
     const pendingDeliveryJobs = createPendingDeliveryJobs(routing, [
       createPayloadWithJsonBytes(128_001),
     ]);
-    const resolvedDestinations = assertDestinationBindingsExist(
-      routing,
-      pendingDeliveryJobs,
-    );
+    const resolved = resolveDestinationBindings(routing, pendingDeliveryJobs);
+    if (!resolved.ok) throw new Error(resolved.error.message);
 
-    let caught: unknown;
-    try {
-      assertPendingQueueMessageSizes(
-        resolvedDestinations,
+    expect(
+      validatePendingQueueMessageSizes(
+        resolved.value,
         pendingDeliveryJobs,
         deliveryContext,
-      );
-    } catch (error) {
-      caught = error;
-    }
-
-    expect(caught).toMatchObject({
-      name: "EventHubError",
-      code: "PAYLOAD_TOO_LARGE",
-      message:
-        "eventhub: Queue message size 128001 bytes exceeds limit of 128000 bytes",
+      ),
+    ).toStrictEqual({
+      ok: false,
+      error: {
+        code: "PAYLOAD_TOO_LARGE",
+        message:
+          "eventhub: Queue message size 128001 bytes exceeds limit of 128000 bytes",
+      },
     });
   });
 
@@ -141,9 +153,15 @@ describe("assertDestinationBindingsExist", () => {
       { kind: "nature", avoidUrban: false },
     ]);
 
-    expect(() =>
-      assertDestinationBindingsExist(routing, pendingDeliveryJobs),
-    ).toThrow(/eventhub: OKINAWA not set/);
+    expect(
+      resolveDestinationBindings(routing, pendingDeliveryJobs),
+    ).toMatchObject({
+      ok: false,
+      error: {
+        code: "DESTINATION_NOT_CONFIGURED",
+        message: expect.stringContaining("OKINAWA not set"),
+      },
+    });
   });
 
   test("fails before persistence when a destination binding is neither Queue nor R2", () => {
@@ -166,9 +184,17 @@ describe("assertDestinationBindingsExist", () => {
       { kind: "archive", avoidUrban: false },
     ]);
 
-    expect(() =>
-      assertDestinationBindingsExist(routing, pendingDeliveryJobs),
-    ).toThrow(/eventhub: value of ARCHIVE is not a Queue or R2Bucket/);
+    expect(
+      resolveDestinationBindings(routing, pendingDeliveryJobs),
+    ).toMatchObject({
+      ok: false,
+      error: {
+        code: "INVALID_DESTINATION_BINDING",
+        message: expect.stringContaining(
+          "value of ARCHIVE is not a Queue or R2Bucket",
+        ),
+      },
+    });
   });
 });
 
@@ -422,9 +448,13 @@ describe("deliverJobs", () => {
     ] satisfies PersistedDeliveryJob[];
     const routing = createSubsetRouting(env);
 
-    expect(() => resolveDeliveryJobs(routing, jobs)).toThrow(
-      /eventhub: OKINAWA not set/,
-    );
+    expect(resolveDeliveryJobsResult(routing, jobs)).toStrictEqual({
+      ok: false,
+      error: {
+        code: "DESTINATION_NOT_CONFIGURED",
+        message: "eventhub: OKINAWA not set",
+      },
+    });
     expect(env.HOKKAIDO.sentBatches).toHaveLength(0);
     expect(env.OKAYAMA.sentBatches).toHaveLength(0);
   });

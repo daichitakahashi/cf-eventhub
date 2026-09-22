@@ -66,7 +66,10 @@ If the instance selector is empty, first perform data-plane activity such as
 register or refresh an instance. For example:
 
 ```ts
-await env.EVENT_HUB.getByName("default").publish({ type: "example.created" });
+const result = await env.EVENT_HUB
+  .getByName("default")
+  .publish({ type: "example.created" });
+if (!result.ok) throw new Error(result.error.message);
 ```
 
 Registration is asynchronous, so reload the console after the call completes.

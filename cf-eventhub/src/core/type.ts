@@ -1,4 +1,4 @@
-import { eventHubError } from "../errors";
+import { type Result, resultError, resultOk } from "../errors";
 
 type JSONPrimitive = string | boolean | number | null | undefined;
 type JSONArray = readonly NoInfer<JSONPrimitive | JSONObject | JSONArray>[];
@@ -21,36 +21,47 @@ export type SerializedEventPayload = {
   serializedPayload: string;
 };
 
-/** Serializes an authored payload and returns its canonical JSON representation. */
+/** Serializes an authored payload without using exceptions for invalid input. */
 export const serializeEventPayload = (
   payload: EventPayload,
-): SerializedEventPayload => {
+): Result<SerializedEventPayload> => {
+  let serializedPayload: string | undefined;
   try {
-    const serializedPayload = JSON.stringify(payload);
-    if (serializedPayload === undefined) {
-      throw new Error("payload has no JSON representation");
-    }
-
-    const normalized = JSON.parse(serializedPayload) as unknown;
-    if (
-      typeof normalized !== "object" ||
-      normalized === null ||
-      Array.isArray(normalized)
-    ) {
-      throw new Error("payload is not a JSON object");
-    }
-    return {
-      payload: normalized as EventPayload,
-      serializedPayload,
-    };
+    serializedPayload = JSON.stringify(payload);
   } catch {
-    throw eventHubError(
+    return resultError(
       "INVALID_ARGUMENT",
       "eventhub: payload must be a JSON-serializable object",
     );
   }
+  if (serializedPayload === undefined) {
+    return resultError(
+      "INVALID_ARGUMENT",
+      "eventhub: payload must be a JSON-serializable object",
+    );
+  }
+  const normalized = JSON.parse(serializedPayload) as unknown;
+  if (
+    typeof normalized !== "object" ||
+    normalized === null ||
+    Array.isArray(normalized)
+  ) {
+    return resultError(
+      "INVALID_ARGUMENT",
+      "eventhub: payload must be a JSON-serializable object",
+    );
+  }
+  return resultOk({
+    payload: normalized as EventPayload,
+    serializedPayload,
+  });
 };
 
 /** Converts an authored payload into the canonical representation used by JSON. */
-export const normalizeEventPayload = (payload: EventPayload): EventPayload =>
-  serializeEventPayload(payload).payload;
+export const normalizeEventPayload = (
+  payload: EventPayload,
+): Result<EventPayload> => {
+  const serialized = serializeEventPayload(payload);
+  if (!serialized.ok) return serialized;
+  return resultOk(serialized.value.payload);
+};

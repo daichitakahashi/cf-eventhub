@@ -92,7 +92,8 @@ export default {
     }
 
     const payload = (await request.json()) as Record<string, unknown>;
-    await env.EVENT_HUB.getByName("default").publish(payload);
+    const result = await env.EVENT_HUB.getByName("default").publish(payload);
+    if (!result.ok) return Response.json(result.error, { status: 400 });
     return new Response(null, { status: 202 });
   },
 } satisfies ExportedHandler<Env>;
@@ -151,41 +152,48 @@ The `EventHub` Durable Object exposes the following RPC methods:
 
 | Method | Behavior |
 | --- | --- |
-| `publish(payload, ...rest)` | Validates and persists one or more JSON objects, then starts delivery. Queue-bound payloads that exceed the per-message size limit are rejected before persistence. |
-| `redrive(deliveryJobId)` | Creates and immediately delivers an independent copy of an existing job. Returns `false` when the source no longer exists. |
-| `reportFailure(payload)` | Idempotently records a downstream failure from EventHub delivery metadata. |
-| `list(options?)` | Lists live payloads and their delivery jobs with cursor pagination. |
-| `eject(before, options?)` | Moves finalized payloads older than a Unix-millisecond cutoff into a snapshot. |
-| `listEjected(ejectKey, options?)` | Pages through an ejection snapshot. |
-| `evict(ejectKey)` | Idempotently removes an ejection snapshot. |
+| `publish(payload, ...rest)` | Returns `Result`. Validates and persists one or more JSON objects, then starts delivery. |
+| `redrive(deliveryJobId)` | Returns `Result<boolean>`. Creates and immediately delivers an independent copy of an existing job. |
+| `reportFailure(payload)` | Returns `Result<boolean>`. Idempotently records a downstream failure from EventHub delivery metadata. |
+| `list(options?)` | Returns `Result<ListResult>` for live payloads and their delivery jobs. |
+| `eject(before, options?)` | Returns `Result<EjectResult>` after moving eligible finalized payloads into a snapshot. |
+| `listEjected(ejectKey, options?)` | Returns `Result<ListEjectedResult>` for an ejection snapshot page. |
+| `evict(ejectKey)` | Returns `Result` after idempotently removing an ejection snapshot. |
 
 `payload` must be a JSON object.
 
 `EventHubRegistry` exposes `register(name)`, `get(name)`, `list(options?)`, and
-`delete(name)`. `get()` returns one active, stale, or deleted entry, or `null`
-when the name is unknown. `list()` returns active instances by default and can
-filter `active`, `stale`, or `deleted` entries with name-ordered cursor
+`delete(name)`, all using the same `Result` contract. A successful `get()`
+result contains one active, stale, or deleted entry, or `null` when the name is
+unknown. A successful `list()` result contains active instances by default and
+can filter `active`, `stale`, or `deleted` entries with name-ordered cursor
 pagination.
 
 ## Error Handling and Observability
 
-Intentional validation and configuration errors propagated through EventHub or
-EventHub Registry RPC expose a stable `code` property. Treat the serialized
-fields as the public contract; custom error prototypes and `instanceof` do not
-survive an RPC boundary reliably.
+EventHub and EventHub Registry RPC methods return the exported `Result<T>` type.
+An `ok: false` value means the RPC reached EventHub and completed with an
+application-level failure. Its `error.code` is the stable public contract.
+
+```ts
+const result = await hub.list({ max: 200 });
+if (!result.ok && result.error.code === "INVALID_ARGUMENT") {
+  // The request reached EventHub, but the argument was invalid.
+}
+```
+
+Promise rejection remains reserved for failures that prevent the RPC itself
+from completing, such as transport, serialization, runtime, or Durable Objects
+infrastructure failures:
 
 ```ts
 try {
-  await hub.list({ max: 200 });
-} catch (error) {
-  if (
-    error &&
-    typeof error === "object" &&
-    "code" in error &&
-    error.code === "INVALID_ARGUMENT"
-  ) {
-    // Handle invalid caller input.
+  const result = await hub.publish(payload);
+  if (!result.ok) {
+    // EventHub application error.
   }
+} catch (error) {
+  // RPC/runtime/infrastructure failure.
 }
 ```
 
@@ -197,10 +205,12 @@ The exported `EventHubErrorCode` union currently contains:
 - `DESTINATION_NOT_CONFIGURED`
 - `INVALID_DESTINATION_BINDING`
 - `INSTANCE_MISMATCH`
+- `INTERNAL_ERROR`
 
-Messages remain descriptive and may change independently of these codes.
-Unexpected Cloudflare infrastructure errors are not wrapped; runtime properties
-such as `retryable`, `overloaded`, and `remote` therefore remain available.
+Expected EventHub errors preserve their descriptive message. Unexpected
+exceptions raised while processing a reached RPC are logged with their original
+details and returned as a generic `INTERNAL_ERROR`; internal exception details
+and stack traces are not exposed to the caller.
 
 Failures handled internally are emitted as structured Workers logs without
 payload bodies. Retryable delivery, automatic R2 eviction, and Registry
@@ -583,14 +593,16 @@ export default {
 
     const hub = env.EVENT_HUB.getByName("default");
     const body = (await request.json()) as EventPayload | EventPayload[];
-    if (Array.isArray(body)) {
-      if (body.length === 0) {
-        return new Response("payloads must not be empty", { status: 400 });
-      }
-      const [first, ...rest] = body;
-      await hub.publish(first, ...rest);
-    } else {
-      await hub.publish(body);
+    const result = Array.isArray(body)
+      ? body.length === 0
+        ? null
+        : await hub.publish(body[0], ...body.slice(1))
+      : await hub.publish(body);
+    if (result === null) {
+      return new Response("payloads must not be empty", { status: 400 });
+    }
+    if (!result.ok) {
+      return Response.json(result.error, { status: 400 });
     }
 
     return new Response(null, { status: 202 });
@@ -606,11 +618,11 @@ Notes:
   `sendBatch()` calls as described in [Queue Delivery Limits](#queue-delivery-limits)
 - R2 destinations are delivered with `put()`
 - Events with no matching route are still persisted as payloads
-- `redrive(deliveryJobId)` creates a new independent payload and delivery job from an existing, non-ejected job, then starts delivery immediately. It returns `false` if the source job no longer exists.
+- `redrive(deliveryJobId)` creates a new independent payload and delivery job from an existing, non-ejected job, then starts delivery immediately. A successful result contains `false` if the source job no longer exists.
 
 ## Failure Reporting with Dead-Letter Queues
 
-EventHub supports consumer-reported failures through the `reportFailure()` method. The recommended pattern is to configure a shared dead-letter queue (DLQ) for all EventHub destination queues and have the DLQ consumer call `reportFailure()` to record a separate consumer-reported failure for the failed payload. This does not change `finalStatus` for the original delivery job. `reportFailure()` returns `true` when it actually writes a new failure record, or `false` when the failure was already recorded or the job no longer exists.
+EventHub supports consumer-reported failures through the `reportFailure()` method. The recommended pattern is to configure a shared dead-letter queue (DLQ) for all EventHub destination queues and have the DLQ consumer call `reportFailure()` to record a separate consumer-reported failure for the failed payload. This does not change `finalStatus` for the original delivery job. A successful `reportFailure()` result contains `true` when it writes a new failure record, or `false` when the failure was already recorded or the job no longer exists.
 
 ### Setup Overview
 
@@ -710,8 +722,13 @@ export default {
           message.retry();
           continue;
         }
-        await hub.reportFailure(message.body);
-        message.ack();
+        const result = await hub.reportFailure(message.body);
+        if (result.ok) {
+          message.ack();
+        } else {
+          console.error("EventHub rejected failure report:", result.error);
+          message.retry();
+        }
       } catch (error) {
         console.error("Failed to report failure:", error);
         message.retry();
@@ -809,11 +826,13 @@ export class EventArchiveWorkflow extends WorkflowEntrypoint<
       event.payload.hubName ?? "default",
     );
 
-    const ejection = await step.do("create ejection", async () => {
+    const ejectionResult = await step.do("create ejection", async () => {
       return await hub.eject(event.payload.before, {
         max: event.payload.max ?? 100,
       });
     });
+    if (!ejectionResult.ok) throw new Error(ejectionResult.error.message);
+    const ejection = ejectionResult.value;
 
     if (!ejection.ejectKey) {
       return {
@@ -830,11 +849,13 @@ export class EventArchiveWorkflow extends WorkflowEntrypoint<
       let count = 0;
 
       while (true) {
-        const page = await hub.listEjected(ejectKey, {
+        const pageResult = await hub.listEjected(ejectKey, {
           cursor,
           max: 100,
           maxBytes: 262_144,
         });
+        if (!pageResult.ok) throw new Error(pageResult.error.message);
+        const page = pageResult.value;
         if (page.payloads.length === 0) {
           break;
         }
@@ -865,7 +886,8 @@ export class EventArchiveWorkflow extends WorkflowEntrypoint<
     });
 
     await step.do("evict ejection", async () => {
-      await hub.evict(ejectKey);
+      const result = await hub.evict(ejectKey);
+      if (!result.ok) throw new Error(result.error.message);
     });
 
     return {

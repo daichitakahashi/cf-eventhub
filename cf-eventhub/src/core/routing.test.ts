@@ -473,12 +473,12 @@ describe("routeByConfig", () => {
     );
 
     expect(strategy.resolveDestination("QUEUE_DESTINATION")).toStrictEqual({
-      kind: "queue",
-      queue,
+      ok: true,
+      value: { kind: "queue", queue },
     });
     expect(strategy.resolveDestination("ARCHIVE")).toStrictEqual({
-      kind: "r2",
-      bucket,
+      ok: true,
+      value: { kind: "r2", bucket },
     });
   });
 
@@ -495,9 +495,8 @@ describe("routeByConfig", () => {
     );
 
     expect(strategy.resolveDestination("ARCHIVE")).toStrictEqual({
-      kind: "r2",
-      bucket,
-      objectKey: r2ObjectKey,
+      ok: true,
+      value: { kind: "r2", bucket, objectKey: r2ObjectKey },
     });
   });
 });

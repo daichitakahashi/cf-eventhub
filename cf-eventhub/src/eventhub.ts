@@ -1,10 +1,10 @@
 import { DurableObject } from "cloudflare:workers";
 
 import {
-  assertDestinationBindingsExist,
-  assertPendingQueueMessageSizes,
   deliverPersistedJobs,
   type ResolvedDestinations,
+  resolveDestinationBindings,
+  validatePendingQueueMessageSizes,
 } from "./core/delivery";
 import { MonotonicUlidGenerator } from "./core/id";
 import type { RoutingStrategy } from "./core/routing";
@@ -32,6 +32,7 @@ import {
   list as listPayloads,
   markDeliveryJobsCompleted,
   markDeliveryJobsFailed,
+  type PendingDeliveryJobs,
   type PersistedDeliveryJob,
   persistDeliveryJobs,
   recordDeliveryJobFailure,
@@ -39,9 +40,16 @@ import {
   redriveDeliveryJob,
   renewDeliveryJobLeases,
   setRegistrySyncedAt,
+  validatePaginationCursor,
 } from "./core/store";
 import type { EventPayload } from "./core/type";
-import { eventHubError, serializeError } from "./errors";
+import {
+  type Result,
+  resultError,
+  resultOk,
+  rpcBoundary,
+  serializeError,
+} from "./errors";
 import { EVENT_HUB_REGISTRY_NAME, type EventHubRegistry } from "./registry";
 
 const safe: unique symbol = Symbol();
@@ -174,19 +182,73 @@ const REGISTRY_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1_000;
 
 const assertPositiveInteger = (v: number, name: string) => {
   if (Number.isInteger(v) && v > 0) return;
-  throw eventHubError(
-    "INVALID_ARGUMENT",
-    `eventhub: ${name} must be a positive integer`,
-  );
+  throw new Error(`eventhub: ${name} must be a positive integer`);
 };
 
-function assertListOrder(v: string): asserts v is ListOrder {
-  if (v === "asc" || v === "desc") return;
-  throw eventHubError(
-    "INVALID_ARGUMENT",
-    'eventhub: order must be "asc" or "desc"',
-  );
-}
+type ValidatedPageOptions = {
+  cursor?: string;
+  max: number;
+  maxBytes: number;
+};
+
+type ValidatedListOptions = ValidatedPageOptions & {
+  order: ListOrder;
+};
+
+const validatePageOptions = (
+  options: Pick<ListOptions, "cursor" | "max" | "maxBytes"> | undefined,
+  maxLimit: number,
+  maxBytesLimit: number,
+): Result<ValidatedPageOptions> => {
+  const max = options?.max ?? 50;
+  if (!Number.isInteger(max) || max <= 0) {
+    return resultError(
+      "INVALID_ARGUMENT",
+      "eventhub: max must be a positive integer",
+    );
+  }
+  if (max > maxLimit) {
+    return resultError(
+      "INVALID_ARGUMENT",
+      `eventhub: max must be <= ${maxLimit}`,
+    );
+  }
+  const maxBytes = options?.maxBytes ?? maxBytesLimit;
+  if (!Number.isInteger(maxBytes) || maxBytes <= 0) {
+    return resultError(
+      "INVALID_ARGUMENT",
+      "eventhub: maxBytes must be a positive integer",
+    );
+  }
+  if (maxBytes > maxBytesLimit) {
+    return resultError(
+      "INVALID_ARGUMENT",
+      `eventhub: maxBytes must be <= ${maxBytesLimit}`,
+    );
+  }
+  const cursor = validatePaginationCursor(options?.cursor);
+  if (!cursor.ok) return cursor;
+  return resultOk({
+    ...(options?.cursor === undefined ? {} : { cursor: options.cursor }),
+    max,
+    maxBytes,
+  });
+};
+
+const validateListOptions = (
+  options?: ListOptions,
+): Result<ValidatedListOptions> => {
+  const order = options?.order ?? "asc";
+  if (order !== "asc" && order !== "desc") {
+    return resultError(
+      "INVALID_ARGUMENT",
+      'eventhub: order must be "asc" or "desc"',
+    );
+  }
+  const page = validatePageOptions(options, MAX_LIST_PAYLOADS, MAX_LIST_BYTES);
+  if (!page.ok) return page;
+  return resultOk({ ...page.value, order });
+};
 
 /**
  * Configure delivery retry settings and behavior.
@@ -228,15 +290,9 @@ export const configureDelivery = (
   assertPositiveInteger(cfg.deliveryAttemptLeaseMs, "deliveryAttemptLeaseMs");
 
   if (cfg.alarmBatchSize > 100)
-    throw eventHubError(
-      "INVALID_ARGUMENT",
-      "eventhub: alarmBatchSize must be <= 100",
-    );
+    throw new Error("eventhub: alarmBatchSize must be <= 100");
   if (cfg.initialRetryDelayMs > cfg.maxRetryDelayMs) {
-    throw eventHubError(
-      "INVALID_ARGUMENT",
-      "eventhub: initialRetryDelayMs must be <= maxRetryDelayMs",
-    );
+    throw new Error("eventhub: initialRetryDelayMs must be <= maxRetryDelayMs");
   }
 
   return cfg;
@@ -250,25 +306,18 @@ export const configureEviction = (
   const batchSize = config.batchSize ?? DEFAULT_EVICTION_BATCH_SIZE;
   assertPositiveInteger(batchSize, "batchSize");
   if (batchSize > 100) {
-    throw eventHubError(
-      "INVALID_ARGUMENT",
-      "eventhub: batchSize must be <= 100",
-    );
+    throw new Error("eventhub: batchSize must be <= 100");
   }
 
   const action = config.action as EvictionAction | undefined;
   if (!action || (action.type !== "delete" && action.type !== "archive")) {
-    throw eventHubError(
-      "INVALID_ARGUMENT",
+    throw new Error(
       'eventhub: eviction action type must be "delete" or "archive"',
     );
   }
   if (action.type === "archive") {
     if (!action.bucket || typeof action.bucket.put !== "function") {
-      throw eventHubError(
-        "INVALID_ARGUMENT",
-        "eventhub: archive bucket is required",
-      );
+      throw new Error("eventhub: archive bucket is required");
     }
     if (
       typeof action.prefix !== "string" ||
@@ -277,8 +326,7 @@ export const configureEviction = (
       action.prefix.endsWith("/") ||
       action.prefix.includes("//")
     ) {
-      throw eventHubError(
-        "INVALID_ARGUMENT",
+      throw new Error(
         "eventhub: archive prefix must be non-empty and contain no leading, trailing, or repeated slash",
       );
     }
@@ -305,6 +353,198 @@ export abstract class EventHub<
     initializeSchema(this.ctx.storage.sql);
   }
 
+  private rpcContext(): Record<string, unknown> {
+    return {
+      instanceId: this.ctx.id.toString(),
+      ...(this.ctx.id.name ? { instanceName: this.ctx.id.name } : {}),
+    };
+  }
+
+  publish(payload: EventPayload, ...rest: EventPayload[]): Promise<Result> {
+    return rpcBoundary(
+      "publish",
+      async () => {
+        const pending = createPendingDeliveryJobs(this.routing, [
+          payload,
+          ...rest,
+        ]);
+        if (!pending.ok) return pending;
+        const resolved = resolveDestinationBindings(
+          this.routing,
+          pending.value,
+        );
+        if (!resolved.ok) return resolved;
+        const size = validatePendingQueueMessageSizes(
+          resolved.value,
+          pending.value,
+          {
+            instanceId: this.ctx.id.toString(),
+            ...(this.ctx.id.name ? { instanceName: this.ctx.id.name } : {}),
+            includeDeliveryMetadata:
+              this.deliveryConfig.includeDeliveryMetadata,
+          },
+        );
+        if (!size.ok) return size;
+        await this.#publish(pending.value, resolved.value);
+        return resultOk();
+      },
+      this.rpcContext(),
+    );
+  }
+
+  redrive(deliveryJobId: string): Promise<Result<boolean>> {
+    return rpcBoundary(
+      "redrive",
+      async () => {
+        if (deliveryJobId.length === 0) {
+          return resultError(
+            "INVALID_ARGUMENT",
+            "eventhub: deliveryJobId must not be empty",
+          );
+        }
+        return resultOk(await this.#redrive(deliveryJobId));
+      },
+      this.rpcContext(),
+    );
+  }
+
+  list(options?: ListOptions): Promise<Result<ListResult>> {
+    return rpcBoundary(
+      "list",
+      async () => {
+        const validated = validateListOptions(options);
+        if (!validated.ok) return validated;
+        return this.#list(validated.value);
+      },
+      this.rpcContext(),
+    );
+  }
+
+  eject(before: number, options?: EjectOptions): Promise<Result<EjectResult>> {
+    return rpcBoundary(
+      "eject",
+      async () => {
+        if (!Number.isFinite(before)) {
+          return resultError(
+            "INVALID_ARGUMENT",
+            "eventhub: before must be a finite number",
+          );
+        }
+        const max = options?.max ?? 50;
+        if (!Number.isInteger(max) || max <= 0) {
+          return resultError(
+            "INVALID_ARGUMENT",
+            "eventhub: max must be a positive integer",
+          );
+        }
+        if (max > MAX_EJECT_PAYLOADS) {
+          return resultError(
+            "INVALID_ARGUMENT",
+            `eventhub: max must be <= ${MAX_EJECT_PAYLOADS}`,
+          );
+        }
+        return resultOk(await this.#eject(before, max));
+      },
+      this.rpcContext(),
+    );
+  }
+
+  listEjected(
+    ejectKey: string,
+    options?: ListEjectedOptions,
+  ): Promise<Result<ListEjectedResult>> {
+    return rpcBoundary(
+      "listEjected",
+      async () => {
+        if (ejectKey.length === 0) {
+          return resultError(
+            "INVALID_ARGUMENT",
+            "eventhub: ejectKey must not be empty",
+          );
+        }
+        const validated = validatePageOptions(
+          options,
+          MAX_LIST_EJECTED_PAYLOADS,
+          MAX_LIST_EJECTED_BYTES,
+        );
+        if (!validated.ok) return validated;
+        return this.#listEjected(ejectKey, validated.value);
+      },
+      this.rpcContext(),
+    );
+  }
+
+  evict(ejectKey: string): Promise<Result> {
+    return rpcBoundary(
+      "evict",
+      async () => {
+        if (ejectKey.length === 0) {
+          return resultError(
+            "INVALID_ARGUMENT",
+            "eventhub: ejectKey must not be empty",
+          );
+        }
+        await this.#evict(ejectKey);
+        return resultOk();
+      },
+      this.rpcContext(),
+    );
+  }
+
+  reportFailure(payload: unknown): Promise<Result<boolean>> {
+    return rpcBoundary(
+      "reportFailure",
+      async () => {
+        const deliveryJobId = this.validateFailurePayload(payload);
+        if (!deliveryJobId.ok) return deliveryJobId;
+        return resultOk(await this.#reportFailure(deliveryJobId.value));
+      },
+      this.rpcContext(),
+    );
+  }
+
+  private validateFailurePayload(payload: unknown): Result<string> {
+    if (
+      typeof payload !== "object" ||
+      payload === null ||
+      Array.isArray(payload)
+    ) {
+      return resultError(
+        "INVALID_ARGUMENT",
+        "eventhub: payload must be an object",
+      );
+    }
+    const eventhubMetadata = (payload as Record<string, unknown>).__eventhub__;
+    if (
+      typeof eventhubMetadata !== "object" ||
+      eventhubMetadata === null ||
+      Array.isArray(eventhubMetadata)
+    ) {
+      return resultError(
+        "INVALID_ARGUMENT",
+        "eventhub: __eventhub__ metadata not found or invalid in payload",
+      );
+    }
+    const deliveryJobId = (eventhubMetadata as Record<string, unknown>)
+      .deliveryJobId;
+    if (typeof deliveryJobId !== "string" || deliveryJobId.length === 0) {
+      return resultError(
+        "INVALID_ARGUMENT",
+        "eventhub: deliveryJobId must be a non-empty string",
+      );
+    }
+    if (
+      (eventhubMetadata as Record<string, unknown>).instanceId !==
+      this.ctx.id.toString()
+    ) {
+      return resultError(
+        "INSTANCE_MISMATCH",
+        "eventhub: instanceId does not match this instance",
+      );
+    }
+    return resultOk(deliveryJobId);
+  }
+
   private scheduleRegistrySync(): void {
     const registry = this.registry;
     const name = this.ctx.id.name;
@@ -324,7 +564,18 @@ export abstract class EventHub<
 
     const sync = (async () => {
       try {
-        await registry.getByName(EVENT_HUB_REGISTRY_NAME).register(name);
+        const result = await registry
+          .getByName(EVENT_HUB_REGISTRY_NAME)
+          .register(name);
+        if (!result.ok) {
+          console.warn("eventhub: registry synchronization failed", {
+            operation: "registry_synchronization",
+            instanceId: this.ctx.id.toString(),
+            instanceName: name,
+            error: result.error,
+          });
+          return;
+        }
         setRegistrySyncedAt(this.ctx.storage.sql, Date.now());
       } catch (error) {
         console.warn("eventhub: registry synchronization failed", {
@@ -568,7 +819,7 @@ export abstract class EventHub<
     if (action.type !== "archive") return;
     const baseKey = `${run.archivePrefix}/objects/${run.objectId}/ejections/${run.ejectionKey}`;
     if (run.phase === "pages") {
-      const page = this.ctx.storage.transactionSync(() =>
+      const pageResult = this.ctx.storage.transactionSync(() =>
         listEjected(
           this.ctx.storage.sql,
           run.ejectionKey,
@@ -577,6 +828,10 @@ export abstract class EventHub<
           MAX_LIST_EJECTED_BYTES,
         ),
       );
+      if (!pageResult.ok) {
+        throw new Error(pageResult.error.message);
+      }
+      const page = pageResult.value;
       if (page.payloads.length === 0) {
         throw new Error("eventhub: automatic ejection snapshot is empty");
       }
@@ -671,23 +926,10 @@ export abstract class EventHub<
    * @param payload First payload to publish.
    * @param rest Additional payloads published in the same batch.
    */
-  async publish(payload: EventPayload, ...rest: EventPayload[]): Promise<void> {
-    const pendingDeliveryJobs = createPendingDeliveryJobs(this.routing, [
-      payload,
-      ...rest,
-    ]);
-    const resolvedDestinations = assertDestinationBindingsExist(
-      this.routing,
-      pendingDeliveryJobs,
-    );
-    assertPendingQueueMessageSizes(resolvedDestinations, pendingDeliveryJobs, {
-      instanceId: this.ctx.id.toString(),
-      ...(this.ctx.id.name === undefined || this.ctx.id.name.length === 0
-        ? {}
-        : { instanceName: this.ctx.id.name }),
-      includeDeliveryMetadata: this.deliveryConfig.includeDeliveryMetadata,
-    });
-
+  async #publish(
+    pendingDeliveryJobs: PendingDeliveryJobs,
+    resolvedDestinations: ResolvedDestinations<Env>,
+  ): Promise<void> {
     const persistedJobs = await this.runInTransactionWithAlarmReconciliation(
       () =>
         persistDeliveryJobs(
@@ -715,14 +957,7 @@ export abstract class EventHub<
    * @returns `true` when a new job is created, or `false` when the source job
    * no longer exists.
    */
-  async redrive(deliveryJobId: string): Promise<boolean> {
-    if (deliveryJobId.length === 0) {
-      throw eventHubError(
-        "INVALID_ARGUMENT",
-        "eventhub: deliveryJobId must not be empty",
-      );
-    }
-
+  async #redrive(deliveryJobId: string): Promise<boolean> {
     const persistedJob = await this.runInTransactionWithAlarmReconciliation(
       () =>
         redriveDeliveryJob(
@@ -756,37 +991,14 @@ export abstract class EventHub<
    * and must be an integer in the range `1..262144`. The first payload is
    * still returned when present, even if its body alone exceeds this budget.
    */
-  async list(options?: ListOptions): Promise<ListResult> {
-    const order = options?.order ?? "asc";
-    assertListOrder(order);
-
-    const max = options?.max;
-    if (max !== undefined) {
-      assertPositiveInteger(max, "max");
-      if (max > MAX_LIST_PAYLOADS)
-        throw eventHubError(
-          "INVALID_ARGUMENT",
-          `eventhub: max must be <= ${MAX_LIST_PAYLOADS}`,
-        );
-    }
-
-    const maxBytes = options?.maxBytes;
-    if (maxBytes !== undefined) {
-      assertPositiveInteger(maxBytes, "maxBytes");
-      if (maxBytes > MAX_LIST_BYTES)
-        throw eventHubError(
-          "INVALID_ARGUMENT",
-          `eventhub: maxBytes must be <= ${MAX_LIST_BYTES}`,
-        );
-    }
-
+  async #list(options: ValidatedListOptions): Promise<Result<ListResult>> {
     return this.runInTransactionWithAlarmReconciliation(() =>
       listPayloads(
         this.ctx.storage.sql,
-        options?.cursor,
-        max ?? 50,
-        maxBytes ?? MAX_LIST_BYTES,
-        order,
+        options.cursor,
+        options.max,
+        options.maxBytes,
+        options.order,
       ),
     );
   }
@@ -800,29 +1012,12 @@ export abstract class EventHub<
    * `options.max` defaults to `50` and must be an integer in the range
    * `1..100`.
    */
-  async eject(before: number, options?: EjectOptions): Promise<EjectResult> {
-    if (!Number.isFinite(before)) {
-      throw eventHubError(
-        "INVALID_ARGUMENT",
-        "eventhub: before must be a finite number",
-      );
-    }
-
-    const max = options?.max;
-    if (max !== undefined) {
-      assertPositiveInteger(max, "max");
-      if (max > MAX_EJECT_PAYLOADS)
-        throw eventHubError(
-          "INVALID_ARGUMENT",
-          `eventhub: max must be <= ${MAX_EJECT_PAYLOADS}`,
-        );
-    }
-
+  async #eject(before: number, max: number): Promise<EjectResult> {
     const result = await this.runInTransactionWithAlarmReconciliation(() =>
       ejectPayloads(
         this.ctx.storage.sql,
         before,
-        max ?? 50,
+        max,
         this.idGenerator.generate(Date.now()),
       ),
     );
@@ -839,44 +1034,17 @@ export abstract class EventHub<
    * integer in the range `1..100`. `options.maxBytes` defaults to `262144`
    * and must be an integer in the range `1..262144`.
    */
-  async listEjected(
+  async #listEjected(
     ejectKey: string,
-    options?: ListEjectedOptions,
-  ): Promise<ListEjectedResult> {
-    if (ejectKey.length === 0) {
-      throw eventHubError(
-        "INVALID_ARGUMENT",
-        "eventhub: ejectKey must not be empty",
-      );
-    }
-
-    const max = options?.max;
-    if (max !== undefined) {
-      assertPositiveInteger(max, "max");
-      if (max > MAX_LIST_EJECTED_PAYLOADS)
-        throw eventHubError(
-          "INVALID_ARGUMENT",
-          `eventhub: max must be <= ${MAX_LIST_EJECTED_PAYLOADS}`,
-        );
-    }
-
-    const maxBytes = options?.maxBytes;
-    if (maxBytes !== undefined) {
-      assertPositiveInteger(maxBytes, "maxBytes");
-      if (maxBytes > MAX_LIST_EJECTED_BYTES)
-        throw eventHubError(
-          "INVALID_ARGUMENT",
-          `eventhub: maxBytes must be <= ${MAX_LIST_EJECTED_BYTES}`,
-        );
-    }
-
+    options: ValidatedPageOptions,
+  ): Promise<Result<ListEjectedResult>> {
     return this.runInTransactionWithAlarmReconciliation(() =>
       listEjected(
         this.ctx.storage.sql,
         ejectKey,
-        options?.cursor,
-        max ?? 50,
-        maxBytes ?? MAX_LIST_EJECTED_BYTES,
+        options.cursor,
+        options.max,
+        options.maxBytes,
       ),
     );
   }
@@ -885,14 +1053,7 @@ export abstract class EventHub<
    * Removes a previously ejected snapshot. This operation is idempotent.
    * @param ejectKey Snapshot key returned by `eject()`.
    */
-  async evict(ejectKey: string): Promise<void> {
-    if (ejectKey.length === 0) {
-      throw eventHubError(
-        "INVALID_ARGUMENT",
-        "eventhub: ejectKey must not be empty",
-      );
-    }
-
+  async #evict(ejectKey: string): Promise<void> {
     await this.runInTransactionWithAlarmReconciliation(() => {
       evictEjection(this.ctx.storage.sql, ejectKey);
     });
@@ -932,8 +1093,9 @@ export abstract class EventHub<
    *           message.retry();
    *           continue;
    *         }
-   *         await hub.reportFailure(message.body);
-   *         message.ack();
+   *         const result = await hub.reportFailure(message.body);
+   *         if (result.ok) message.ack();
+   *         else message.retry();
    *       } catch (error) {
    *         console.error("Failed to report failure:", error);
    *         message.retry();
@@ -949,54 +1111,10 @@ export abstract class EventHub<
    *
    * @param payload The payload that was delivered. Must be an object containing
    * matching `__eventhub__.instanceId` and `__eventhub__.deliveryJobId`.
-   * @returns `true` when a new failure record is written, or `false` when no
-   * record is added because the job was already recorded or no longer exists.
-   * @throws {Error} If the payload is not an object or if the delivery job ID
-   * cannot be extracted, or the instance ID does not match.
+   * @returns A result containing `true` when a new failure record is written,
+   * or `false` when the job was already recorded or no longer exists.
    */
-  async reportFailure(payload: unknown): Promise<boolean> {
-    if (
-      typeof payload !== "object" ||
-      payload === null ||
-      Array.isArray(payload)
-    ) {
-      throw eventHubError(
-        "INVALID_ARGUMENT",
-        "eventhub: payload must be an object",
-      );
-    }
-
-    const eventhubMetadata = (payload as Record<string, unknown>).__eventhub__;
-    if (
-      typeof eventhubMetadata !== "object" ||
-      eventhubMetadata === null ||
-      Array.isArray(eventhubMetadata)
-    ) {
-      throw eventHubError(
-        "INVALID_ARGUMENT",
-        "eventhub: __eventhub__ metadata not found or invalid in payload",
-      );
-    }
-
-    const deliveryJobId = (eventhubMetadata as Record<string, unknown>)
-      .deliveryJobId;
-    if (typeof deliveryJobId !== "string" || deliveryJobId.length === 0) {
-      throw eventHubError(
-        "INVALID_ARGUMENT",
-        "eventhub: deliveryJobId must be a non-empty string",
-      );
-    }
-
-    if (
-      (eventhubMetadata as Record<string, unknown>).instanceId !==
-      this.ctx.id.toString()
-    ) {
-      throw eventHubError(
-        "INSTANCE_MISMATCH",
-        "eventhub: instanceId does not match this instance",
-      );
-    }
-
+  async #reportFailure(deliveryJobId: string): Promise<boolean> {
     const recorded = await this.runInTransactionWithAlarmReconciliation(() =>
       recordDeliveryJobFailure(this.ctx.storage.sql, deliveryJobId),
     );

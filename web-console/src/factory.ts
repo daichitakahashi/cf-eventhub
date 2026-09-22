@@ -3,6 +3,8 @@ import type {
   EventHubInstance,
   EventHubInstanceStatus,
   EventHubRegistry,
+  Result,
+  ResultError,
 } from "cf-eventhub";
 import { createFactory } from "hono/factory";
 
@@ -24,7 +26,7 @@ export type Env = {
     selectedInstance?: EventHubInstance;
     requestedInstance?: string;
     showStale: boolean;
-    registryError?: string;
+    registryError?: ResultError["error"] | { message: string };
     getEventHub: () => DurableObjectStub<EventHub> | undefined;
     buildUrl: (path: string, values?: UrlValues) => string;
   };
@@ -32,19 +34,22 @@ export type Env = {
 
 export const factory = createFactory<Env>();
 
+// TODO: Replace the instance selector with a searchable or paginated UI.
+// Until then, cap the options loaded for a single page render at 10,000.
 const MAX_REGISTRY_PAGES = 100;
 
 export const listAllInstances = async (
   registry: DurableObjectStub<EventHubRegistry>,
   status: EventHubInstanceStatus,
-): Promise<EventHubInstance[]> => {
+): Promise<Result<EventHubInstance[]>> => {
   const instances: EventHubInstance[] = [];
   let cursor: string | undefined;
   for (let page = 0; page < MAX_REGISTRY_PAGES; page += 1) {
     const result = await registry.list({ status, cursor, max: 100 });
-    instances.push(...result.instances);
-    if (!result.cursor) return instances;
-    cursor = result.cursor;
+    if (!result.ok) return result;
+    instances.push(...result.value.instances);
+    if (!result.value.cursor) return { ok: true, value: instances };
+    cursor = result.value.cursor;
   }
-  throw new Error("EventHub Registry contains too many pages");
+  return { ok: true, value: instances };
 };

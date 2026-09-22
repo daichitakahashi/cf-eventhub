@@ -1,5 +1,5 @@
 import { vValidator } from "@hono/valibot-validator";
-import type { EventPayload } from "cf-eventhub";
+import type { EventHubErrorCode, EventPayload } from "cf-eventhub";
 import type { Context } from "hono";
 import * as v from "valibot";
 
@@ -29,10 +29,31 @@ const redirectWithRpcError = (
   return c.redirect(`${c.var.buildUrl("/")}#${fragment}`);
 };
 
+const redirectWithResultError = (
+  c: Context<Env>,
+  operation: "publish" | "redrive",
+  code: EventHubErrorCode,
+) => {
+  const fragment = new URLSearchParams({
+    error: `${operation}-failed`,
+    code,
+  });
+  return c.redirect(`${c.var.buildUrl("/")}#${fragment}`);
+};
+
 const handler = factory
   .createApp()
   .use(async (c, next) => {
     if (c.var.registryError) {
+      if ("code" in c.var.registryError) {
+        return c.json(
+          {
+            error: c.var.registryError.message,
+            code: c.var.registryError.code,
+          },
+          503,
+        );
+      }
       return c.json({ error: "EventHub Registry unavailable" }, 503);
     }
     return next();
@@ -46,7 +67,13 @@ const handler = factory
       return c.json({ error: "Only stale instances can be deleted" }, 409);
     }
     try {
-      await c.var.registry.delete(instance.name);
+      const result = await c.var.registry.delete(instance.name);
+      if (!result.ok) {
+        return c.json(
+          { error: result.error.message, code: result.error.code },
+          503,
+        );
+      }
     } catch {
       return c.json({ error: "EventHub Registry unavailable" }, 503);
     }
@@ -57,12 +84,20 @@ const handler = factory
     if (!hub) {
       return c.json({ error: "EventHub instance not found" }, 404);
     }
-    const list = await hub.list({
-      max: 10,
-      order: "desc",
-    });
+    let result: Awaited<ReturnType<typeof hub.list>>;
+    try {
+      result = await hub.list({ max: 10, order: "desc" });
+    } catch {
+      return c.json({ error: "EventHub instance unavailable" }, 502);
+    }
+    if (!result.ok) {
+      return c.json(
+        { error: result.error.message, code: result.error.code },
+        502,
+      );
+    }
     return c.json({
-      lastUpdatedAt: getEventsLastUpdatedAt(normalizeEvents(list)),
+      lastUpdatedAt: getEventsLastUpdatedAt(normalizeEvents(result.value)),
     });
   })
   .post(
@@ -78,13 +113,16 @@ const handler = factory
       if (!hub) {
         return c.json({ error: "EventHub instance not found" }, 404);
       }
-      let retried: boolean;
+      let result: Awaited<ReturnType<typeof hub.redrive>>;
       try {
-        retried = await hub.redrive(c.req.valid("param").id);
+        result = await hub.redrive(c.req.valid("param").id);
       } catch (error) {
         return redirectWithRpcError(c, "redrive", error);
       }
-      if (!retried) {
+      if (!result.ok) {
+        return redirectWithResultError(c, "redrive", result.error.code);
+      }
+      if (!result.value) {
         return c.redirect(c.var.buildUrl("/", { error: "delivery-not-found" }));
       }
       return c.redirect(c.var.buildUrl("/"));
@@ -112,7 +150,10 @@ const handler = factory
         return redirectWithError(c);
       }
       try {
-        await hub.publish(parsed as EventPayload);
+        const result = await hub.publish(parsed as EventPayload);
+        if (!result.ok) {
+          return redirectWithResultError(c, "publish", result.error.code);
+        }
       } catch (error) {
         return redirectWithRpcError(c, "publish", error);
       }

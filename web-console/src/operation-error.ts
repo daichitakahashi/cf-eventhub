@@ -11,6 +11,8 @@ export const eventHubErrorMessages: Record<EventHubErrorCode, string> = {
   INVALID_DESTINATION_BINDING:
     "A destination binding is not configured as a Queue or R2 bucket.",
   INSTANCE_MISMATCH: "The request targets a different EventHub instance.",
+  INTERNAL_ERROR:
+    "The operation failed unexpectedly. Check Workers Logs for details.",
 };
 
 export const operationErrorTitles = {

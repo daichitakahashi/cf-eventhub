@@ -1,8 +1,15 @@
 import { runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { assert, expect, expectTypeOf, test } from "vitest";
+import type { Result } from "./errors";
 import { getEventHubFromPayload } from "./index";
 import type { TestEventHub, TestEventHubWithJobId } from "./test";
+
+const unwrap = <T>(result: Result<T>): T => {
+  assert(result.ok, result.ok ? undefined : result.error.message);
+  assert("value" in result);
+  return result.value as T;
+};
 
 test.each([
   undefined,
@@ -82,8 +89,8 @@ test("reports shared-queue failures to their originating instances", async () =>
     const hub = getEventHubFromPayload(namespace, payload);
     assert(hub);
     expect(hub.id.toString()).toBe(source.id.toString());
-    expect(await hub.reportFailure(payload)).toBe(true);
-    expect(await hub.reportFailure(payload)).toBe(false);
+    expect(unwrap(await hub.reportFailure(payload))).toBe(true);
+    expect(unwrap(await hub.reportFailure(payload))).toBe(false);
     await runInDurableObject(source, async (_instance, state) => {
       expect(
         state.storage.sql
@@ -100,15 +107,21 @@ test("reports shared-queue failures to their originating instances", async () =>
 });
 
 test.each([undefined, "", 123, "another-instance"])(
-  "rejects failure reports with a missing or mismatched instance ID: %j",
+  "returns an error for failure reports with a missing or mismatched instance ID: %j",
   async (instanceId) => {
     const hub = env.EVENT_HUB.getByName("payload-wrong-instance");
     await runInDurableObject(hub, async (instance) => {
-      await expect(
-        (instance as TestEventHub).reportFailure({
+      expect(
+        await (instance as TestEventHub).reportFailure({
           __eventhub__: { instanceId, deliveryJobId: "job" },
         }),
-      ).rejects.toThrow("eventhub: instanceId does not match this instance");
+      ).toStrictEqual({
+        ok: false,
+        error: {
+          code: "INSTANCE_MISMATCH",
+          message: "eventhub: instanceId does not match this instance",
+        },
+      });
     });
   },
 );

@@ -1,4 +1,4 @@
-import { eventHubError } from "../errors";
+import { type Result, resultError, resultOk } from "../errors";
 import {
   parsePath,
   query,
@@ -74,7 +74,9 @@ const safe: unique symbol = Symbol();
 export interface RoutingStrategy<Env extends object> {
   [safe]: true;
   findRoutes(message: JSONObject): FoundRoute<Env>[];
-  resolveDestination(destination: Destinations<Env>): ResolvedDestination;
+  resolveDestination(
+    destination: Destinations<Env>,
+  ): Result<ResolvedDestination>;
 }
 
 type FoundRoute<Env extends object> = {
@@ -250,8 +252,7 @@ const validateAndCacheCondition = (
 ): void => {
   if ("path" in cond) {
     if (cond.match !== undefined && (cond.match.global || cond.match.sticky)) {
-      throw eventHubError(
-        "INVALID_ARGUMENT",
+      throw new Error(
         "eventhub: routing match expression must not use global or sticky flags",
       );
     }
@@ -266,8 +267,7 @@ const validateAndCacheCondition = (
   }
   const conditions = cond.allOf ?? cond.anyOf;
   if (conditions === undefined) {
-    throw eventHubError(
-      "INVALID_ARGUMENT",
+    throw new Error(
       "eventhub: routing condition must contain path, allOf, anyOf, or not",
     );
   }
@@ -339,19 +339,19 @@ const resolveDestinationBinding = <Env extends object>(
   env: Env,
   destination: Destinations<Env>,
   options: RoutingOptions<Env>,
-): ResolvedDestination => {
+): Result<ResolvedDestination> => {
   const binding = (env as Record<PropertyKey, unknown>)[destination];
   if (!binding) {
-    throw eventHubError(
+    return resultError(
       "DESTINATION_NOT_CONFIGURED",
       `eventhub: ${String(destination)} not set`,
     );
   }
   if (isQueue(binding)) {
-    return {
+    return resultOk({
       kind: "queue",
       queue: binding,
-    };
+    });
   }
   if (isR2Bucket(binding)) {
     const r2Options = (
@@ -359,13 +359,13 @@ const resolveDestinationBinding = <Env extends object>(
         | Partial<Record<string, { objectKey: R2ObjectKeyFactory }>>
         | undefined
     )?.[String(destination)];
-    return {
+    return resultOk({
       kind: "r2",
       bucket: binding,
       ...(r2Options === undefined ? {} : { objectKey: r2Options.objectKey }),
-    };
+    });
   }
-  throw eventHubError(
+  return resultError(
     "INVALID_DESTINATION_BINDING",
     `eventhub: value of ${String(destination)} is not a Queue or R2Bucket`,
   );

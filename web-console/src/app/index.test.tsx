@@ -2,7 +2,9 @@ import type {
   EventHub,
   EventHubInstance,
   EventHubRegistry,
+  ListEventHubInstancesResult,
   ListResult,
+  Result,
 } from "cf-eventhub";
 import { describe, expect, test, vi } from "vitest";
 
@@ -35,25 +37,52 @@ const setup = ({
     [...active, ...stale].map(({ name }) => [
       name,
       {
-        list: vi.fn(async () => emptyList()),
-        publish: vi.fn(async () => undefined),
-        redrive: vi.fn(async () => true),
+        list: vi.fn(
+          async (_options?: unknown): Promise<Result<ListResult>> => ({
+            ok: true,
+            value: emptyList(),
+          }),
+        ),
+        publish: vi.fn(async (): Promise<Result> => ({ ok: true })),
+        redrive: vi.fn(
+          async (): Promise<Result<boolean>> => ({
+            ok: true,
+            value: true,
+          }),
+        ),
       },
     ]),
   );
   const eventHubGetByName = vi.fn((name: string) => hubs.get(name));
   const registryList = vi.fn(
-    async ({ status }: { status?: EventHubInstance["status"] } = {}) => ({
-      instances:
-        status === "stale" ? stale : status === "deleted" ? [] : active,
+    async ({
+      status,
+    }: {
+      status?: EventHubInstance["status"];
+    } = {}): Promise<Result<ListEventHubInstancesResult>> => ({
+      ok: true,
+      value: {
+        instances:
+          status === "stale" ? stale : status === "deleted" ? [] : active,
+      },
     }),
   );
-  const registryGet = vi.fn(async (name: string) => {
-    return (
-      [...active, ...stale].find((candidate) => candidate.name === name) ?? null
-    );
-  });
-  const registryDelete = vi.fn(async () => true);
+  const registryGet = vi.fn(
+    async (name: string): Promise<Result<EventHubInstance | null>> => {
+      return {
+        ok: true,
+        value:
+          [...active, ...stale].find((candidate) => candidate.name === name) ??
+          null,
+      };
+    },
+  );
+  const registryDelete = vi.fn(
+    async (): Promise<Result<boolean>> => ({
+      ok: true,
+      value: true,
+    }),
+  );
   const bindings = {
     EVENT_HUB: {
       getByName: eventHubGetByName,
@@ -167,6 +196,28 @@ describe("EventHub instance discovery", () => {
     expect(await response.text()).toContain("Registry unavailable");
   });
 
+  test("renders the Registry error code when listing returns a failure", async () => {
+    const configured = setup();
+    configured.registryList.mockResolvedValue({
+      ok: false,
+      error: {
+        code: "INTERNAL_ERROR",
+        message: "eventhub: internal error",
+      },
+    });
+
+    const response = await configured.app.request(
+      "http://localhost/",
+      {},
+      configured.bindings,
+    );
+    const html = await response.text();
+
+    expect(response.status).toBe(503);
+    expect(html).toContain("Registry unavailable");
+    expect(html).toContain("INTERNAL_ERROR");
+  });
+
   test("renders a distinct selected-instance failure state", async () => {
     const configured = setup();
     configured.hubs.get("alpha")?.list.mockRejectedValue(new Error("offline"));
@@ -179,6 +230,30 @@ describe("EventHub instance discovery", () => {
     expect(response.status).toBe(502);
     expect(await response.text()).toContain("EventHub instance unavailable");
   });
+
+  test("renders a typed list failure without treating it as an RPC outage", async () => {
+    const configured = setup();
+    configured.hubs.get("alpha")?.list.mockResolvedValueOnce({
+      ok: false,
+      error: {
+        code: "INVALID_CURSOR",
+        message: "eventhub: invalid cursor",
+      },
+    });
+
+    const response = await configured.app.request(
+      "http://localhost/?instance=alpha&cursor=invalid",
+      {},
+      configured.bindings,
+    );
+    const html = await response.text();
+
+    expect(response.status).toBe(400);
+    expect(html).toContain("Unable to list events");
+    expect(html).toContain("INVALID_CURSOR");
+    expect(html).toContain("invalid pagination cursor");
+    expect(html).not.toContain("EventHub instance unavailable");
+  });
 });
 
 describe("EventHub instance URL state", () => {
@@ -188,31 +263,34 @@ describe("EventHub instance URL state", () => {
     if (!hub) throw new Error("test hub not found");
     hub.list
       .mockResolvedValueOnce({
-        payloads: [
-          {
-            payloadId: "payload-1",
-            createdAt: "2026-09-01T00:00:00.000Z",
-            payload: { hello: "world" },
-            deliveryJobs: [
-              {
-                id: "job-1",
-                payloadId: "payload-1",
-                destination: "QUEUE",
-                createdAt: "2026-09-01T00:00:00.000Z",
-                failedAttemptCount: 0,
-                lastFailedAt: null,
-                lastError: null,
-                nextRetryAt: "2026-09-01T00:00:10.000Z",
-                finalStatus: "failed",
-                finalizedAt: "2026-09-01T00:00:20.000Z",
-                failureReportedAt: null,
-              },
-            ],
-          },
-        ],
-        cursor: "next-cursor",
+        ok: true,
+        value: {
+          payloads: [
+            {
+              payloadId: "payload-1",
+              createdAt: "2026-09-01T00:00:00.000Z",
+              payload: { hello: "world" },
+              deliveryJobs: [
+                {
+                  id: "job-1",
+                  payloadId: "payload-1",
+                  destination: "QUEUE",
+                  createdAt: "2026-09-01T00:00:00.000Z",
+                  failedAttemptCount: 0,
+                  lastFailedAt: null,
+                  lastError: null,
+                  nextRetryAt: "2026-09-01T00:00:10.000Z",
+                  finalStatus: "failed",
+                  finalizedAt: "2026-09-01T00:00:20.000Z",
+                  failureReportedAt: null,
+                },
+              ],
+            },
+          ],
+          cursor: "next-cursor",
+        },
       })
-      .mockResolvedValueOnce(emptyList());
+      .mockResolvedValueOnce({ ok: true, value: emptyList() });
     const response = await configured.app.request(
       "http://localhost/?instance=tenant%3Aacme",
       {},
@@ -251,11 +329,13 @@ describe("EventHub instance URL state", () => {
 
   test("displays a coded publish error on the selected instance", async () => {
     const configured = setup();
-    configured.hubs.get("beta")?.publish.mockRejectedValue({
-      name: "EventHubError",
-      code: "PAYLOAD_TOO_LARGE",
-      message:
-        "eventhub: Queue message size 128001 bytes exceeds limit of 128000 bytes",
+    configured.hubs.get("beta")?.publish.mockResolvedValue({
+      ok: false,
+      error: {
+        code: "PAYLOAD_TOO_LARGE",
+        message:
+          "eventhub: Queue message size 128001 bytes exceeds limit of 128000 bytes",
+      },
     });
 
     const response = await configured.app.request(
@@ -290,6 +370,27 @@ describe("EventHub instance URL state", () => {
       "The event exceeds the 128,000-byte Cloudflare Queues message size limit.",
     );
     expect(html).toContain("window.history.replaceState");
+  });
+
+  test("does not expose a rejected publish RPC in the URL", async () => {
+    const configured = setup();
+    configured.hubs
+      .get("beta")
+      ?.publish.mockRejectedValue(new Error("storage credentials leaked"));
+
+    const response = await configured.app.request(
+      "http://localhost/api/events?instance=beta",
+      {
+        method: "POST",
+        body: new URLSearchParams({ payload: '{"kind":"test"}' }),
+      },
+      configured.bindings,
+    );
+    const location = response.headers.get("location") ?? "";
+
+    expect(response.status).toBe(302);
+    expect(location).toContain("#error=publish-failed");
+    expect(location).not.toContain("storage");
   });
 
   test("warns when a create-event payload exceeds the Queue message limit", async () => {
@@ -361,6 +462,28 @@ describe("EventHub instance URL state", () => {
       "The operation failed unexpectedly. Check Workers Logs for details.",
     );
     expect(html).not.toContain("storage credentials were rejected");
+  });
+
+  test("preserves a redrive Result error code in the URL", async () => {
+    const configured = setup();
+    configured.hubs.get("beta")?.redrive.mockResolvedValue({
+      ok: false,
+      error: {
+        code: "INVALID_ARGUMENT",
+        message: "eventhub: deliveryJobId must not be empty",
+      },
+    });
+
+    const response = await configured.app.request(
+      "http://localhost/api/delivery-jobs/job-1/retry?instance=beta",
+      { method: "POST" },
+      configured.bindings,
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toContain(
+      "#error=redrive-failed&code=INVALID_ARGUMENT",
+    );
   });
 
   test("discards an EventHub cursor when switching instances", async () => {
@@ -443,7 +566,10 @@ describe("EventHub instance URL state", () => {
 
   test("does not resolve a deleted instance", async () => {
     const configured = setup();
-    configured.registryGet.mockResolvedValue(instance("deleted", "deleted"));
+    configured.registryGet.mockResolvedValue({
+      ok: true,
+      value: instance("deleted", "deleted"),
+    });
 
     const response = await configured.app.request(
       "http://localhost/api/events/latest?instance=deleted",
@@ -484,6 +610,30 @@ describe("EventHub instance URL state", () => {
     expect(configured.registryDelete).not.toHaveBeenCalled();
   });
 
+  test("preserves the Registry error code when instance lookup fails", async () => {
+    const configured = setup();
+    configured.registryGet.mockResolvedValue({
+      ok: false,
+      error: {
+        code: "INTERNAL_ERROR",
+        message: "eventhub: internal error",
+      },
+    });
+
+    const response = await configured.app.request(
+      "http://localhost/api/events/latest?instance=alpha",
+      {},
+      configured.bindings,
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toStrictEqual({
+      error: "eventhub: internal error",
+      code: "INTERNAL_ERROR",
+    });
+    expect(configured.eventHubGetByName).not.toHaveBeenCalled();
+  });
+
   test("reports Registry unavailability when deletion fails", async () => {
     const configured = setup({
       active: [],
@@ -500,6 +650,32 @@ describe("EventHub instance URL state", () => {
     expect(response.status).toBe(503);
     expect(await response.json()).toStrictEqual({
       error: "EventHub Registry unavailable",
+    });
+  });
+
+  test("preserves the Registry error code when deletion returns a failure", async () => {
+    const configured = setup({
+      active: [],
+      stale: [instance("old", "stale")],
+    });
+    configured.registryDelete.mockResolvedValue({
+      ok: false,
+      error: {
+        code: "INTERNAL_ERROR",
+        message: "eventhub: internal error",
+      },
+    });
+
+    const response = await configured.app.request(
+      "http://localhost/api/instances/delete?instance=old",
+      { method: "POST" },
+      configured.bindings,
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toStrictEqual({
+      error: "eventhub: internal error",
+      code: "INTERNAL_ERROR",
     });
   });
 });
@@ -522,14 +698,17 @@ describe("latest event polling", () => {
   test("returns the creation time of an event without delivery jobs", async () => {
     const configured = setup();
     configured.hubs.get("alpha")?.list.mockResolvedValue({
-      payloads: [
-        {
-          payloadId: "payload-no-route",
-          createdAt: "2026-09-15T01:02:03.000Z",
-          payload: { kind: "other" },
-          deliveryJobs: [],
-        },
-      ],
+      ok: true,
+      value: {
+        payloads: [
+          {
+            payloadId: "payload-no-route",
+            createdAt: "2026-09-15T01:02:03.000Z",
+            payload: { kind: "other" },
+            deliveryJobs: [],
+          },
+        ],
+      },
     });
 
     const response = await configured.app.request(
@@ -543,5 +722,46 @@ describe("latest event polling", () => {
     });
     expect(configured.registryGet).toHaveBeenCalledExactlyOnceWith("alpha");
     expect(configured.registryList).not.toHaveBeenCalled();
+  });
+
+  test("reports EventHub unavailability when listing rejects", async () => {
+    const configured = setup();
+    configured.hubs
+      .get("alpha")
+      ?.list.mockRejectedValue(new Error("eventhub offline"));
+
+    const response = await configured.app.request(
+      "http://localhost/api/events/latest?instance=alpha",
+      {},
+      configured.bindings,
+    );
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toStrictEqual({
+      error: "EventHub instance unavailable",
+    });
+  });
+
+  test("returns the EventHub error code when listing fails", async () => {
+    const configured = setup();
+    configured.hubs.get("alpha")?.list.mockResolvedValue({
+      ok: false,
+      error: {
+        code: "INTERNAL_ERROR",
+        message: "eventhub: internal error",
+      },
+    });
+
+    const response = await configured.app.request(
+      "http://localhost/api/events/latest?instance=alpha",
+      {},
+      configured.bindings,
+    );
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toStrictEqual({
+      error: "eventhub: internal error",
+      code: "INTERNAL_ERROR",
+    });
   });
 });
