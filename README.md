@@ -1,71 +1,46 @@
+![cf-eventhub architecture graphic](./docs/eventhub.png)
+
 # cf-eventhub
 
-Developing message hub that works with Cloudflare Workers and Queues with following functionalities.
+This monorepo provides event ingestion, durable delivery, and operational tooling
+for Cloudflare Workers. Events are persisted in Durable Objects before they are
+routed to Cloudflare Queues or R2, making delivery history, retries, failure
+investigation, and redrive available as one system.
 
-- Configure destinations of each message in IaC(currently, we will support Pulumi)
-- Record execution info including lost job(**Cloudflare Queues is Beta**)
+## Packages
 
-## Designs
-### Sequence
+| Package | Role |
+| --- | --- |
+| [`cf-eventhub`](./cf-eventhub/README.md) | Durable Object component for persistence, fan-out routing, Queue/R2 delivery, retries, redrive, Registry discovery, and retention or archival. |
+| [`@cf-eventhub/web-console`](./web-console/README.md) | Operations UI for selecting EventHub instances, inspecting payloads and delivery jobs, creating events, and redriving deliveries. |
+| [`eventhub-demo`](./demo/src/index.ts) | Local example that connects EventHub, the Registry, Web Console, Queues, an R2 sink, and DLQ failure reporting. |
 
-```mermaid
-sequenceDiagram
-  participant Worker1 as Worker(producer)
-  participant eventhub as eventhub
-  participant Queue as Queue
-  participant DB
-  participant executor as executor
-  participant Worker2 as Worker(consumer)
+## Why this repo
 
-  autonumber
-  Worker1 ->> eventhub: emit() [RPC]
-  activate eventhub
-  eventhub ->> eventhub: routing
-  eventhub ->> DB: begin
-  activate DB
-  eventhub ->> DB: save event payload
-  opt if routes matched
-    eventhub ->> DB: create dispatches of the event<br>for matched routes
-    eventhub ->> Queue: enqueue dispatches
-    activate Queue
-  end
-  eventhub ->> DB: commit
-  deactivate DB
-  eventhub -->> Worker1: return Promise<void>
-  deactivate eventhub
+- **Persist before delivery**: retain the event and every delivery job before the
+  first delivery attempt starts.
+- **Fan out by content**: route one JSON event to multiple Queue and R2 bindings
+  with declarative conditions or custom routing logic.
+- **Recover from failures**: retry transient delivery errors automatically,
+  record downstream failures from a DLQ, and redrive individual deliveries.
+- **Operate over time**: discover named EventHub instances, inspect them in the
+  Web Console, and delete or archive finalized events using retention policies.
 
-  Queue ->> Queue: wait delaySeconds
+## Quick start
 
-  par execute each dispatch
-    Queue ->> executor: dequeue dispatch for matched route
-    activate executor
-    executor ->> DB: begin
-    activate DB
-    executor ->> DB: load payload<br>(UPDATE RETURNING)
-    opt dispatch is found and not completed
-      executor ->> Worker2: handle() [RPC]
-      activate Worker2
-      Worker2 ->> Worker2: event handling
-      Worker2 -->> executor: return<br>Promise<"complete" | "ignored" | "failed">
-      deactivate Worker2
-      executor ->> DB: record execution with its status
-      opt execution succeeds or max retry exceeded
-        executor ->> DB: record dispatch result
-      end
-    end
-    executor ->> DB: commit
-    deactivate DB
-
-    executor ->> Queue: ack() on "complete" | "ignored" | "misconfigured" | "notfound"<br>or<br>retry() on "failed"
-    deactivate executor
-    deactivate Queue
-  end
+```sh
+corepack enable
+pnpm install
+pnpm dev
 ```
 
-## To run demo
-1. Launch demo workers
-    ```shell
-    $ pnpm --filter cf-eventhub --filter web-console build
-    $ pnpm dev
-    ```
-2. Open `http://localhost:3011` in your browser
+This starts the local demo with Wrangler. Open the URL printed by Wrangler, then
+visit `/setup` to register three example EventHub instances, or use
+`/setup?count=150` to choose the total number (1–1000). Each run registers
+`default` and creates the remaining names as `tenant:` followed by eight random
+hex digits. The repository
+uses Node.js 24 and pnpm 11, as declared in `package.json`.
+
+For installation, Durable Object bindings and migrations, API details, and
+deployment examples, see the [`cf-eventhub`](./cf-eventhub/README.md) and
+[`@cf-eventhub/web-console`](./web-console/README.md) package documentation.

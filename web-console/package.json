@@ -1,39 +1,57 @@
 {
   "name": "@cf-eventhub/web-console",
   "type": "module",
-  "version": "0.0.17",
+  "version": "1.0.0-rc.0",
+  "description": "A web console for inspecting and operating cf-eventhub on Cloudflare Workers.",
+  "keywords": ["cloudflare", "durable-objects", "eventhub", "web-console"],
+  "license": "MIT",
   "repository": {
-    "url": "https://github.com/daichitakahashi/cf-eventhub"
+    "type": "git",
+    "url": "git+https://github.com/daichitakahashi/cf-eventhub.git",
+    "directory": "web-console"
+  },
+  "homepage": "https://github.com/daichitakahashi/cf-eventhub/tree/main/web-console#readme",
+  "bugs": {
+    "url": "https://github.com/daichitakahashi/cf-eventhub/issues"
   },
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy --minify",
-    "build": "tsup"
+    "build:styles": "tailwindcss -i ./src/app/tailwind.css -o ./src/app/styles.css --minify && node ./scripts/embed-styles.mjs",
+    "check:styles": "pnpm build:styles && git diff --exit-code -- src/app/styles.css src/app/styles.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
-    "@hono/valibot-validator": "^0.5.3",
-    "clsx": "^2.1.1",
-    "hono": "^4.9.10",
-    "valibot": "^1.1.0"
+    "@hono/valibot-validator": "^0.6.1",
+    "hono": "^4.13.7",
+    "valibot": "^1.5.0"
+  },
+  "peerDependencies": {
+    "cf-eventhub": "workspace:^"
   },
   "devDependencies": {
-    "cf-eventhub": "^0.3.5",
-    "tsup": "^8.3.5",
-    "typed-htmx": "^0.3.1",
-    "typescript": "^5.6.2",
+    "@cloudflare/vitest-pool-workers": "catalog:",
+    "@cloudflare/workers-types": "catalog:",
+    "@tailwindcss/cli": "^4.3.1",
+    "cf-eventhub": "workspace:../cf-eventhub",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
     "wrangler": "catalog:"
   },
-  "tsup": {
-    "entry": ["src/index.ts"],
-    "splitting": false,
-    "sourcemap": true,
-    "format": ["esm", "cjs"],
-    "dts": true,
-    "clean": true
-  },
   "exports": {
-    "import": "./dist/index.js",
-    "require": "./dist/index.cjs"
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
   },
-  "files": ["dist"]
+  "files": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "!src/**/*.test.ts",
+    "!src/**/*.test.tsx",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
 }

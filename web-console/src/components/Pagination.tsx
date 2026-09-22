@@ -55,13 +55,17 @@ const PaginationLabel: FC<ElementProps<"span">> = (props) => (
 export const Pagination: FC<{
   topUrl?: string;
   nextUrl?: string;
-  range?: [Date] | [Date, Date];
+  range?: [DateTime] | [DateTime, DateTime];
   formatDateRange: (d1: DateTime, d2: DateTime) => string;
 }> = ({ topUrl, nextUrl, range, formatDateRange }) => (
   <PaginationSection>
     <PaginationContent>
       <PaginationItem>
-        <PaginationLink aria-label="Go to latest page" href={topUrl}>
+        <PaginationLink
+          aria-label="Go to latest page"
+          title="Go to latest page"
+          href={topUrl}
+        >
           <ChevronsLeft class="size-4" title="" />
           <span>Latest</span>
         </PaginationLink>
@@ -76,7 +80,11 @@ export const Pagination: FC<{
         )}
       </PaginationItem>
       <PaginationItem>
-        <PaginationLink aria-label="Go to next page" href={nextUrl}>
+        <PaginationLink
+          aria-label="Go to next page"
+          title="Go to next page"
+          href={nextUrl}
+        >
           <span>Next</span>
           <ChevronRight class="size-4" title="" />
         </PaginationLink>

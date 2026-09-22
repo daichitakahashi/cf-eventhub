@@ -1,0 +1,546 @@
+import { runInDurableObject } from "cloudflare:test";
+import { env } from "cloudflare:workers";
+import { assert, describe, expect, test, vi } from "vitest";
+
+import type { Result } from "./errors";
+import { getEventHubFromPayload } from "./payload";
+import { EVENT_HUB_STALE_AFTER_MS, type EventHubRegistry } from "./registry";
+import type {
+  TestEventHubWithFailingRegistry,
+  TestRegisteredEventHub,
+} from "./test";
+
+const registry = (name = "default") => env.EVENT_HUB_REGISTRY.getByName(name);
+
+const unwrap = <T>(result: Result<T>): T => {
+  assert(result.ok, result.ok ? undefined : result.error.message);
+  assert("value" in result);
+  return result.value as T;
+};
+
+const clearDefaultRegistry = async () => {
+  await runInDurableObject(registry(), async (_instance, state) => {
+    state.storage.sql.exec("DELETE FROM eventhub_instances");
+  });
+};
+
+describe("EventHubRegistry", () => {
+  test("registers, refreshes, tombstones, and revives an instance", async () => {
+    const stub = registry("lifecycle");
+    const created = unwrap(await stub.register("tenant:acme"));
+
+    await runInDurableObject(stub, async (_instance, state) => {
+      state.storage.sql.exec(
+        "UPDATE eventhub_instances SET last_seen_at = last_seen_at - 1000 WHERE name = ?",
+        "tenant:acme",
+      );
+    });
+    const refreshed = unwrap(await stub.register("tenant:acme"));
+    expect(refreshed).toMatchObject({
+      name: "tenant:acme",
+      firstSeenAt: created.firstSeenAt,
+      deletedAt: null,
+      status: "active",
+    });
+    expect(Date.parse(refreshed.lastSeenAt)).toBeGreaterThan(
+      Date.parse(created.lastSeenAt) - 1_000,
+    );
+    expect(unwrap(await stub.get("tenant:acme"))).toMatchObject({
+      name: "tenant:acme",
+      status: "active",
+    });
+
+    expect(unwrap(await stub.delete("tenant:acme"))).toBe(true);
+    expect(unwrap(await stub.get("tenant:acme"))).toMatchObject({
+      name: "tenant:acme",
+      status: "deleted",
+    });
+    const deleted = unwrap(await stub.list({ status: "deleted" }));
+    expect(deleted.instances).toMatchObject([
+      { name: "tenant:acme", status: "deleted" },
+    ]);
+    const tombstone = deleted.instances[0]?.deletedAt;
+
+    expect(unwrap(await stub.delete("tenant:acme"))).toBe(true);
+    expect(
+      unwrap(await stub.list({ status: "deleted" })).instances[0]?.deletedAt,
+    ).toBe(tombstone);
+
+    expect(unwrap(await stub.register("tenant:acme"))).toMatchObject({
+      name: "tenant:acme",
+      firstSeenAt: created.firstSeenAt,
+      deletedAt: null,
+      status: "active",
+    });
+  });
+
+  test("classifies the stale cutoff with an exclusive stale boundary", async () => {
+    const stub = registry("stale-cutoff");
+    const now = Date.now();
+    const cutoff = now - EVENT_HUB_STALE_AFTER_MS;
+    await runInDurableObject(stub, async (_instance, state) => {
+      for (const [name, lastSeenAt] of [
+        ["before", cutoff - 10_000],
+        ["boundary", cutoff + 1_000],
+        ["after", cutoff + 10_000],
+      ] as const) {
+        state.storage.sql.exec(
+          "INSERT INTO eventhub_instances (name, first_seen_at, last_seen_at, deleted_at) VALUES (?, ?, ?, NULL)",
+          name,
+          lastSeenAt,
+          lastSeenAt,
+        );
+      }
+    });
+
+    expect({
+      active: unwrap(await stub.list({ status: "active" })).instances.map(
+        ({ name }) => name,
+      ),
+      stale: unwrap(await stub.list({ status: "stale" })).instances.map(
+        ({ name }) => name,
+      ),
+    }).toStrictEqual({
+      active: ["after", "boundary"],
+      stale: ["before"],
+    });
+  });
+
+  test("paginates each lifecycle by name without overlap", async () => {
+    const stub = registry("pagination");
+    for (const name of ["delta", "alpha", "charlie", "bravo"]) {
+      await stub.register(name);
+    }
+
+    const first = unwrap(await stub.list({ max: 2 }));
+    const second = unwrap(await stub.list({ max: 2, cursor: first.cursor }));
+    expect({ first, second }).toMatchObject({
+      first: {
+        instances: [{ name: "alpha" }, { name: "bravo" }],
+        cursor: expect.any(String),
+      },
+      second: {
+        instances: [{ name: "charlie" }, { name: "delta" }],
+      },
+    });
+    expect(second.cursor).toBeUndefined();
+  });
+
+  test("searches names through the Registry RPC", async () => {
+    const stub = registry("name-search");
+    for (const name of ["alpha", "tenant:acme", "tenant:beta"]) {
+      await stub.register(name);
+    }
+    const result = unwrap(await stub.list({ nameContains: "tenant:", max: 1 }));
+    expect(result).toMatchObject({
+      instances: [{ name: "tenant:acme" }],
+      cursor: expect.any(String),
+    });
+    expect(
+      unwrap(
+        await stub.list({ nameContains: "tenant:", cursor: result.cursor }),
+      ).instances,
+    ).toMatchObject([{ name: "tenant:beta" }]);
+  });
+
+  test("rejects invalid inputs and does not tombstone unknown names", async () => {
+    const stub = registry("validation");
+    await expect(stub.get("unknown")).resolves.toStrictEqual({
+      ok: true,
+      value: null,
+    });
+    await expect(stub.delete("unknown")).resolves.toStrictEqual({
+      ok: true,
+      value: false,
+    });
+    await runInDurableObject(stub, async (instance) => {
+      const registryInstance = instance as EventHubRegistry;
+      expect(await registryInstance.register("")).toMatchObject({
+        ok: false,
+        error: {
+          code: "INVALID_ARGUMENT",
+          message: expect.stringContaining("name must not be empty"),
+        },
+      });
+      expect(await registryInstance.get("")).toMatchObject({
+        ok: false,
+        error: {
+          code: "INVALID_ARGUMENT",
+          message: expect.stringContaining("name must not be empty"),
+        },
+      });
+      expect(await registryInstance.list({ max: 0 })).toMatchObject({
+        ok: false,
+        error: {
+          code: "INVALID_ARGUMENT",
+          message: expect.stringContaining("1..100"),
+        },
+      });
+      expect(
+        await registryInstance.list({ cursor: "not+a+cursor" }),
+      ).toMatchObject({
+        ok: false,
+        error: {
+          code: "INVALID_CURSOR",
+          message: expect.stringContaining("invalid cursor"),
+        },
+      });
+    });
+    expect(
+      unwrap(await stub.list({ status: "deleted" })).instances,
+    ).toStrictEqual([]);
+  });
+});
+
+describe("EventHub registry synchronization", () => {
+  test("registers a named EventHub after activity and throttles refresh", async () => {
+    // 1. Publish an event and wait for its background Registry RPC.
+    // 2. Trigger another activity and verify the persisted throttle timestamp is stable.
+    await clearDefaultRegistry();
+    const hub = env.REGISTERED_EVENT_HUB.getByName("tenant:registered");
+    await hub.publish({ kind: "other" });
+
+    await vi.waitFor(async () => {
+      expect(
+        unwrap(await registry().list()).instances.some(
+          (instance) =>
+            instance.name === "tenant:registered" &&
+            instance.status === "active",
+        ),
+      ).toBe(true);
+    });
+    let firstSyncedAt = 0;
+    await runInDurableObject(hub, async (_instance, state) => {
+      firstSyncedAt = state.storage.sql
+        .exec<{ synced_at: number }>(
+          "SELECT synced_at FROM registry_sync_state WHERE singleton = 1",
+        )
+        .one().synced_at;
+    });
+
+    await hub.publish({ kind: "other" });
+    await runInDurableObject(hub, async (_instance, state) => {
+      expect(
+        state.storage.sql
+          .exec<{ synced_at: number }>(
+            "SELECT synced_at FROM registry_sync_state WHERE singleton = 1",
+          )
+          .one().synced_at,
+      ).toBe(firstSyncedAt);
+    });
+  });
+
+  test("refreshes registration after the 24-hour throttle expires", async () => {
+    // 1. Register a named EventHub and tombstone its Registry entry.
+    // 2. Move the persisted synchronization time back by 24 hours.
+    // 3. Trigger another activity and verify it revives the entry.
+    await clearDefaultRegistry();
+    const name = "tenant:refresh-due";
+    const hub = env.REGISTERED_EVENT_HUB.getByName(name);
+    await hub.publish({ kind: "other" });
+
+    await vi.waitFor(async () => {
+      expect(
+        unwrap(await registry().list()).instances.some(
+          (instance) => instance.name === name,
+        ),
+      ).toBe(true);
+    });
+    await registry().delete(name);
+    await runInDurableObject(hub, async (_instance, state) => {
+      state.storage.sql.exec(
+        "UPDATE registry_sync_state SET synced_at = ? WHERE singleton = 1",
+        Date.now() - 24 * 60 * 60 * 1_000,
+      );
+    });
+
+    await hub.publish({ kind: "other" });
+
+    await vi.waitFor(async () => {
+      expect(
+        unwrap(await registry().list()).instances.some(
+          (instance) => instance.name === name && instance.status === "active",
+        ),
+      ).toBe(true);
+    });
+  });
+
+  test("shares an in-flight registration between concurrent activities", async () => {
+    // 1. Hold the first Registry registration open.
+    // 2. Run another activity while that registration is in flight.
+    // 3. Verify both activities result in only one Registry call.
+    const hub = env.REGISTERED_EVENT_HUB.getByName("tenant:concurrent");
+
+    await runInDurableObject(hub, async (instance, state) => {
+      const eventHub = instance as TestRegisteredEventHub;
+      state.storage.sql.exec("DELETE FROM registry_sync_state");
+      const registration = Promise.withResolvers<{
+        ok: true;
+        value: { name: string };
+      }>();
+      const register = vi.fn(() => registration.promise);
+      (
+        eventHub as TestRegisteredEventHub & {
+          registry: DurableObjectNamespace<EventHubRegistry>;
+        }
+      ).registry = {
+        getByName: () => ({ register }),
+      } as unknown as DurableObjectNamespace<EventHubRegistry>;
+
+      await Promise.all([
+        eventHub.publish({ kind: "other" }),
+        eventHub.publish({ kind: "other" }),
+      ]);
+
+      expect(register).toHaveBeenCalledTimes(1);
+      registration.resolve({ ok: true, value: { name: "tenant:concurrent" } });
+      await vi.waitFor(() => {
+        expect(
+          state.storage.sql
+            .exec("SELECT synced_at FROM registry_sync_state")
+            .toArray(),
+        ).toHaveLength(1);
+      });
+    });
+  });
+
+  test("observational reads preserve stale and deleted Registry entries", async () => {
+    // 1. Register a named EventHub, then age both Registry and local synchronization state.
+    // 2. Read it as the Web Console does and verify it remains stale with the same last-seen time.
+    // 3. Tombstone it, perform every observational read, and verify it remains deleted.
+    await clearDefaultRegistry();
+    const name = "tenant:observed-stale";
+    const hub = env.REGISTERED_EVENT_HUB.getByName(name);
+    await hub.publish({ kind: "other" });
+    await vi.waitFor(async () => {
+      expect(
+        unwrap(await registry().list()).instances.some(
+          (instance) => instance.name === name,
+        ),
+      ).toBe(true);
+    });
+    const staleAt = Date.now() - EVENT_HUB_STALE_AFTER_MS - 1_000;
+    await runInDurableObject(registry(), async (_instance, state) => {
+      state.storage.sql.exec(
+        "UPDATE eventhub_instances SET last_seen_at = ? WHERE name = ?",
+        staleAt,
+        name,
+      );
+    });
+    await runInDurableObject(hub, async (_instance, state) => {
+      state.storage.sql.exec(
+        "UPDATE registry_sync_state SET synced_at = ? WHERE singleton = 1",
+        Date.now() - 24 * 60 * 60 * 1_000,
+      );
+    });
+
+    await hub.list();
+    expect(
+      unwrap(await registry().list({ status: "stale" })).instances,
+    ).toMatchObject([
+      {
+        name,
+        lastSeenAt: new Date(staleAt).toISOString(),
+        status: "stale",
+      },
+    ]);
+
+    await registry().delete(name);
+    await hub.list();
+    await hub.listEjected("missing-ejection");
+    expect(
+      unwrap(await registry().list({ status: "deleted" })).instances,
+    ).toMatchObject([{ name, status: "deleted" }]);
+  });
+
+  test("revives a deleted entry on the next due activity", async () => {
+    await clearDefaultRegistry();
+    const name = "tenant:revived";
+    const hub = env.REGISTERED_EVENT_HUB.getByName(name);
+    await hub.publish({ kind: "other" });
+    await vi.waitFor(async () => {
+      expect(
+        unwrap(await registry().list()).instances.some(
+          (instance) => instance.name === name,
+        ),
+      ).toBe(true);
+    });
+    await registry().delete(name);
+    await runInDurableObject(hub, async (_instance, state) => {
+      state.storage.sql.exec("DELETE FROM registry_sync_state");
+    });
+
+    await hub.publish({ kind: "other" });
+    await vi.waitFor(async () => {
+      expect(
+        unwrap(await registry().list()).instances.some(
+          (instance) => instance.name === name && instance.status === "active",
+        ),
+      ).toBe(true);
+    });
+  });
+
+  test("does not register an unnamed EventHub", async () => {
+    await clearDefaultRegistry();
+    const hub = env.REGISTERED_EVENT_HUB.get(
+      env.REGISTERED_EVENT_HUB.newUniqueId(),
+    );
+    await hub.publish({ kind: "other" });
+    expect(unwrap(await registry().list()).instances).toStrictEqual([]);
+  });
+
+  test("does not register an EventHub with an empty name", async () => {
+    const hub = env.EVENT_HUB_WITH_FAILING_REGISTRY.getByName("");
+
+    await hub.publish({ kind: "other" });
+
+    await runInDurableObject(hub, async (instance) => {
+      expect(
+        (instance as TestEventHubWithFailingRegistry).registryAttempts,
+      ).toBe(0);
+    });
+  });
+
+  test("registers through reportFailure resolved from named payload metadata", async () => {
+    // 1. Create a delivery job, then remove its successful Registry sync state.
+    // 2. Resolve the EventHub from matching instance name and ID metadata.
+    // 3. Report the failure and verify the named instance registers again.
+    await clearDefaultRegistry();
+    const name = "tenant:reported-failure";
+    const source = env.REGISTERED_EVENT_HUB.getByName(name);
+    await source.publish({ kind: "culture" });
+
+    await vi.waitFor(async () => {
+      await runInDurableObject(source, async (instance, state) => {
+        expect({
+          registrationInFlight: (
+            instance as unknown as {
+              registrySyncInFlight?: Promise<void>;
+            }
+          ).registrySyncInFlight,
+          syncRows: state.storage.sql
+            .exec("SELECT synced_at FROM registry_sync_state")
+            .toArray(),
+        }).toStrictEqual({
+          registrationInFlight: undefined,
+          syncRows: [{ synced_at: expect.any(Number) }],
+        });
+      });
+    });
+
+    let deliveryJobId = "";
+    await runInDurableObject(source, async (_instance, state) => {
+      deliveryJobId = state.storage.sql
+        .exec<{ id: string }>("SELECT id FROM delivery_jobs LIMIT 1")
+        .one().id;
+      state.storage.sql.exec("DELETE FROM registry_sync_state");
+    });
+    await clearDefaultRegistry();
+
+    const payload = {
+      __eventhub__: {
+        instanceId: source.id.toString(),
+        instanceName: name,
+        deliveryJobId,
+      },
+    };
+    const resolved = getEventHubFromPayload(env.REGISTERED_EVENT_HUB, payload);
+    assert(resolved);
+    expect(unwrap(await resolved.reportFailure(payload))).toBe(true);
+
+    await vi.waitFor(async () => {
+      expect(
+        unwrap(await registry().list()).instances.some(
+          (instance) => instance.name === name && instance.status === "active",
+        ),
+      ).toBe(true);
+    });
+  });
+
+  test("isolates Registry failures and retries on the next activity", async () => {
+    // 1. Run an EventHub RPC against a Registry stub that always rejects.
+    // 2. Verify the RPC succeeds, no success timestamp is stored, and the next RPC retries.
+    const hub = env.EVENT_HUB_WITH_FAILING_REGISTRY.getByName("isolated");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await expect(hub.publish({ kind: "other" })).resolves.toStrictEqual({
+      ok: true,
+    });
+    await vi.waitFor(async () => {
+      await runInDurableObject(hub, async (instance, state) => {
+        expect({
+          attempts: (instance as TestEventHubWithFailingRegistry)
+            .registryAttempts,
+          syncRows: state.storage.sql
+            .exec("SELECT synced_at FROM registry_sync_state")
+            .toArray(),
+        }).toStrictEqual({ attempts: 1, syncRows: [] });
+      });
+    });
+
+    await expect(hub.publish({ kind: "other" })).resolves.toStrictEqual({
+      ok: true,
+    });
+    await vi.waitFor(async () => {
+      await runInDurableObject(hub, async (instance) => {
+        expect(
+          (instance as TestEventHubWithFailingRegistry).registryAttempts,
+        ).toBe(2);
+      });
+    });
+    expect(warn).toHaveBeenCalledWith(
+      "eventhub: registry synchronization failed",
+      expect.objectContaining({
+        operation: "registry_synchronization",
+        instanceId: hub.id.toString(),
+        instanceName: "isolated",
+        error: expect.objectContaining({ message: "registry unavailable" }),
+      }),
+    );
+    warn.mockRestore();
+  });
+
+  test("does not mark Registry synchronization successful for an error result", async () => {
+    const hub = env.REGISTERED_EVENT_HUB.getByName("result-failure");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await runInDurableObject(hub, async (instance, state) => {
+      const eventHub = instance as TestRegisteredEventHub;
+      state.storage.sql.exec("DELETE FROM registry_sync_state");
+      const register = vi.fn(async () => ({
+        ok: false as const,
+        error: {
+          code: "INTERNAL_ERROR" as const,
+          message: "eventhub: internal error",
+        },
+      }));
+      (
+        eventHub as TestRegisteredEventHub & {
+          registry: DurableObjectNamespace<EventHubRegistry>;
+        }
+      ).registry = {
+        getByName: () => ({ register }),
+      } as unknown as DurableObjectNamespace<EventHubRegistry>;
+
+      expect(await eventHub.publish({ kind: "other" })).toStrictEqual({
+        ok: true,
+      });
+      await vi.waitFor(() => expect(register).toHaveBeenCalledTimes(1));
+      expect(
+        state.storage.sql
+          .exec("SELECT synced_at FROM registry_sync_state")
+          .toArray(),
+      ).toStrictEqual([]);
+    });
+    expect(warn).toHaveBeenCalledWith(
+      "eventhub: registry synchronization failed",
+      expect.objectContaining({
+        error: {
+          code: "INTERNAL_ERROR",
+          message: "eventhub: internal error",
+        },
+      }),
+    );
+    warn.mockRestore();
+  });
+});

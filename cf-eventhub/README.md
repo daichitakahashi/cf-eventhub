@@ -1,0 +1,952 @@
+# cf-eventhub
+
+cf-eventhub is an event aggregation component built on Cloudflare Durable Objects. It persists JSON events published from Workers and delivers them to Queue or R2 destinations based on routing rules.
+
+Delivery is attempted immediately, and failed jobs are retried via Durable Object Alarms. Once delivery has completed or permanently failed, finalized events can be snapshotted with `eject()`, paged through with `listEjected()`, archived elsewhere, and then removed with `evict()`.
+
+## Table of Contents
+
+- [What It Does](#what-it-does)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Public API](#public-api)
+- [Error Handling and Observability](#error-handling-and-observability)
+- [EventHub Registry](#eventhub-registry)
+- [Delivery Configuration](#delivery-configuration)
+- [Queue Delivery Limits](#queue-delivery-limits)
+- [Automatic Eviction](#automatic-eviction)
+- [Routing](#routing)
+- [Wrangler Configuration Example](#wrangler-configuration-example)
+- [Publishing from a Worker](#publishing-from-a-worker)
+- [Failure Reporting with Dead-Letter Queues](#failure-reporting-with-dead-letter-queues)
+- [Manual Eviction Workflow Example: eject -> R2.put -> evict](#manual-eviction-workflow-example-eject---r2put---evict)
+  - [Starting the Workflow](#starting-the-workflow)
+- [Listing and Ejection Behavior](#listing-and-ejection-behavior)
+- [Local Development](#local-development)
+
+## What It Does
+
+- Persist events published from a Worker with `publish()`
+- Fan out a published event to multiple Queue or R2 destinations
+- Route events with JSONPath-based conditions or custom routing logic
+- Retry failed deliveries to Queue or R2 automatically
+- Record processing failures reported by Queue consumers with `reportFailure()`
+- Redrive a specific event delivery with `redrive(deliveryJobId)`
+- Archive finalized events gradually with `eject -> listEjected -> evict`
+- Automatically delete or archive finalized events after a retention period
+- Discover named EventHub instances through an optional registry
+
+## Installation
+
+```sh
+npm install cf-eventhub
+```
+
+EventHub uses SQLite-backed Durable Objects. The Worker that defines your
+EventHub subclass must export the class and declare it in both
+`durable_objects.bindings` and `migrations`; see the complete Wrangler example
+below.
+
+### Package Format
+
+This package ships untranspiled TypeScript source. It is intended for
+Cloudflare Workers projects using Wrangler or another toolchain that can bundle
+TypeScript from dependencies.
+
+## Quick Start
+
+The following example creates one named EventHub, routes every published event
+to a Queue, and exposes a `POST /publish` endpoint.
+
+Create `src/index.ts`:
+
+```ts
+import { env } from "cloudflare:workers";
+import { EventHub, EventHubRegistry, routeByConfig } from "cf-eventhub";
+
+export { EventHubRegistry };
+
+export interface Env {
+  EVENT_HUB: DurableObjectNamespace<MyEventHub>;
+  EVENT_HUB_REGISTRY: DurableObjectNamespace<EventHubRegistry>;
+  EVENTS: Queue;
+}
+
+export class MyEventHub extends EventHub<Env> {
+  registry = env.EVENT_HUB_REGISTRY;
+  routing = routeByConfig(env, {
+    routes: [
+      {
+        condition: { allOf: [] },
+        destination: "EVENTS",
+      },
+    ],
+  });
+}
+
+export default {
+  async fetch(request, env): Promise<Response> {
+    const url = new URL(request.url);
+    if (request.method !== "POST" || url.pathname !== "/publish") {
+      return new Response("Not found", { status: 404 });
+    }
+
+    const payload = (await request.json()) as Record<string, unknown>;
+    const result = await env.EVENT_HUB.getByName("default").publish(payload);
+    if (!result.ok) return Response.json(result.error, { status: 400 });
+    return new Response(null, { status: 202 });
+  },
+} satisfies ExportedHandler<Env>;
+```
+
+Add `wrangler.jsonc`:
+
+```jsonc
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "eventhub-app",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-05-11",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      { "name": "EVENT_HUB", "class_name": "MyEventHub" },
+      {
+        "name": "EVENT_HUB_REGISTRY",
+        "class_name": "EventHubRegistry"
+      }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["MyEventHub"] },
+    { "tag": "v2", "new_sqlite_classes": ["EventHubRegistry"] }
+  ],
+  "queues": {
+    "producers": [{ "binding": "EVENTS", "queue": "events" }]
+  }
+}
+```
+
+Generate binding types and start the Worker:
+
+```sh
+npx wrangler types
+npx wrangler dev
+```
+
+Then publish an event to the URL printed by Wrangler:
+
+```sh
+curl -X POST http://localhost:8787/publish \
+  -H 'content-type: application/json' \
+  -d '{"type":"example.created","id":"example-1"}'
+```
+
+The first activity on `getByName("default")` also makes that name discoverable
+through the optional EventHub Registry used by
+[`@cf-eventhub/web-console`](../web-console/README.md).
+
+## Public API
+
+The `EventHub` Durable Object exposes the following RPC methods:
+
+| Method | Behavior |
+| --- | --- |
+| `publish(payload, ...rest)` | Returns `Result`. Validates and persists one or more JSON objects, then starts delivery. |
+| `redrive(deliveryJobId)` | Returns `Result<boolean>`. Creates and immediately delivers an independent copy of an existing job. |
+| `reportFailure(payload)` | Returns `Result<boolean>`. Idempotently records a downstream failure from EventHub delivery metadata. |
+| `list(options?)` | Returns `Result<ListResult>` for live payloads and their delivery jobs. |
+| `eject(before, options?)` | Returns `Result<EjectResult>` after moving eligible finalized payloads into a snapshot. |
+| `listEjected(ejectKey, options?)` | Returns `Result<ListEjectedResult>` for an ejection snapshot page. |
+| `evict(ejectKey)` | Returns `Result` after idempotently removing an ejection snapshot. |
+
+`payload` must be a JSON object.
+
+`EventHubRegistry` exposes `register(name)`, `get(name)`, `list(options?)`, and
+`delete(name)`, all using the same `Result` contract. A successful `get()`
+result contains one active, stale, or deleted entry, or `null` when the name is
+unknown. A successful `list()` result contains active instances by default and
+can filter `active`, `stale`, or `deleted` entries with name-ordered cursor
+pagination. Set `nameContains` to search for a literal, case-sensitive name
+fragment; the same filter applies across cursor pages.
+
+## Error Handling and Observability
+
+EventHub and EventHub Registry RPC methods return the exported `Result<T>` type.
+An `ok: false` value means the RPC reached EventHub and completed with an
+application-level failure. Its `error.code` is the stable public contract.
+
+```ts
+const result = await hub.list({ max: 200 });
+if (!result.ok && result.error.code === "INVALID_ARGUMENT") {
+  // The request reached EventHub, but the argument was invalid.
+}
+```
+
+Promise rejection remains reserved for failures that prevent the RPC itself
+from completing, such as transport, serialization, runtime, or Durable Objects
+infrastructure failures:
+
+```ts
+try {
+  const result = await hub.publish(payload);
+  if (!result.ok) {
+    // EventHub application error.
+  }
+} catch (error) {
+  // RPC/runtime/infrastructure failure.
+}
+```
+
+The exported `EventHubErrorCode` union currently contains:
+
+- `INVALID_ARGUMENT`
+- `PAYLOAD_TOO_LARGE`
+- `INVALID_CURSOR`
+- `DESTINATION_NOT_CONFIGURED`
+- `INVALID_DESTINATION_BINDING`
+- `INSTANCE_MISMATCH`
+- `INTERNAL_ERROR`
+
+Expected EventHub errors preserve their descriptive message. Unexpected
+exceptions raised while processing a reached RPC are logged with their original
+details and returned as a generic `INTERNAL_ERROR`; internal exception details
+and stack traces are not exposed to the caller.
+
+Failures handled internally are emitted as structured Workers logs without
+payload bodies. Retryable delivery, automatic R2 eviction, and Registry
+synchronization failures use `console.warn()`. Permanently failed deliveries,
+paused eviction runs, and invariant failures requiring attention use
+`console.error()`. Delivery retry state remains authoritative in `list()`;
+logs complement rather than replace the durable fields.
+
+## EventHub Registry
+
+The registry is an optional discoverability control plane for named EventHub
+instances. Bind its SQLite-backed Durable Object namespace and expose that
+binding from your EventHub subclass:
+
+```ts
+import { env } from "cloudflare:workers";
+import { EventHub, EventHubRegistry, routeByConfig } from "cf-eventhub";
+
+export { EventHubRegistry };
+
+export class MyEventHub extends EventHub<Env> {
+  registry = env.EVENT_HUB_REGISTRY;
+  routing = routeByConfig(env, { routes: [] });
+}
+```
+
+Data-plane activity on an EventHub created with `getByName()` or `idFromName()`
+registers its Durable Object name automatically. No name needs to be passed to
+the EventHub methods. Liveness-triggering activity is `publish()`, `redrive()`,
+`eject()`, `evict()`, `reportFailure()`, and alarm processing. The observational
+`list()` and `listEjected()` methods never register or refresh an instance.
+Unnamed objects created with `newUniqueId()` or `idFromString()`, and EventHub
+subclasses without a `registry`, retain their previous behavior.
+
+Registration is best-effort and eventually consistent. Each EventHub stores the
+last successful synchronization time and refreshes at most once per 24 hours.
+`lastSeenAt` is therefore an approximate Registry synchronization time, not the
+time of the latest event. A Registry outage never makes publishing, delivery,
+inspection, redrive, eviction, or alarms fail. After Registry data loss,
+reconstruction can take up to 24 hours as EventHub instances become active.
+
+Entries become `stale` when `lastSeenAt` is more than 30 days old. Staleness is
+derived at query time and never deletes data. `EventHubRegistry.delete(name)`
+only writes a discoverability tombstone; it does not delete EventHub SQLite
+storage, alarms, or R2 archives. Later activity revives a tombstoned name when
+the EventHub next synchronizes.
+
+Naming can stay as simple or become as granular as the application requires:
+
+- Use `default` for a small application with one EventHub.
+- Use names such as `tenant:acme` for tenant-level isolation.
+- Use names such as `orders` and `billing` for domain-level partitioning.
+
+## Delivery Configuration
+
+Configure delivery behavior by overriding the `deliveryConfig` field. Use `configureDelivery()` to create a configuration object:
+
+```ts
+import { EventHub, configureDelivery } from "cf-eventhub";
+
+export class MyEventHub extends EventHub<Env> {
+  deliveryConfig = configureDelivery({
+    includeDeliveryMetadata: true, // Include instance identity and job ID (default: false)
+    maxDeliveryRetries: 10,      // Maximum retry attempts (default: 10)
+    initialRetryDelayMs: 5000,   // Initial retry delay (default: 10000)
+    maxRetryDelayMs: 300000,     // Maximum retry delay (default: 900000)
+    deliveryAttemptLeaseMs: 300000, // Interrupted-attempt recovery window (default: 300000)
+    alarmBatchSize: 100,         // Jobs per alarm batch (default: 50)
+  });
+
+  routing = /* ... */;
+}
+```
+
+Before Queue or R2 I/O starts, EventHub atomically leases each delivery job.
+Immediate delivery and alarm retries use the same claim path, so an alarm cannot
+start a second attempt while the first attempt is running. The live instance
+tracks running attempts (including jobs waiting in the same delivery batch)
+and renews their expired leases before another attempt can claim them.
+After an instance restart, interrupted jobs become eligible once their persisted
+lease and retry timestamps have passed. `deliveryAttemptLeaseMs` controls this
+recovery window; it does not impose a delivery timeout.
+
+Delivery is at least once: if a destination accepts a message but the instance
+stops before recording completion, recovery can deliver it again. Consumers
+can enable `includeDeliveryMetadata` and use `deliveryJobId` to deduplicate.
+
+When `includeDeliveryMetadata` is `true`, EventHub injects `instanceId`,
+`deliveryJobId`, and, for named instances, `instanceName` under `__eventhub__`
+before sending each payload to Queue or R2 destinations. The delivered payload
+can be used with `reportFailure()` to record downstream processing failures for
+that delivery job.
+
+## Queue Delivery Limits
+
+EventHub applies Cloudflare Queues producer limits to the JSON body actually
+sent to each Queue destination:
+
+| Limit | EventHub behavior |
+| --- | --- |
+| 128,000 bytes per message | `publish()` rejects an oversized Queue-bound payload before persisting any payloads or delivery jobs from that call. |
+| 256,000 bytes per `sendBatch()` call | Delivery jobs are split into destination-local batches whose combined serialized body size does not exceed the limit. |
+| 100 messages per `sendBatch()` call | A new batch starts whenever adding the next message would exceed either limit. |
+
+Sizes are measured as the UTF-8 byte length of `JSON.stringify(body)`, not as
+JavaScript string length. When `includeDeliveryMetadata` is enabled, the
+injected `__eventhub__` object is included in both the per-message and batch
+size calculations.
+
+The per-message validation applies only when a payload has at least one Queue
+destination. Payloads routed exclusively to R2, and payloads with no matching
+destination, are not subject to the Queue message-size limit. If one argument
+in a multi-payload `publish()` call is oversized, the entire call fails before
+any argument from that call is persisted.
+
+## Automatic Eviction
+
+Eviction is retention cleanup for finalized event data stored in the EventHub
+Durable Object's SQLite database. It removes payloads together with their
+delivery records after they are no longer needed, reducing retained Durable
+Object state. A payload is eligible only after every delivery job has reached a
+final status (or when the payload has no delivery jobs); pending and retryable
+deliveries are never evicted.
+
+Automatic eviction is disabled unless a subclass explicitly defines `eviction`
+with `configureEviction()`. `afterMs` is the retention period after the payload
+was created (when it has no delivery jobs) or after its last delivery job was
+finalized. `batchSize` defaults to 50 and accepts values from 1 through 100.
+
+To delete finalized events directly from SQLite in bounded, atomic batches:
+
+```ts
+import { EventHub, configureEviction } from "cf-eventhub";
+
+export class MyEventHub extends EventHub<Env> {
+  eviction = configureEviction({
+    afterMs: 30 * 24 * 60 * 60 * 1000,
+    action: { type: "delete" },
+    batchSize: 100,
+  });
+
+  routing = /* ... */;
+}
+```
+
+To archive each batch to R2 before removing it from SQLite:
+
+```ts
+import { env } from "cloudflare:workers";
+
+export class MyArchivedEventHub extends EventHub<Env> {
+  eviction = configureEviction({
+    afterMs: 30 * 24 * 60 * 60 * 1000,
+    action: {
+      type: "archive",
+      bucket: env.EVENT_ARCHIVE,
+      prefix: "production/member-events",
+    },
+    batchSize: 100,
+  });
+
+  routing = /* ... */;
+}
+```
+
+Add the archive bucket to `wrangler.jsonc`:
+
+```jsonc
+{
+  "r2_buckets": [
+    {
+      "binding": "EVENT_ARCHIVE",
+      "bucket_name": "event-archive"
+    }
+  ]
+}
+```
+
+The archive binding must be an `R2Bucket`, and `prefix` must be non-empty with no leading, trailing, or repeated slash. Objects use deterministic keys:
+
+```text
+<prefix>/objects/<durableObjectId>/ejections/<ejectKey>/pages/000000.json
+<prefix>/objects/<durableObjectId>/ejections/<ejectKey>/manifest.json
+```
+
+Each alarm performs at most one archive `put`: pages contain up to 100 payloads and 256 KiB of serialized payload bodies, and the completion manifest is written by a later alarm. A successful manifest write is the completion marker. EventHub deletes the SQLite snapshot only after that write succeeds. Failed R2 writes preserve the snapshot and cursor and retry with persistent exponential backoff from one minute up to one hour. At-least-once alarm execution may rewrite a page, but its key and body remain deterministic.
+
+Manual `eject()`, `listEjected()`, and `evict()` remain available for custom
+retention policies. `eject()` atomically moves eligible payloads and their
+delivery records out of the live tables into a SQLite snapshot,
+`listEjected()` reads that snapshot for export, and `evict()` permanently
+deletes the snapshot from SQLite after the caller has finished with it.
+`evict()` does not delete any archive objects previously written to R2.
+
+A manual snapshot takes priority and pauses automatic eviction until it is manually evicted. Disabling eviction or changing its action or archive prefix while an automatic archive is active preserves and pauses that snapshot; restoring the original archive action and prefix resumes it. Changing the bucket behind the same binding while a run is active is unsupported.
+
+Delivery retries and eviction share the Durable Object's single alarm, with delivery processed first and one bounded eviction unit processed afterward. Adding eviction configuration does not wake idle Durable Objects: scheduling begins on that object's next RPC, publish, or existing alarm.
+
+## Routing
+
+Define routing rules by extending `EventHub` and assigning a `RoutingStrategy` to the `routing` field. Use `routeByConfig(env, config)` to create a strategy from a route configuration. The `destination` value must match the binding name of a Queue or R2 bucket. The routing strategy resolves destination bindings from the Worker environment, so mismatched names fail when the strategy validates or resolves that destination.
+
+Each published payload is delivered once per unique matching destination. With
+`routeByConfig()`, destinations are ordered by their first matching rule.
+`routeFunc()` applies the same uniqueness rule and preserves the order in which
+each destination first appears in the callback result.
+
+```ts
+import { env } from "cloudflare:workers";
+import { EventHub, routeByConfig } from "cf-eventhub";
+
+export class MyEventHub extends EventHub<Env> {
+  routing = routeByConfig(env, {
+    routes: [
+      {
+        condition: {
+          path: "$.type",
+          exact: "member.created",
+        },
+        destination: "MEMBER_EVENTS",
+      },
+      {
+        condition: {
+          path: "$.severity",
+          gte: 50,
+        },
+        destination: "HIGH_SEVERITY_ARCHIVE",
+      },
+    ],
+  });
+}
+```
+
+Supported operators are `exact`, `match`, `exists`, `lt`, `lte`, `gt`, `gte`, `allOf`, `anyOf`, and `not`.
+Regular expressions used with `match` must not use the stateful global (`g`) or
+sticky (`y`) flags.
+
+For routing rules that are easier to express in code, use `routeFunc()`:
+
+```ts
+import { env } from "cloudflare:workers";
+import { EventHub, routeFunc } from "cf-eventhub";
+
+export class MyEventHub extends EventHub<Env> {
+  routing = routeFunc(env, (event) =>
+    event.type === "member.created"
+      ? [{ destination: "MEMBER_EVENTS" }]
+      : [],
+  );
+}
+```
+
+For direct delivery to R2, pass per-destination `objectKey` factories in the
+third argument to either `routeByConfig()` or `routeFunc()`:
+
+```ts
+import { env } from "cloudflare:workers";
+import { EventHub, routeByConfig } from "cf-eventhub";
+
+export class MyEventHub extends EventHub<Env> {
+  routing = routeByConfig(
+    env,
+    {
+      routes: [
+        {
+          condition: { path: "$.archive", exact: true },
+          destination: "HIGH_SEVERITY_ARCHIVE",
+        },
+      ],
+    },
+    {
+      r2: {
+        HIGH_SEVERITY_ARCHIVE: {
+          objectKey: ({
+            payload,
+            payloadId,
+            deliveryJobId,
+            destination,
+            instanceName,
+          }) =>
+            `events/${instanceName ?? "unnamed"}/${destination}/${String(payload.type)}/${payloadId}/${deliveryJobId}.json`,
+        },
+      },
+    },
+  );
+}
+```
+
+The factory receives the original payload, payload ID, delivery job ID,
+destination binding name, Durable Object instance ID, and the instance name
+when the object was created by name. Include stable IDs in the result and keep
+the factory deterministic: retries of one delivery job evaluate it with the
+same context and overwrite the same object key. Each R2 destination can use an
+independent factory, so fan-out destinations can have different layouts. A
+generated key must be a non-empty string.
+
+Without a factory, direct R2 delivery keeps the backward-compatible
+`<payloadId>/<deliveryJobId>.json` key. This option does not affect automatic
+eviction archive keys.
+
+The `path` field uses JSONPath-like syntax to extract values from event payloads:
+- `$.property` - Root-level property
+- `$.nested.path` - Nested property
+- `$.items[0]` - Array index
+- `$.items[*]` - Array wildcard (matches if any element satisfies the condition)
+- `$["complex-key"]` - Bracket notation for keys with special characters
+
+> [!NOTE]
+> Routing treats `undefined` the same as an absent property. This is intentional: EventHub handles payloads as JSON-serialized data, and `undefined` keys are not present in that model. As a result, `{ path: "$.field", exists: true }` matches `null` but does not match `undefined`.
+
+## Wrangler Configuration Example
+
+This example adds the Queue and R2 destinations used by the routing examples
+above. The Durable Object bindings and migrations are the same as in
+[Quick Start](#quick-start). If you change bindings, run `npx wrangler types`.
+
+```jsonc
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "eventhub-app",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-05-11",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "EVENT_HUB",
+        "class_name": "MyEventHub"
+      },
+      {
+        "name": "EVENT_HUB_REGISTRY",
+        "class_name": "EventHubRegistry"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["MyEventHub"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["EventHubRegistry"]
+    }
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "MEMBER_EVENTS",
+        "queue": "member-events"
+      }
+    ]
+  },
+  "r2_buckets": [
+    {
+      "binding": "HIGH_SEVERITY_ARCHIVE",
+      "bucket_name": "high-severity-archive"
+    }
+  ]
+}
+```
+
+## Publishing from a Worker
+
+This example accepts HTTP requests and pushes the received event(s) into EventHub. `publish()` supports both a single payload and a batch.
+
+```ts
+import type { EventHub, EventPayload } from "cf-eventhub";
+
+type Env = {
+  EVENT_HUB: DurableObjectNamespace<EventHub>;
+};
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url);
+    if (request.method !== "POST" || url.pathname !== "/publish") {
+      return new Response("Not found", { status: 404 });
+    }
+
+    const hub = env.EVENT_HUB.getByName("default");
+    const body = (await request.json()) as EventPayload | EventPayload[];
+    const result = Array.isArray(body)
+      ? body.length === 0
+        ? null
+        : await hub.publish(body[0], ...body.slice(1))
+      : await hub.publish(body);
+    if (result === null) {
+      return new Response("payloads must not be empty", { status: 400 });
+    }
+    if (!result.ok) {
+      return Response.json(result.error, { status: 400 });
+    }
+
+    return new Response(null, { status: 202 });
+  },
+};
+```
+
+Notes:
+
+- `publish()` validates routing and Queue message size, persists atomically,
+  then starts delivery
+- Queue destinations are delivered with byte-aware, count-bounded
+  `sendBatch()` calls as described in [Queue Delivery Limits](#queue-delivery-limits)
+- R2 destinations are delivered with `put()`
+- Events with no matching route are still persisted as payloads
+- `redrive(deliveryJobId)` creates a new independent payload and delivery job from an existing, non-ejected job, then starts delivery immediately. A successful result contains `false` if the source job no longer exists.
+
+## Failure Reporting with Dead-Letter Queues
+
+EventHub supports consumer-reported failures through the `reportFailure()` method. The recommended pattern is to configure a shared dead-letter queue (DLQ) for all EventHub destination queues and have the DLQ consumer call `reportFailure()` to record a separate consumer-reported failure for the failed payload. This does not change `finalStatus` for the original delivery job. A successful `reportFailure()` result contains `true` when it writes a new failure record, or `false` when the failure was already recorded or the job no longer exists.
+
+### Setup Overview
+
+1. Enable `includeDeliveryMetadata` in your EventHub configuration
+2. Configure a DLQ for each destination queue
+3. Implement a DLQ consumer that calls `reportFailure()` with the failed payload to record the consumer-reported failure
+
+### Wrangler Configuration with DLQ
+
+```jsonc
+{
+  "queues": {
+    "producers": [
+      { "binding": "MEMBER_EVENTS", "queue": "member-events" },
+      { "binding": "PAYMENT_EVENTS", "queue": "payment-events" }
+    ],
+    "consumers": [
+      {
+        "queue": "member-events",
+        "max_batch_size": 100,
+        "max_retries": 3,
+        "dead_letter_queue": "eventhub-dlq"
+      },
+      {
+        "queue": "payment-events",
+        "max_batch_size": 100,
+        "max_retries": 3,
+        "dead_letter_queue": "eventhub-dlq"
+      },
+      {
+        "queue": "eventhub-dlq",
+        "max_batch_size": 10,
+        "max_retries": 0
+      }
+    ]
+  }
+}
+```
+
+### EventHub Configuration
+
+```ts
+import { env } from "cloudflare:workers";
+import { EventHub, configureDelivery, routeByConfig } from "cf-eventhub";
+
+export class MyEventHub extends EventHub<Env> {
+  // Enable delivery job ID injection
+  deliveryConfig = configureDelivery({
+    includeDeliveryMetadata: true,
+  });
+
+  routing = routeByConfig(env, {
+    routes: [
+      {
+        condition: { path: "$.type", exact: "member.created" },
+        destination: "MEMBER_EVENTS",
+      },
+      {
+        condition: { path: "$.type", exact: "payment.completed" },
+        destination: "PAYMENT_EVENTS",
+      },
+    ],
+  });
+}
+```
+
+### Resolving the Originating Instance
+
+`getEventHubFromPayload(namespace, payload)` synchronously returns a typed
+`DurableObjectStub<T> | undefined`, with `T` inferred from the namespace.
+It validates `__eventhub__.instanceId` and returns `undefined` for missing or
+invalid metadata, including IDs from another namespace. When `instanceName` is
+present, it must resolve to the same ID; the helper then uses `getByName()` so
+the originating EventHub retains its name for Registry synchronization. Unnamed
+instances are resolved by ID. Resolving the stub does not make an RPC call or
+check whether the instance already exists. Invalid namespace operations also
+return `undefined`. `reportFailure(payload)` separately
+validates the job ID and requires the instance ID to match the receiving instance.
+
+### DLQ Consumer Implementation
+
+```ts
+import { getEventHubFromPayload, type EventHub } from "cf-eventhub";
+
+type Env = {
+  EVENT_HUB: DurableObjectNamespace<EventHub>;
+};
+
+export default {
+  async queue(batch: MessageBatch, env: Env): Promise<void> {
+    // Report all DLQ messages as failures
+    for (const message of batch.messages) {
+      try {
+        const hub = getEventHubFromPayload(env.EVENT_HUB, message.body);
+        if (!hub) {
+          console.error("Invalid EventHub metadata", message.id);
+          message.retry();
+          continue;
+        }
+        const result = await hub.reportFailure(message.body);
+        if (result.ok) {
+          message.ack();
+        } else {
+          console.error("EventHub rejected failure report:", result.error);
+          message.retry();
+        }
+      } catch (error) {
+        console.error("Failed to report failure:", error);
+        message.retry();
+      }
+    }
+  },
+};
+```
+
+### How It Works
+
+1. EventHub publishes events to `MEMBER_EVENTS` and `PAYMENT_EVENTS` queues
+2. Each payload includes `__eventhub__: { instanceId, instanceName, deliveryJobId }` for a named EventHub
+3. If a consumer fails to process a message after `max_retries`, the message moves to `eventhub-dlq`
+4. The DLQ consumer calls `reportFailure()` with the failed payload
+5. EventHub records a consumer-reported failure for the extracted job ID, but the job's `finalStatus` remains unchanged.
+
+### Benefits
+
+- **Centralized failure tracking**: All queue failures go through one DLQ
+- **Simple consumer logic**: Just call `reportFailure(message.body)`
+- **Idempotent**: Multiple calls with the same payload are safe
+- **Type-safe**: `reportFailure()` validates the payload structure
+
+### Advanced Usage
+
+While the DLQ pattern is recommended for most use cases, you can also call `reportFailure()` directly from primary queue consumers for custom failure handling, or from R2-triggered workflows if you store payloads in R2 and need to report processing failures.
+
+## Manual Eviction Workflow Example: `eject -> R2.put -> evict`
+
+This example shows how to implement retention yourself with Cloudflare
+Workflows instead of configuring [Automatic Eviction](#automatic-eviction).
+Use this approach when the application needs to control the schedule, export
+format, or archive process. It is not required when the built-in automatic
+delete or R2 archive behavior meets the application's needs.
+
+The Workflow archives finalized events periodically. It creates a SQLite
+snapshot with `eject()`, paginates through the snapshot with `listEjected()`,
+writes each page to R2, and calls `evict()` only after the export completes to
+permanently remove that snapshot from EventHub storage. The R2 objects remain
+available after `evict()`.
+
+Cloudflare Workflows should keep side effects inside `step.do()`, so this example executes `eject`, `R2.put`, and `evict` only inside workflow steps.
+
+In addition to the EventHub binding and migrations from
+[Quick Start](#quick-start), add the archive bucket and Workflow bindings to
+`wrangler.jsonc`:
+
+```jsonc
+{
+  "r2_buckets": [
+    {
+      "binding": "EVENT_ARCHIVE_EXPORT",
+      "bucket_name": "event-archive-export"
+    }
+  ],
+  "workflows": [
+    {
+      "name": "event-archive-workflow",
+      "binding": "EVENT_ARCHIVE_WORKFLOW",
+      "class_name": "EventArchiveWorkflow"
+    }
+  ]
+}
+```
+
+```ts
+import {
+  WorkflowEntrypoint,
+  type WorkflowEvent,
+  type WorkflowStep,
+} from "cloudflare:workers";
+import { EventHub } from "cf-eventhub";
+
+type ArchivePayload = {
+  hubName?: string;
+  before: number;
+  max?: number;
+};
+
+type Env = {
+  EVENT_HUB: DurableObjectNamespace<EventHub>;
+  EVENT_ARCHIVE_EXPORT: R2Bucket;
+};
+
+export class EventArchiveWorkflow extends WorkflowEntrypoint<
+  Env,
+  ArchivePayload
+> {
+  async run(
+    event: WorkflowEvent<ArchivePayload>,
+    step: WorkflowStep,
+  ): Promise<{ ejectKey: string | null; archivedCount: number }> {
+    const hub = this.env.EVENT_HUB.getByName(
+      event.payload.hubName ?? "default",
+    );
+
+    const ejectionResult = await step.do("create ejection", async () => {
+      return await hub.eject(event.payload.before, {
+        max: event.payload.max ?? 100,
+      });
+    });
+    if (!ejectionResult.ok) throw new Error(ejectionResult.error.message);
+    const ejection = ejectionResult.value;
+
+    if (!ejection.ejectKey) {
+      return {
+        ejectKey: null,
+        archivedCount: 0,
+      };
+    }
+
+    const ejectKey = ejection.ejectKey;
+
+    const archivedCount = await step.do("export to r2", async () => {
+      let cursor: string | undefined;
+      let pageIndex = 0;
+      let count = 0;
+
+      while (true) {
+        const pageResult = await hub.listEjected(ejectKey, {
+          cursor,
+          max: 100,
+          maxBytes: 262_144,
+        });
+        if (!pageResult.ok) throw new Error(pageResult.error.message);
+        const page = pageResult.value;
+        if (page.payloads.length === 0) {
+          break;
+        }
+
+        const objectKey = `eventhub-ejections/${ejectKey}/page-${String(
+          pageIndex,
+        ).padStart(4, "0")}.json`;
+        await this.env.EVENT_ARCHIVE_EXPORT.put(
+          objectKey,
+          JSON.stringify(page.payloads),
+          {
+            httpMetadata: {
+              contentType: "application/json",
+            },
+          },
+        );
+
+        count += page.payloads.length;
+        cursor = page.cursor;
+        pageIndex += 1;
+
+        if (!cursor) {
+          break;
+        }
+      }
+
+      return count;
+    });
+
+    await step.do("evict ejection", async () => {
+      const result = await hub.evict(ejectKey);
+      if (!result.ok) throw new Error(result.error.message);
+    });
+
+    return {
+      ejectKey,
+      archivedCount,
+    };
+  }
+}
+```
+
+### Starting the Workflow
+
+This example starts the archive workflow from another Worker.
+
+```ts
+type Env = {
+  EVENT_ARCHIVE_WORKFLOW: Workflow;
+};
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url);
+    if (request.method !== "POST" || url.pathname !== "/archive") {
+      return new Response("Not found", { status: 404 });
+    }
+
+    const instance = await env.EVENT_ARCHIVE_WORKFLOW.create({
+      id: `archive-${Date.now()}`,
+      payload: {
+        hubName: "default",
+        before: Date.now() - 60_000,
+        max: 100,
+      },
+    });
+
+    return Response.json({
+      id: instance.id,
+    });
+  },
+};
+```
+
+## Listing and Ejection Behavior
+
+- `list()` supports `cursor`, `max`, `maxBytes`, and `order` (`"asc"` by
+  default).
+- `eject(before)` moves finalized payloads older than `before` into one snapshot.
+- If an active snapshot already exists, `eject()` returns the existing
+  `ejectKey`.
+- `listEjected()` supports pagination with `cursor`, `max`, and `maxBytes`.
+- `max` defaults to 50 and is limited to 100. `maxBytes` defaults to 256 KiB;
+  the first payload is returned even when it alone exceeds that soft budget.
+- `evict(ejectKey)` is idempotent.
+
+## Local Development
+
+```sh
+pnpm --filter cf-eventhub dev
+pnpm --filter cf-eventhub cf-typegen
+pnpm --filter cf-eventhub test
+```

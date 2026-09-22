@@ -1,21 +1,26 @@
 {
-  "name": "cf-eventhub",
+  "name": "cf-eventhub-workspace",
   "version": "1.0.0",
   "private": true,
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "node internal/index.mjs",
-    "ci:publish": "pnpm publish -r --access public --no-git-checks"
+    "dev": "pnpm --filter eventhub-demo dev",
+    "ci:publish": "node ./scripts/pin-readme-links.mjs && pnpm changeset publish"
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
-  "dependencies": {
-    "@biomejs/biome": "^1.9.4"
-  },
+  "license": "MIT",
   "devDependencies": {
-    "@changesets/cli": "^2.29.7",
-    "chalk": "^5.6.2"
+    "@biomejs/biome": "^2.5.14",
+    "@changesets/cli": "^3.0.2"
+  },
+  "packageManager": "pnpm@11.7.0",
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "^24.0.0",
+      "onFail": "download"
+    }
   }
 }

@@ -6,7 +6,7 @@ export const Textarea = (props: ElementProps<"textarea">) => {
       {...props}
       class="
         flex
-        min-h-[80px]
+        min-h-20
         max-h-[300px]
         w-full
         rounded-md

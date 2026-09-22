@@ -1,0 +1,175 @@
+import { env } from "cloudflare:workers";
+import { EventHub } from ".";
+import { QueueMock, R2BucketMock } from "./core/mock";
+import { routeByConfig, routeFunc } from "./core/routing";
+import {
+  configureDelivery,
+  configureEviction,
+  type EvictionConfig,
+} from "./eventhub";
+
+export { EventHubRegistry } from "./registry";
+
+type Env = {
+  OKAYAMA: Queue;
+  HOKKAIDO: Queue;
+  OKINAWA: Queue;
+  ARCHIVE: R2Bucket;
+  EVICTION_ARCHIVE: R2Bucket;
+  EVENT_HUB_REGISTRY: DurableObjectNamespace<
+    import("./registry").EventHubRegistry
+  >;
+};
+
+export const testRouting = routeByConfig<Env>(env as unknown as Env, {
+  routes: [
+    {
+      condition: {
+        path: "$.kind",
+        exact: "culture",
+      },
+      destination: "OKAYAMA",
+    },
+    {
+      condition: {
+        path: "$.kind",
+        exact: "nature",
+      },
+      destination: "HOKKAIDO",
+    },
+    {
+      condition: {
+        path: "$.kind",
+        exact: "nature",
+      },
+      destination: "OKINAWA",
+    },
+    {
+      condition: {
+        path: "$.kind",
+        exact: "archive",
+      },
+      destination: "ARCHIVE",
+    },
+  ],
+});
+
+export class TestEventHub extends EventHub<Env> {
+  deliveryConfig = configureDelivery({});
+  routing = testRouting;
+}
+
+export class TestRegisteredEventHub extends EventHub<Env> {
+  registry = (env as unknown as Env).EVENT_HUB_REGISTRY;
+  deliveryConfig = configureDelivery({});
+  routing = testRouting;
+}
+
+export class TestEventHubWithFailingRegistry extends EventHub<Env> {
+  registryAttempts = 0;
+  registry = {
+    getByName: () => ({
+      register: async () => {
+        this.registryAttempts += 1;
+        throw new Error("registry unavailable");
+      },
+    }),
+  } as unknown as DurableObjectNamespace<import("./registry").EventHubRegistry>;
+  deliveryConfig = configureDelivery({});
+  routing = testRouting;
+}
+
+export class TestEventHubWithDeleteEviction extends EventHub<Env> {
+  deliveryConfig = configureDelivery({});
+  eviction: EvictionConfig | undefined = configureEviction({
+    afterMs: 1_000,
+    action: { type: "delete" },
+    batchSize: 2,
+  });
+  routing = testRouting;
+}
+
+export class TestEventHubWithArchiveEviction extends EventHub<Env> {
+  deliveryConfig = configureDelivery({});
+  eviction: EvictionConfig | undefined = configureEviction({
+    afterMs: 1_000,
+    action: {
+      type: "archive",
+      bucket: (env as unknown as Env).EVICTION_ARCHIVE,
+      prefix: "automatic",
+    },
+    batchSize: 2,
+  });
+  routing = testRouting;
+}
+
+export class TestEventHubWithFailingArchiveEviction extends EventHub<Env> {
+  bucket = new R2BucketMock([], true);
+  deliveryConfig = configureDelivery({});
+  eviction: EvictionConfig | undefined = configureEviction({
+    afterMs: 1_000,
+    action: {
+      type: "archive",
+      bucket: this.bucket as unknown as R2Bucket,
+      prefix: "automatic-failure",
+    },
+    batchSize: 2,
+  });
+  routing = testRouting;
+}
+
+type EnvForTestEventHubWithJobId = {
+  QUEUE: Queue;
+  BUCKET: R2Bucket;
+};
+
+export class TestEventHubWithJobId extends EventHub<EnvForTestEventHubWithJobId> {
+  deliveryConfig = configureDelivery({ includeDeliveryMetadata: true });
+  queue = new QueueMock();
+  bucket = new R2BucketMock();
+  routing = routeFunc<EnvForTestEventHubWithJobId>(
+    {
+      QUEUE: this.queue,
+      BUCKET: this.bucket,
+    },
+    (e) => {
+      const typ = e.type;
+      if (typ === "queue")
+        return [
+          {
+            destination: "QUEUE",
+          },
+        ];
+      if (typ === "archive")
+        return [
+          {
+            destination: "BUCKET",
+          },
+        ];
+      return [];
+    },
+    {
+      r2: {
+        BUCKET: {
+          objectKey: ({
+            payload,
+            payloadId,
+            deliveryJobId,
+            destination,
+            instanceId,
+            instanceName,
+          }) => {
+            const firstKeyPart = Array.isArray(payload.keyParts)
+              ? payload.keyParts[0]
+              : undefined;
+            const payloadKey =
+              firstKeyPart === undefined ? payload.type : firstKeyPart;
+            return `custom/${instanceName ?? instanceId}/${destination}/${String(payloadKey)}/${payloadId}/${deliveryJobId}.json`;
+          },
+        },
+      },
+    },
+  );
+}
+
+export default {};

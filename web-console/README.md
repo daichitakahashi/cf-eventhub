@@ -1,8 +1,190 @@
-```
-npm install
-npm run dev
+# @cf-eventhub/web-console
+
+@cf-eventhub/web-console is a web UI for inspecting EventHub payloads and delivery jobs.
+It lets operators view recent events, inspect delivery status and errors, create events, and redrive failed delivery jobs.
+
+> [!WARNING]
+> The console can display event payloads, create events, and redrive delivery
+> jobs. Do not deploy it as an unauthenticated public endpoint. Protect the
+> console with Cloudflare Access or equivalent authentication before production
+> use.
+
+## Package Format
+
+This package ships untranspiled TypeScript and TSX source. It is intended for
+Cloudflare Workers projects using Wrangler or another toolchain that can bundle
+TypeScript and TSX from dependencies. It is not directly executable by Node.js
+without transpilation.
+
+## Basic Usage
+
+The console requires an EventHub Worker with:
+
+- an exported `EventHub` subclass;
+- an exported `EventHubRegistry` class;
+- Durable Object bindings and migrations for both classes;
+- the Registry assigned to the EventHub subclass; and
+- at least one named EventHub accessed with `getByName()`.
+
+See the [`cf-eventhub` Quick Start](../cf-eventhub/README.md#quick-start) for a
+complete EventHub setup. Installing the console package alone does not create or
+register EventHub instances.
+
+Install the console package alongside the EventHub package.
+
+```sh
+npm install @cf-eventhub/web-console cf-eventhub
 ```
 
+Create a Worker entrypoint that mounts the console handler.
+
+```ts
+import { createWebConsole } from "@cf-eventhub/web-console";
+
+export default createWebConsole({
+  eventHub: {
+    binding: "EVENT_HUB",
+  },
+  registry: {
+    binding: "EVENT_HUB_REGISTRY",
+  },
+  environment: "production",
+});
 ```
-npm run deploy
+
+The console discovers named EventHub instances through the Registry and stores
+the current selection in the `instance` query parameter. Active instances are
+shown by default. Operators can explicitly show and select stale instances;
+deleted entries are excluded. A selected stale instance can be removed from the
+Registry in the console; active instances cannot be removed there. This
+tombstones its Registry entry but does not delete its EventHub data. The binding
+names default to `EVENT_HUB` and
+`EVENT_HUB_REGISTRY`.
+
+If the instance picker is empty, first perform data-plane activity such as
+`publish()` on a named instance. Observational calls such as `list()` do not
+register or refresh an instance. For example:
+
+```ts
+const result = await env.EVENT_HUB
+  .getByName("default")
+  .publish({ type: "example.created" });
+if (!result.ok) throw new Error(result.error.message);
 ```
+
+Registration is asynchronous, so reload the console after the call completes.
+
+The console periodically checks for newer events or delivery-job updates. If the
+current page is stale, it shows a reload prompt. Pages with ongoing deliveries
+reload automatically on the refresh interval.
+
+## Wrangler Configuration
+
+Bind the console Worker to both Durable Object classes. If the console is
+deployed as a separate Worker, both bindings must use the same owning Worker's
+`script_name` and, when applicable, the same environment.
+
+```jsonc
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "eventhub-console",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-05-11",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "EVENT_HUB",
+        "class_name": "MyEventHub",
+        // If the console and EventHub Durable Object are deployed from the same Worker, omit `script_name`.
+        "script_name": "eventhub-app"
+      },
+      {
+        "name": "EVENT_HUB_REGISTRY",
+        "class_name": "EventHubRegistry",
+        "script_name": "eventhub-app"
+      }
+    ]
+  }
+}
+```
+
+Run locally and deploy with Wrangler:
+
+```sh
+npx wrangler dev
+npx wrangler deploy
+```
+
+When developing the console as a separate Worker, the owning EventHub Worker
+must also be available to Wrangler. For the simplest local setup, mount the
+console in the same Worker as shown in this repository's
+[`eventhub-demo`](../demo/src/index.ts).
+
+## Configuration Options
+
+`createWebConsole()` accepts the following commonly used options:
+
+- `eventHub.binding`: Durable Object binding name. Defaults to `EVENT_HUB`.
+- `registry.binding`: Registry Durable Object binding name. Defaults to
+  `EVENT_HUB_REGISTRY`.
+- `environment`: Label shown in the page title and header.
+- `color`: Header color as a hex string such as `#1d4ed8`.
+- `pageSize`: Number of events shown per page. Defaults to `5`.
+- `refreshIntervalSeconds`: Polling interval for update detection. Defaults to
+  `5`.
+- `dateFormatter`: `Intl.DateTimeFormat` used for timestamps.
+- `eventTitle`: Function for rendering a custom event title.
+- `createEventPlaceholder`: Placeholder text for the create-event form.
+
+For example, use a field from the stored payload as the event title and fall
+back to the EventHub event ID:
+
+```ts
+createWebConsole({
+  eventTitle: (event) =>
+    typeof event.payload.eventName === "string"
+      ? event.payload.eventName
+      : event.id,
+});
+```
+
+Registry discovery is eventually consistent. EventHub refreshes its entry at
+most once per 24 hours, so `lastSeenAt` is an approximate synchronization time.
+An instance becomes stale after 30 days without a refresh, but remains fully
+selectable when **Show stale** is enabled in the picker. The control starts
+unchecked each time the picker opens. Inspecting an instance does not
+refresh its liveness or revive a Registry tombstone. Registry failure does not
+affect the EventHub data plane; the console displays a distinct Registry error
+state.
+
+The instance picker searches Registry names and loads results in pages of 50.
+Its **Show stale** control includes stale instances and displays their
+`lastSeenAt` timestamp. Instance-specific API requests validate the selected
+name with a direct Registry lookup, so polling, publishing, and redrive
+requests do not scale with the total number of registered instances.
+
+## Protecting with Cloudflare Access
+
+The console is an operational interface. It can display event payloads, expose
+delivery errors, create test events, and redrive delivery jobs. Do not expose it
+as an unauthenticated public endpoint.
+
+The recommended deployment pattern is to protect the console hostname with
+Cloudflare Access:
+
+1. Deploy the console on a dedicated hostname such as
+   `eventhub-console.example.com`.
+2. Create a Cloudflare Access application for that hostname.
+3. Add policies that allow only the operators, groups, or service identities
+   that need EventHub access.
+4. Keep the EventHub publishing endpoints separate from the console route so
+   Access policies for operators do not affect producer traffic.
+
+For production, prefer a dedicated console hostname protected by Access. This
+keeps the operational UI isolated from application routes and makes the access
+policy easier to audit.
+
+The current handler uses root-relative routes such as `/` and `/api`; it cannot
+be mounted below a path such as `/eventhub-console` without rewriting those
+paths. Use a dedicated hostname unless the surrounding Worker performs that
+rewrite.

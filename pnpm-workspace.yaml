@@ -1,16 +1,26 @@
 packages:
   - cf-eventhub
   - web-console
-  - iac/pulumi
-  - internal/*
+  - demo
+
+allowBuilds:
+  '@biomejs/biome': true
+  '@parcel/watcher': true
+  esbuild: true
+  sharp: true
+  workerd: true
 
 catalog:
-  '@cloudflare/vitest-pool-workers': 0.12.14
-  '@cloudflare/workers-types': 4.20260219.0
-  wrangler: 4.67.0
+  "@cloudflare/vitest-pool-workers": 0.22.0
+  "@cloudflare/workers-types": 5.20260911.1
+  wrangler: 4.131.0
+  typescript: 6.0.3
+  vitest: 4.1.11
+
+minimumReleaseAge: 1440
 
 onlyBuiltDependencies:
-  - '@biomejs/biome'
+  - "@biomejs/biome"
   - cpu-features
   - esbuild
   - protobufjs

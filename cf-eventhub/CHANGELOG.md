@@ -1,5 +1,56 @@
 # cf-eventhub
 
+## 1.0.0-rc.0
+
+### Major Changes
+
+- Prepare the first v1 release candidate.
+
+### Minor Changes
+
+- 7bd6ef6: Add EventHub Registry discovery, best-effort named-instance self-registration,
+  Registry-backed instance selection throughout the Web Console, and name-aware
+  originating instance resolution from delivered payload metadata.
+- 12720c4: Add optional alarm-driven automatic eviction with bounded delete and retry-safe R2 archive actions.
+- 926d629: Return application-level EventHub and Registry RPC failures as typed `Result`
+  values, reserve Promise rejection for RPC infrastructure failures, and update
+  the Web Console and examples to consume the new contract. Remove the custom
+  `eventHubError` helper; synchronous configuration failures now use standard
+  `Error` values.
+- 125f145: Expose payload IDs and creation times from live and ejected event listings, and
+  use them in the Web Console for stable rendering and no-route event polling.
+- 5c2d8bf: Add direct EventHub Registry lookup and use it to validate instance-specific
+  Web Console API requests without enumerating Registry pages.
+- d6935a5: Expose stable error codes for intentional RPC failures and add structured logs for internally handled failures.
+- 0160163: Rename the delivery status field to `failedAttemptCount` and display accurate attempt counts for ongoing, completed, and permanently failed jobs.
+
+### Patch Changes
+
+- f2076cd: Validate and precompile configured routing paths when `routeByConfig()` creates a routing strategy.
+- 04ed0d3: Prevent overlapping delivery attempts by atomically leasing persisted jobs
+  before immediate or alarm-driven Queue and R2 delivery.
+  Keep running attempts exclusive beyond lease expiry while allowing interrupted
+  attempts to recover after an instance restart. Handle full Queue batches without
+  exceeding the SQL parameter limit when recording delivery results.
+- cff33f1: Keep observational EventHub reads from refreshing Registry liveness or reviving
+  tombstoned instances, and document the operations that count as activity.
+- 69e0138: Track SQLite schema versions for EventHub and Registry Durable Objects, with each internal migration in its own source file and applied transactionally.
+- e7c9b5e: Split Queue delivery batches by serialized byte size and reject oversized Queue payloads during publish.
+
+## Unreleased
+
+### Minor Changes
+
+- Add literal name-fragment search to paginated `EventHubRegistry.list()` results.
+- Add optional automatic eviction using Durable Object Alarms, with bounded direct deletion or retry-safe R2 archival through `configureEviction()`.
+- Add the SQLite-backed `EventHubRegistry` API and best-effort self-registration for named EventHub instances.
+- Add delivery instance metadata and `getEventHubFromPayload()` for resolving the originating EventHub from shared destination payloads.
+- Add configurable, destination-aware object keys for direct R2 delivery through `routeByConfig()` and `routeFunc()`.
+
+### Patch Changes
+
+- Reject stateful global or sticky regular expressions in `routeByConfig()` match conditions.
+
 ## 0.3.5
 
 ### Patch Changes

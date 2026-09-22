@@ -1,17 +1,34 @@
 {
-  "$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
+  "$schema": "node_modules/@biomejs/biome/configuration_schema.json",
   "formatter": {
     "enabled": true,
     "indentStyle": "space",
     "indentWidth": 2
   },
-  "organizeImports": {
-    "enabled": true
+  "files": {
+    "includes": [
+      "**/*",
+      "!cf-eventhub/worker-configuration.d.ts",
+      "!demo/worker-configuration.d.ts",
+      "!web-console/src/app/styles.css",
+      "!web-console/src/app/styles.ts",
+      "!**/*.json"
+    ]
+  },
+  "assist": {
+    "actions": {
+      "source": {
+        "organizeImports": {
+          "level": "on",
+          "options": {}
+        }
+      }
+    }
   },
   "linter": {
     "enabled": true,
     "rules": {
-      "recommended": true,
+      "preset": "recommended",
       "correctness": {
         "noUndeclaredVariables": "error",
         "noUnusedVariables": "error",
@@ -22,6 +39,48 @@
         "noNamespace": "error",
         "useShorthandFunctionType": "off"
       }
+    }
+  },
+  "javascript": {
+    "globals": [
+      "Env",
+      "ExportedHandler",
+      "Queue",
+      "MessageSendRequest",
+      "Message",
+      "MessageBatch",
+      "QueueSendOptions",
+      "QueueSendBatchOptions",
+      "QueueMetrics",
+      "QueueSendResponse",
+      "QueueSendBatchResponse",
+      "ExecutionContext",
+      "ScheduledController",
+      "Service",
+      "Rpc",
+      "HtmxAttributes",
+      "Hyperdrive",
+      "R2Bucket",
+      "R2Object",
+      "R2Objects",
+      "R2ObjectBody",
+      "R2PutOptions",
+      "R2MultipartUpload",
+      "DurableObjectState",
+      "DurableObjectStub",
+      "SqlStorage",
+      "SqlStorageValue",
+      "SqlStorageStatement",
+      "SqlStorageCursor",
+      "WorkflowEvent",
+      "WorkflowStep",
+      "DurableObjectNamespace",
+      "DurableObjectId"
+    ]
+  },
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
     }
   }
 }
