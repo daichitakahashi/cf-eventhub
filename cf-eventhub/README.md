@@ -413,6 +413,14 @@ their delivery records out of the live tables into a SQLite snapshot,
 deletes the snapshot from SQLite after the caller has finished with it.
 `evict()` does not delete archive objects written by the application.
 
+Before enabling automatic eviction on an existing EventHub instance, finish
+and evict any active manual snapshot. An existing manual snapshot prevents
+automatic eviction from starting, and the manual APIs become unavailable once
+`eviction` is configured. If automatic eviction was enabled before the manual
+snapshot was cleared, temporarily deploy without `eviction`, call `eject()` to
+retrieve the active snapshot key if needed, call `evict()` with that key, and
+then re-enable automatic eviction.
+
 Disabling eviction or changing its action or archive prefix while an automatic
 archive is active preserves and pauses that snapshot; restoring the original
 archive action and prefix resumes it. Changing the bucket behind the same
