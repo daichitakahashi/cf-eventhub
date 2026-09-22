@@ -179,6 +179,8 @@ const DEFAULT_DELIVERY_ATTEMPT_LEASE_MS = 300_000;
 const DEFAULT_INCLUDE_DELIVERY_METADATA = false;
 const DEFAULT_EVICTION_BATCH_SIZE = 50;
 const REGISTRY_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1_000;
+const MANUAL_EVICTION_UNAVAILABLE_MESSAGE =
+  "eventhub: manual eviction is unavailable when automatic eviction is configured";
 
 const assertPositiveInteger = (v: number, name: string) => {
   if (Number.isInteger(v) && v > 0) return;
@@ -424,6 +426,12 @@ export abstract class EventHub<
     return rpcBoundary(
       "eject",
       async () => {
+        if (this.eviction) {
+          return resultError(
+            "OPERATION_NOT_ALLOWED",
+            MANUAL_EVICTION_UNAVAILABLE_MESSAGE,
+          );
+        }
         if (!Number.isFinite(before)) {
           return resultError(
             "INVALID_ARGUMENT",
@@ -456,6 +464,12 @@ export abstract class EventHub<
     return rpcBoundary(
       "listEjected",
       async () => {
+        if (this.eviction) {
+          return resultError(
+            "OPERATION_NOT_ALLOWED",
+            MANUAL_EVICTION_UNAVAILABLE_MESSAGE,
+          );
+        }
         if (ejectKey.length === 0) {
           return resultError(
             "INVALID_ARGUMENT",
@@ -478,6 +492,12 @@ export abstract class EventHub<
     return rpcBoundary(
       "evict",
       async () => {
+        if (this.eviction) {
+          return resultError(
+            "OPERATION_NOT_ALLOWED",
+            MANUAL_EVICTION_UNAVAILABLE_MESSAGE,
+          );
+        }
         if (ejectKey.length === 0) {
           return resultError(
             "INVALID_ARGUMENT",

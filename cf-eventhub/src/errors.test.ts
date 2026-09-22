@@ -23,6 +23,7 @@ describe("serializeError", () => {
 describe("rpcBoundary", () => {
   test.each([
     "INVALID_ARGUMENT",
+    "OPERATION_NOT_ALLOWED",
     "INVALID_CURSOR",
     "PAYLOAD_TOO_LARGE",
     "DESTINATION_NOT_CONFIGURED",

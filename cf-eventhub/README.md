@@ -156,9 +156,9 @@ The `EventHub` Durable Object exposes the following RPC methods:
 | `redrive(deliveryJobId)` | Returns `Result<boolean>`. Creates and immediately delivers an independent copy of an existing job. |
 | `reportFailure(payload)` | Returns `Result<boolean>`. Idempotently records a downstream failure from EventHub delivery metadata. |
 | `list(options?)` | Returns `Result<ListResult>` for live payloads and their delivery jobs. |
-| `eject(before, options?)` | Returns `Result<EjectResult>` after moving eligible finalized payloads into a snapshot. |
-| `listEjected(ejectKey, options?)` | Returns `Result<ListEjectedResult>` for an ejection snapshot page. |
-| `evict(ejectKey)` | Returns `Result` after idempotently removing an ejection snapshot. |
+| `eject(before, options?)` | Returns `Result<EjectResult>` after moving eligible finalized payloads into a snapshot. Available only when automatic eviction is not configured. |
+| `listEjected(ejectKey, options?)` | Returns `Result<ListEjectedResult>` for an ejection snapshot page. Available only when automatic eviction is not configured. |
+| `evict(ejectKey)` | Returns `Result` after idempotently removing an ejection snapshot. Available only when automatic eviction is not configured. |
 
 `payload` must be a JSON object.
 
@@ -201,6 +201,7 @@ try {
 The exported `EventHubErrorCode` union currently contains:
 
 - `INVALID_ARGUMENT`
+- `OPERATION_NOT_ALLOWED`
 - `PAYLOAD_TOO_LARGE`
 - `INVALID_CURSOR`
 - `DESTINATION_NOT_CONFIGURED`
@@ -399,14 +400,23 @@ The archive binding must be an `R2Bucket`, and `prefix` must be non-empty with n
 
 Each alarm performs at most one archive `put`: pages contain up to 100 payloads and 256 KiB of serialized payload bodies, and the completion manifest is written by a later alarm. A successful manifest write is the completion marker. EventHub deletes the SQLite snapshot only after that write succeeds. Failed R2 writes preserve the snapshot and cursor and retry with persistent exponential backoff from one minute up to one hour. At-least-once alarm execution may rewrite a page, but its key and body remain deterministic.
 
-Manual `eject()`, `listEjected()`, and `evict()` remain available for custom
-retention policies. `eject()` atomically moves eligible payloads and their
-delivery records out of the live tables into a SQLite snapshot,
+Configuring automatic eviction delegates the retention lifecycle to EventHub.
+While `eviction` is configured, manual `eject()`, `listEjected()`, and `evict()`
+calls return `OPERATION_NOT_ALLOWED`. Applications that need manual control over
+the schedule, export format, or archive process should not configure automatic
+eviction and can instead use the
+[manual eviction workflow](#manual-eviction-workflow-example-eject---r2put---evict).
+
+Without automatic eviction, `eject()` atomically moves eligible payloads and
+their delivery records out of the live tables into a SQLite snapshot,
 `listEjected()` reads that snapshot for export, and `evict()` permanently
 deletes the snapshot from SQLite after the caller has finished with it.
-`evict()` does not delete any archive objects previously written to R2.
+`evict()` does not delete archive objects written by the application.
 
-A manual snapshot takes priority and pauses automatic eviction until it is manually evicted. Disabling eviction or changing its action or archive prefix while an automatic archive is active preserves and pauses that snapshot; restoring the original archive action and prefix resumes it. Changing the bucket behind the same binding while a run is active is unsupported.
+Disabling eviction or changing its action or archive prefix while an automatic
+archive is active preserves and pauses that snapshot; restoring the original
+archive action and prefix resumes it. Changing the bucket behind the same
+binding while a run is active is unsupported.
 
 Delivery retries and eviction share the Durable Object's single alarm, with delivery processed first and one bounded eviction unit processed afterward. Adding eviction configuration does not wake idle Durable Objects: scheduling begins on that object's next RPC, publish, or existing alarm.
 
@@ -935,6 +945,8 @@ export default {
 
 - `list()` supports `cursor`, `max`, `maxBytes`, and `order` (`"asc"` by
   default).
+- Manual ejection APIs are available only when automatic eviction is not
+  configured.
 - `eject(before)` moves finalized payloads older than `before` into one snapshot.
 - If an active snapshot already exists, `eject()` returns the existing
   `ejectKey`.

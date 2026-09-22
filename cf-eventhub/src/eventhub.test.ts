@@ -1975,40 +1975,31 @@ describe("automatic eviction", () => {
     });
   });
 
-  test("manual ejection blocks automatic archive until manual eviction", async () => {
-    // 1. Create a manual snapshot before automatic eviction runs.
-    // 2. Verify an alarm leaves the snapshot untouched and writes no R2 objects.
-    // 3. Evict it manually and verify automatic scheduling can resume.
-    const name = "manual-ejection-priority";
-    const stub = getArchiveEvictionStub(name);
-    await runInDurableObject(stub, async (instance, state) => {
-      state.storage.transactionSync(() => {
-        persistDeliveryJobs(
-          state.storage.sql,
-          createPendingDeliveryJobs(testRouting, [{ kind: "other" }]),
-          () => "01MANUAL000000000000000000",
-          new Date(Date.now() - 10_000),
-        );
-      });
-      const manual = unwrap(
-        await (instance as TestEventHubWithArchiveEviction).eject(Date.now()),
-      );
-      expect(manual.ejectKey).toEqual(expect.any(String));
+  test.each([
+    ["delete", getDeleteEvictionStub],
+    ["archive", getArchiveEvictionStub],
+  ] as const)(
+    "disables manual eviction APIs for automatic %s eviction",
+    async (_action, getConfiguredStub) => {
+      const stub = getConfiguredStub(`manual-eviction-disabled-${_action}`);
+      const expected = {
+        ok: false,
+        error: {
+          code: "OPERATION_NOT_ALLOWED",
+          message:
+            "eventhub: manual eviction is unavailable when automatic eviction is configured",
+        },
+      };
 
-      await (instance as TestEventHubWithArchiveEviction).alarm();
-      const archived = await env.EVICTION_ARCHIVE.list({
-        prefix: `automatic/objects/${state.id.toString()}/`,
-      });
-      expect({
-        archived: archived.objects,
-        runs: state.storage.sql
-          .exec<{ count: number }>(
-            "SELECT COUNT(*) AS count FROM eviction_runs",
-          )
-          .one().count,
-      }).toStrictEqual({ archived: [], runs: 0 });
-    });
-  });
+      expect(
+        await Promise.all([
+          stub.eject(Date.now()),
+          stub.listEjected("01EJECT00000000000000000000"),
+          stub.evict("01EJECT00000000000000000000"),
+        ]),
+      ).toStrictEqual([expected, expected, expected]);
+    },
+  );
 
   test("configuration changes pause and preserve an active archive run", async () => {
     // 1. Start an archive and retain its original binding and prefix.
