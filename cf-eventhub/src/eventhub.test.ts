@@ -1975,13 +1975,41 @@ describe("automatic eviction", () => {
     });
   });
 
-  test("manual ejection blocks automatic archive until manual eviction", async () => {
-    // 1. Create a manual snapshot before automatic eviction runs.
-    // 2. Verify an alarm leaves the snapshot untouched and writes no R2 objects.
-    // 3. Evict it manually and verify automatic scheduling can resume.
-    const name = "manual-ejection-priority";
-    const stub = getArchiveEvictionStub(name);
+  test.each([
+    ["delete", getDeleteEvictionStub],
+    ["archive", getArchiveEvictionStub],
+  ] as const)(
+    "disables manual eviction APIs for automatic %s eviction",
+    async (_action, getConfiguredStub) => {
+      const stub = getConfiguredStub(`manual-eviction-disabled-${_action}`);
+      const expected = {
+        ok: false,
+        error: {
+          code: "OPERATION_NOT_ALLOWED",
+          message:
+            "eventhub: manual eviction is unavailable when automatic eviction is configured",
+        },
+      };
+
+      expect(
+        await Promise.all([
+          stub.eject(Date.now()),
+          stub.listEjected("01EJECT00000000000000000000"),
+          stub.evict("01EJECT00000000000000000000"),
+        ]),
+      ).toStrictEqual([expected, expected, expected]);
+    },
+  );
+
+  test("a manual snapshot created before configuration blocks automatic archive eviction", async () => {
+    // 1. Create a manual snapshot while automatic eviction is disabled.
+    // 2. Enable automatic archive eviction and verify the manual API is unavailable.
+    // 3. Run the alarm and verify the manual snapshot blocks automatic archival.
+    const stub = getArchiveEvictionStub("manual-ejection-migration");
     await runInDurableObject(stub, async (instance, state) => {
+      const hub = instance as TestEventHubWithArchiveEviction;
+      const automaticEviction = hub.eviction;
+      hub.eviction = undefined;
       state.storage.transactionSync(() => {
         persistDeliveryJobs(
           state.storage.sql,
@@ -1990,23 +2018,36 @@ describe("automatic eviction", () => {
           new Date(Date.now() - 10_000),
         );
       });
-      const manual = unwrap(
-        await (instance as TestEventHubWithArchiveEviction).eject(Date.now()),
-      );
-      expect(manual.ejectKey).toEqual(expect.any(String));
+      const manual = unwrap(await hub.eject(Date.now()));
+      assert(manual.ejectKey);
 
-      await (instance as TestEventHubWithArchiveEviction).alarm();
+      hub.eviction = automaticEviction;
+      const manualEviction = await hub.evict(manual.ejectKey);
+      await hub.alarm();
       const archived = await env.EVICTION_ARCHIVE.list({
         prefix: `automatic/objects/${state.id.toString()}/`,
       });
+
       expect({
+        manualEviction,
         archived: archived.objects,
         runs: state.storage.sql
           .exec<{ count: number }>(
             "SELECT COUNT(*) AS count FROM eviction_runs",
           )
           .one().count,
-      }).toStrictEqual({ archived: [], runs: 0 });
+      }).toStrictEqual({
+        manualEviction: {
+          ok: false,
+          error: {
+            code: "OPERATION_NOT_ALLOWED",
+            message:
+              "eventhub: manual eviction is unavailable when automatic eviction is configured",
+          },
+        },
+        archived: [],
+        runs: 0,
+      });
     });
   });
 

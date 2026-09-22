@@ -3,6 +3,8 @@ import type { EventHubErrorCode } from "cf-eventhub";
 export const eventHubErrorMessages: Record<EventHubErrorCode, string> = {
   INVALID_ARGUMENT:
     "The request was rejected because one or more arguments are invalid.",
+  OPERATION_NOT_ALLOWED:
+    "The operation is unavailable for the current EventHub configuration.",
   PAYLOAD_TOO_LARGE:
     "The event exceeds the 128,000-byte Cloudflare Queues message size limit.",
   INVALID_CURSOR: "The request contains an invalid pagination cursor.",
