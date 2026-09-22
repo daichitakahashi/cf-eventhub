@@ -160,7 +160,7 @@ const insertDeliveryJob = (
 };
 
 export const initializeSchema = (storage: DurableObjectStorage): void => {
-  migrateSchema(storage, [migrateToVersion1]);
+  migrateSchema(storage, [migrateToVersion1], "eventhub");
 };
 
 export const getRegistrySyncedAt = (sql: SqlStorage): number | null =>

@@ -21,7 +21,7 @@ type RegistryInstanceRow = {
 export const initializeRegistrySchema = (
   storage: DurableObjectStorage,
 ): void => {
-  migrateSchema(storage, [migrateToVersion1]);
+  migrateSchema(storage, [migrateToVersion1], "eventhub registry");
 };
 
 const getStatus = (

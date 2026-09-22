@@ -7,8 +7,11 @@ import { initializeSchema } from "../store";
 import { migrateSchema } from "./schema-migration";
 
 const schemaVersion = (sql: SqlStorage): number =>
-  sql.exec<{ version: number }>("SELECT version FROM schema_metadata").one()
-    .version;
+  sql
+    .exec<{ version: number }>(
+      "SELECT version FROM __cf_eventhub_schema_metadata",
+    )
+    .one().version;
 
 describe("SQLite schema migrations", () => {
   test("initializes both Durable Object schemas at version 1", async () => {
@@ -36,7 +39,7 @@ describe("SQLite schema migrations", () => {
       state.storage.sql.exec(
         "INSERT INTO payloads (id, body, created_at) VALUES ('existing', '{}', '2026-01-01')",
       );
-      state.storage.sql.exec("DROP TABLE schema_metadata");
+      state.storage.sql.exec("DROP TABLE __cf_eventhub_schema_metadata");
       initializeSchema(state.storage);
       expect({
         version: schemaVersion(state.storage.sql),
@@ -49,7 +52,7 @@ describe("SQLite schema migrations", () => {
     const registry = env.EVENT_HUB_REGISTRY.getByName("schema-legacy-registry");
     await runInDurableObject(registry, (_instance, state) => {
       registerInstance(state.storage.sql, "existing", 1000, 0);
-      state.storage.sql.exec("DROP TABLE schema_metadata");
+      state.storage.sql.exec("DROP TABLE __cf_eventhub_schema_metadata");
       initializeRegistrySchema(state.storage);
       const rows = state.storage.sql
         .exec<{ name: string }>("SELECT name FROM eventhub_instances")
@@ -63,6 +66,40 @@ describe("SQLite schema migrations", () => {
     });
   });
 
+  test("leaves a consumer schema_metadata table untouched", async () => {
+    const hub = env.EVENT_HUB.getByName("schema-consumer-metadata");
+    await runInDurableObject(hub, (_instance, state) => {
+      const { sql } = state.storage;
+      sql.exec("CREATE TABLE schema_metadata (value TEXT NOT NULL)");
+      sql.exec("INSERT INTO schema_metadata (value) VALUES ('consumer data')");
+      sql.exec("DROP TABLE __cf_eventhub_schema_metadata");
+
+      initializeSchema(state.storage);
+
+      expect({
+        version: schemaVersion(sql),
+        rows: sql
+          .exec<{ value: string }>("SELECT value FROM schema_metadata")
+          .toArray(),
+      }).toStrictEqual({
+        version: 1,
+        rows: [{ value: "consumer data" }],
+      });
+    });
+  });
+
+  test("identifies the Registry in an unsupported-version error", async () => {
+    const registry = env.EVENT_HUB_REGISTRY.getByName("schema-future-registry");
+    await runInDurableObject(registry, (_instance, state) => {
+      state.storage.sql.exec(
+        "UPDATE __cf_eventhub_schema_metadata SET version = 2",
+      );
+      expect(() => initializeRegistrySchema(state.storage)).toThrow(
+        "eventhub registry: unsupported SQLite schema version 2",
+      );
+    });
+  });
+
   test("applies sequential upgrades and rolls back a failed step", async () => {
     // 1. Reset the marker and apply a synthetic v1 migration.
     // 2. Fail v2 after a schema change and verify the whole step rolls back.
@@ -70,7 +107,7 @@ describe("SQLite schema migrations", () => {
     const hub = env.EVENT_HUB.getByName("schema-upgrade-hub");
     await runInDurableObject(hub, (_instance, state) => {
       const { sql } = state.storage;
-      sql.exec("DELETE FROM schema_metadata");
+      sql.exec("DELETE FROM __cf_eventhub_schema_metadata");
       const createV1 = (db: SqlStorage) => {
         db.exec("CREATE TABLE synthetic_upgrade (id INTEGER PRIMARY KEY)");
       };
@@ -82,9 +119,9 @@ describe("SQLite schema migrations", () => {
         throw new Error("synthetic failure");
       };
 
-      expect(() => migrateSchema(state.storage, [createV1, failV2])).toThrow(
-        "synthetic failure",
-      );
+      expect(() =>
+        migrateSchema(state.storage, [createV1, failV2], "test schema"),
+      ).toThrow("synthetic failure");
       expect({
         version: schemaVersion(sql),
         columns: sql
@@ -93,7 +130,7 @@ describe("SQLite schema migrations", () => {
           .map((row) => row.name),
       }).toStrictEqual({ version: 1, columns: ["id"] });
 
-      migrateSchema(state.storage, [createV1, createV2]);
+      migrateSchema(state.storage, [createV1, createV2], "test schema");
       expect({
         version: schemaVersion(sql),
         columns: sql
