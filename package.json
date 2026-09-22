@@ -6,7 +6,8 @@
   "main": "index.js",
   "scripts": {
     "dev": "pnpm --filter eventhub-demo dev",
-    "ci:publish": "node ./scripts/pin-readme-links.mjs && pnpm changeset publish"
+    "smoke:consumer": "node ./scripts/consumer-smoke-test.mjs",
+    "ci:publish": "node ./scripts/pin-readme-links.mjs && pnpm smoke:consumer && pnpm changeset publish"
   },
   "keywords": [],
   "author": "",
