@@ -34,6 +34,8 @@ export type Env = {
 
 export const factory = createFactory<Env>();
 
+// TODO: Replace the instance selector with a searchable or paginated UI.
+// Until then, cap the options loaded for a single page render at 10,000.
 const MAX_REGISTRY_PAGES = 100;
 
 export const listAllInstances = async (
@@ -49,5 +51,5 @@ export const listAllInstances = async (
     if (!result.value.cursor) return { ok: true, value: instances };
     cursor = result.value.cursor;
   }
-  throw new Error("EventHub Registry contains too many pages");
+  return { ok: true, value: instances };
 };
