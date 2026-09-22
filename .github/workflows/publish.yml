@@ -36,11 +36,11 @@ jobs:
         working-directory: web-console
         run: pnpm test
 
-      - uses: changesets/action@v1
+      - uses: changesets/action@v2
         with:
-          publish: pnpm ci:publish
-          createGithubReleases: false
-          commit: Release npm packages
-          title: Release npm packages
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          publish-script: pnpm ci:publish
+          create-github-releases: false
+          push-git-tags: false
+          commit-message: Release npm packages
+          pr-title: Release npm packages
