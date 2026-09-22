@@ -1,7 +1,7 @@
 {
   "name": "cf-eventhub",
   "type": "module",
-  "version": "0.3.5",
+  "version": "1.0.0-rc.0",
   "description": "An event aggregation and delivery component built on Cloudflare Durable Objects.",
   "keywords": ["cloudflare", "durable-objects", "event-driven"],
   "license": "MIT",
