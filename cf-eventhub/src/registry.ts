@@ -74,7 +74,7 @@ const decodeCursor = (cursor: string): Result<string> => {
 export class EventHubRegistry extends DurableObject<Record<string, never>> {
   constructor(ctx: DurableObjectState, env: Record<string, never>) {
     super(ctx, env);
-    initializeRegistrySchema(this.ctx.storage.sql);
+    initializeRegistrySchema(this.ctx.storage);
   }
 
   register(name: string): Promise<Result<EventHubInstance>> {

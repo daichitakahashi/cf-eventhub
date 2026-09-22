@@ -350,7 +350,7 @@ export abstract class EventHub<
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.idGenerator = new MonotonicUlidGenerator();
-    initializeSchema(this.ctx.storage.sql);
+    initializeSchema(this.ctx.storage);
   }
 
   private rpcContext(): Record<string, unknown> {
