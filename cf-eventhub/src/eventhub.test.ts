@@ -2001,6 +2001,56 @@ describe("automatic eviction", () => {
     },
   );
 
+  test("a manual snapshot created before configuration blocks automatic archive eviction", async () => {
+    // 1. Create a manual snapshot while automatic eviction is disabled.
+    // 2. Enable automatic archive eviction and verify the manual API is unavailable.
+    // 3. Run the alarm and verify the manual snapshot blocks automatic archival.
+    const stub = getArchiveEvictionStub("manual-ejection-migration");
+    await runInDurableObject(stub, async (instance, state) => {
+      const hub = instance as TestEventHubWithArchiveEviction;
+      const automaticEviction = hub.eviction;
+      hub.eviction = undefined;
+      state.storage.transactionSync(() => {
+        persistDeliveryJobs(
+          state.storage.sql,
+          createPendingDeliveryJobs(testRouting, [{ kind: "other" }]),
+          () => "01MANUAL000000000000000000",
+          new Date(Date.now() - 10_000),
+        );
+      });
+      const manual = unwrap(await hub.eject(Date.now()));
+      assert(manual.ejectKey);
+
+      hub.eviction = automaticEviction;
+      const manualEviction = await hub.evict(manual.ejectKey);
+      await hub.alarm();
+      const archived = await env.EVICTION_ARCHIVE.list({
+        prefix: `automatic/objects/${state.id.toString()}/`,
+      });
+
+      expect({
+        manualEviction,
+        archived: archived.objects,
+        runs: state.storage.sql
+          .exec<{ count: number }>(
+            "SELECT COUNT(*) AS count FROM eviction_runs",
+          )
+          .one().count,
+      }).toStrictEqual({
+        manualEviction: {
+          ok: false,
+          error: {
+            code: "OPERATION_NOT_ALLOWED",
+            message:
+              "eventhub: manual eviction is unavailable when automatic eviction is configured",
+          },
+        },
+        archived: [],
+        runs: 0,
+      });
+    });
+  });
+
   test("configuration changes pause and preserve an active archive run", async () => {
     // 1. Start an archive and retain its original binding and prefix.
     // 2. Change the action, prefix, and enabled state, verifying each pauses the run.
