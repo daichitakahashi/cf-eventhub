@@ -57,15 +57,32 @@ const setup = ({
   const registryList = vi.fn(
     async ({
       status,
+      cursor,
+      max,
+      nameContains,
     }: {
       status?: EventHubInstance["status"];
-    } = {}): Promise<Result<ListEventHubInstancesResult>> => ({
-      ok: true,
-      value: {
-        instances:
-          status === "stale" ? stale : status === "deleted" ? [] : active,
-      },
-    }),
+      cursor?: string;
+      max?: number;
+      nameContains?: string;
+    } = {}): Promise<Result<ListEventHubInstancesResult>> => {
+      const candidates = (
+        status === "stale" ? stale : status === "deleted" ? [] : active
+      )
+        .filter(({ name }) => !nameContains || name.includes(nameContains))
+        .filter(({ name }) => !cursor || name > cursor)
+        .sort((a, b) => a.name.localeCompare(b.name));
+      const instances = candidates.slice(0, max ?? 50);
+      return {
+        ok: true,
+        value: {
+          instances,
+          ...(candidates.length > instances.length
+            ? { cursor: instances.at(-1)?.name }
+            : {}),
+        },
+      };
+    },
   );
   const registryGet = vi.fn(
     async (name: string): Promise<Result<EventHubInstance | null>> => {
@@ -107,6 +124,95 @@ const setup = ({
 };
 
 describe("EventHub instance discovery", () => {
+  test("searches and pages instances without resolving EventHub objects", async () => {
+    const active = Array.from({ length: 120 }, (_, index) =>
+      instance(`tenant-${String(index).padStart(3, "0")}`),
+    );
+    const { app, bindings, eventHubGetByName, registryList } = setup({
+      active,
+    });
+    const first = await app.request(
+      "http://localhost/api/instances/search?status=active&search=tenant-",
+      {},
+      bindings,
+    );
+    const firstPage = (await first.json()) as ListEventHubInstancesResult;
+    const second = await app.request(
+      `http://localhost/api/instances/search?status=active&search=tenant-&cursor=${firstPage.cursor}`,
+      {},
+      bindings,
+    );
+    const secondPage = (await second.json()) as ListEventHubInstancesResult;
+
+    expect({
+      firstStatus: first.status,
+      firstLength: firstPage.instances.length,
+      secondLength: secondPage.instances.length,
+      firstName: firstPage.instances[0]?.name,
+      secondName: secondPage.instances[0]?.name,
+      eventHubLookups: eventHubGetByName.mock.calls.length,
+    }).toStrictEqual({
+      firstStatus: 200,
+      firstLength: 50,
+      secondLength: 50,
+      firstName: "tenant-000",
+      secondName: "tenant-050",
+      eventHubLookups: 0,
+    });
+    expect(registryList).toHaveBeenCalledWith({
+      status: "active",
+      nameContains: "tenant-",
+      cursor: firstPage.cursor,
+      max: 50,
+    });
+  });
+
+  test("searches stale instances but never exposes deleted entries", async () => {
+    const { app, bindings } = setup({
+      active: [],
+      stale: [instance("old-tenant", "stale")],
+    });
+    const response = await app.request(
+      "http://localhost/api/instances/search?status=stale&search=tenant",
+      {},
+      bindings,
+    );
+    expect(await response.json()).toMatchObject({
+      instances: [
+        {
+          name: "old-tenant",
+          status: "stale",
+          lastSeenAt: "2025-01-01T00:00:00.000Z",
+        },
+      ],
+    });
+    const deleted = await app.request(
+      "http://localhost/api/instances/search?status=deleted",
+      {},
+      bindings,
+    );
+    expect(deleted.status).toBe(400);
+  });
+
+  test("does not enumerate all Registry pages when rendering the console", async () => {
+    const configured = setup({
+      active: Array.from({ length: 120 }, (_, index) =>
+        instance(`tenant-${index}`),
+      ),
+    });
+    const page = await configured.app.request(
+      "http://localhost/",
+      {},
+      configured.bindings,
+    );
+    expect(page.status).toBe(200);
+    expect(configured.registryList).toHaveBeenCalledTimes(1);
+    expect(configured.registryList).toHaveBeenCalledWith({
+      status: "active",
+      max: 1,
+    });
+  });
+
   test("selects the first active instance when the query is omitted", async () => {
     const { app, bindings, eventHubGetByName } = setup();
     const response = await app.request("http://localhost/", {}, bindings);
@@ -114,48 +220,43 @@ describe("EventHub instance discovery", () => {
 
     expect(response.status).toBe(200);
     expect(eventHubGetByName).toHaveBeenCalledWith("alpha");
-    expect(html).toContain('<option value="alpha" selected="">');
-    expect(html).not.toContain('value="old"');
+    expect(html).toContain('id="open-instance-picker"');
+    expect(html).toContain(">alpha</button>");
+    expect(html).not.toContain("<select");
   });
 
-  test("shows and labels stale instances only when requested", async () => {
+  test("keeps a selected stale instance available without stale filter state", async () => {
     const { app, bindings } = setup();
     const response = await app.request(
-      "http://localhost/?instance=old&showStale=1",
+      "http://localhost/?instance=old",
       {},
       bindings,
     );
     const html = await response.text();
 
     expect(response.status).toBe(200);
-    expect(html).toContain('<option value="old" selected="">');
-    expect(html).toContain("old (stale; last seen 2025-01-01T00:00:00.000Z)");
-    expect(html).toContain(
-      'type="checkbox" name="showStale" value="1" checked=""',
-    );
-    expect(html).not.toContain(
-      '<input type="hidden" name="instance" value="old"',
-    );
+    expect(html).toContain("old (stale)</button>");
+    expect(html).toContain('id="instance-picker-show-stale" type="checkbox"');
+    expect(html).toContain('id="instance-picker-stale-section"');
+    expect(html).toContain('action="/api/instances/delete?instance=old"');
+    expect(html).not.toContain("showStale=1");
   });
 
-  test("renders Show stale as an unchecked checkbox by default", async () => {
+  test("renders the picker with stale results hidden by default", async () => {
     const { app, bindings } = setup();
     const response = await app.request("http://localhost/", {}, bindings);
     const html = await response.text();
 
-    expect(html).toContain('type="checkbox" name="showStale" value="1"');
-    expect(html).not.toContain(
-      'type="checkbox" name="showStale" value="1" checked=""',
-    );
-    expect(html).toContain(
-      '<input type="hidden" name="instance" value="alpha"',
-    );
+    expect(html).toContain('id="instance-picker-show-stale" type="checkbox"');
+    expect(html).not.toContain('name="showStale"');
+    expect(html).toContain('aria-label="Stale instances" hidden=""');
+    expect(html).toContain("showStale.checked = false;");
   });
 
   test("does not resolve unknown or deleted query names", async () => {
     const { app, bindings, eventHubGetByName } = setup();
     const response = await app.request(
-      "http://localhost/?instance=deleted-or-unknown&showStale=1",
+      "http://localhost/?instance=deleted-or-unknown",
       {},
       bindings,
     );
@@ -495,7 +596,7 @@ describe("EventHub instance URL state", () => {
     );
     const html = await response.text();
 
-    expect(html).toContain('<form method="get" action="/">');
+    expect(html).toContain('id="instance-picker-modal"');
     expect(html).not.toContain('name="cursor"');
   });
 
@@ -505,14 +606,14 @@ describe("EventHub instance URL state", () => {
       stale: [instance("tenant:acme", "stale")],
     });
     const page = await app.request(
-      "http://localhost/?instance=tenant%3Aacme&showStale=1",
+      "http://localhost/?instance=tenant%3Aacme",
       {},
       bindings,
     );
     const html = await page.text();
 
     expect(html).toContain(
-      'action="/api/instances/delete?instance=tenant%3Aacme&amp;showStale=1"',
+      'action="/api/instances/delete?instance=tenant%3Aacme"',
     );
     expect(html).toContain("Delete instance");
 

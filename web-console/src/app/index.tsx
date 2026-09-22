@@ -16,7 +16,7 @@ import { Pagination } from "../components/Pagination";
 import { Textarea } from "../components/Textarea";
 import { getEventsLastUpdatedAt, normalizeEvents } from "../eventhub";
 import type { DateTime } from "../factory";
-import { factory, listAllInstances } from "../factory";
+import { factory } from "../factory";
 import {
   eventHubErrorMessages,
   operationErrorTitles,
@@ -26,6 +26,101 @@ import { styles } from "./styles";
 
 const maxPayloadRows = 10;
 const maxQueueMessageBytes = 128_000;
+
+const instancePickerScript = `
+(() => {
+  const dialog = document.getElementById("instance-picker-modal");
+  const opener = document.getElementById("open-instance-picker");
+  const search = document.getElementById("instance-picker-search");
+  const showStale = document.getElementById("instance-picker-show-stale");
+  if (!(dialog instanceof HTMLDialogElement) ||
+      !(opener instanceof HTMLButtonElement) ||
+      !(search instanceof HTMLInputElement) ||
+      !(showStale instanceof HTMLInputElement)) return;
+
+  let generation = 0;
+  let timer;
+  const load = async (status, cursor, append, currentGeneration) => {
+    const list = document.getElementById("instance-picker-" + status);
+    const more = document.getElementById("instance-picker-more-" + status);
+    if (!list || !more) return;
+    if (!append) list.replaceChildren();
+    more.hidden = true;
+    const params = new URLSearchParams({ status, search: search.value });
+    if (cursor) params.set("cursor", cursor);
+    try {
+      const response = await fetch("/api/instances/search?" + params, {
+        credentials: "same-origin",
+      });
+      if (!response.ok) throw new Error("Unable to load instances");
+      const page = await response.json();
+      if (currentGeneration !== generation) return;
+      if (!append && page.instances.length === 0) {
+        const empty = document.createElement("li");
+        empty.className = "p-4 text-gray-500";
+        empty.textContent = "No matching instances";
+        list.append(empty);
+      }
+      for (const instance of page.instances) {
+        const row = document.createElement("li");
+        const link = document.createElement("a");
+        const url = new URL("/", window.location.origin);
+        url.searchParams.set("instance", instance.name);
+        link.href = url.pathname + url.search;
+        link.className = "block p-3 hover:bg-gray-100 rounded-md break-all";
+        const name = document.createElement("span");
+        name.className = "font-medium";
+        name.textContent = instance.name;
+        link.append(name);
+        if (instance.status === "stale") {
+          const detail = document.createElement("span");
+          detail.className = "block text-sm text-gray-600";
+          detail.textContent = "Last seen " + instance.lastSeenAt;
+          link.append(detail);
+        }
+        link.addEventListener("click", () => dialog.close());
+        row.append(link);
+        list.append(row);
+      }
+      more.hidden = !page.cursor;
+      more.dataset.cursor = page.cursor || "";
+    } catch {
+      if (currentGeneration !== generation) return;
+      const error = document.createElement("li");
+      error.className = "p-4 text-red-700";
+      error.textContent = "Unable to load instances. Try searching again.";
+      list.append(error);
+    }
+  };
+  const refresh = () => {
+    generation += 1;
+    const currentGeneration = generation;
+    void load("active", undefined, false, currentGeneration);
+    const staleList = document.getElementById("instance-picker-stale-section");
+    if (staleList) staleList.hidden = !showStale.checked;
+    if (showStale.checked) void load("stale", undefined, false, currentGeneration);
+  };
+  opener.addEventListener("click", () => {
+    showStale.checked = false;
+    search.value = "";
+    dialog.showModal();
+    search.focus();
+    refresh();
+  });
+  dialog.querySelector("[data-close-instance-picker]")?.addEventListener("click", () => dialog.close());
+  search.addEventListener("input", () => {
+    clearTimeout(timer);
+    timer = setTimeout(refresh, 200);
+  });
+  showStale.addEventListener("change", refresh);
+  for (const status of ["active", "stale"]) {
+    document.getElementById("instance-picker-more-" + status)?.addEventListener("click", (event) => {
+      const cursor = event.currentTarget.dataset.cursor;
+      if (cursor) void load(status, cursor, true, generation);
+    });
+  }
+})();
+`;
 
 const pageScript = (
   refreshIntervalSeconds: number,
@@ -210,19 +305,15 @@ const ConsoleState = ({ title, detail }: { title: string; detail: string }) => (
 const ConsoleHeader = ({
   environment,
   color,
-  instances,
   selectedName,
   selectedStatus,
-  showStale,
   buildUrl,
   showCreate = false,
 }: {
   environment?: string;
   color?: `#${string}`;
-  instances: EventHubInstance[];
   selectedName?: string;
   selectedStatus?: EventHubInstance["status"];
-  showStale: boolean;
   buildUrl: (
     path: string,
     values?: Record<string, string | boolean | null | undefined>,
@@ -242,52 +333,24 @@ const ConsoleHeader = ({
           {environment && <span class="ml-2 uppercase">[{environment}]</span>}
         </h1>
         <div class="mt-2 flex items-center gap-3 flex-wrap">
-          <form method="get" action="/">
-            <label for="eventhub-instance" class="mr-2 font-medium">
-              Instance
-            </label>
-            <select
-              id="eventhub-instance"
-              name="instance"
-              class="rounded-md border border-gray-300 bg-white px-3 py-2"
-              onchange="this.form.submit()"
-            >
-              {!selectedName && <option value="">Select an instance</option>}
-              {instances.map((instance) => (
-                <option
-                  key={instance.name}
-                  value={instance.name}
-                  selected={instance.name === selectedName}
-                >
-                  {instance.name}
-                  {instance.status === "stale"
-                    ? ` (stale; last seen ${instance.lastSeenAt})`
-                    : ""}
-                </option>
-              ))}
-            </select>
-            {showStale && <input type="hidden" name="showStale" value="1" />}
-          </form>
-          <form method="get" action="/">
-            {selectedName && selectedStatus !== "stale" && (
-              <input type="hidden" name="instance" value={selectedName} />
-            )}
-            <label class="flex items-center gap-1 text-sm text-gray-600 cursor-pointer">
-              <input
-                type="checkbox"
-                name="showStale"
-                value="1"
-                checked={showStale}
-                onchange="this.form.submit()"
-              />
-              Show stale
-            </label>
-          </form>
+          <span class="font-medium">Instance</span>
+          <button
+            id="open-instance-picker"
+            type="button"
+            class="rounded-md border border-gray-300 bg-white px-3 py-2 cursor-pointer hover:bg-gray-100 break-all"
+            aria-haspopup="dialog"
+            aria-controls="instance-picker-modal"
+            title="Select an instance"
+          >
+            {selectedName ?? "Select an instance"}
+            {selectedStatus === "stale" ? " (stale)" : ""}
+          </button>
           {selectedName && selectedStatus === "stale" && (
             <form method="post" action={buildUrl("/api/instances/delete")}>
               <button
                 type="submit"
                 class="text-sm underline text-red-700 hover:text-red-900 cursor-pointer"
+                title="Delete instance from the Registry"
                 data-confirm={`Delete ${selectedName} from the Registry? EventHub data will not be deleted.`}
               >
                 Delete instance
@@ -298,7 +361,11 @@ const ConsoleHeader = ({
       </div>
       {showCreate && (
         <div class="flex items-center">
-          <Button type="button" data-open-create-modal>
+          <Button
+            type="button"
+            data-open-create-modal
+            title="Create event to be published"
+          >
             <div class="flex gap-2 py-1 text-nowrap">
               <SunMedium title="Create event" />
               Create event
@@ -307,6 +374,80 @@ const ConsoleHeader = ({
         </div>
       )}
     </div>
+    <dialog
+      id="instance-picker-modal"
+      aria-labelledby="instance-picker-title"
+      class="w-full max-w-2xl outline-1 outline-gray-900/20 rounded-xl backdrop:bg-gray-100/30 backdrop:backdrop-blur-[2px]"
+    >
+      <div class="p-4">
+        <div class="flex justify-between items-center gap-4">
+          <h2 id="instance-picker-title" class="text-2xl font-semibold">
+            Select an instance
+          </h2>
+          <Button
+            type="button"
+            data-close-instance-picker
+            title="Close instance picker"
+            secondary
+          >
+            Close
+          </Button>
+        </div>
+        <label for="instance-picker-search" class="block mt-4 font-medium">
+          Search by name
+        </label>
+        <input
+          id="instance-picker-search"
+          type="search"
+          maxlength={200}
+          class="
+            flex min-h-10 w-full rounded-md border border-input mt-1 px-3 py-2
+            ring-offset-background placeholder:text-muted-foreground
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring
+            focus-visible:ring-offset-2 disabled:cursor-not-allowed
+            disabled:opacity-50 md:text-sm
+          "
+          autocomplete="off"
+        />
+        <label class="flex items-center gap-1 mt-2 mb-4 text-sm cursor-pointer">
+          <input id="instance-picker-show-stale" type="checkbox" />
+          Show stale
+        </label>
+        <div class="overflow-auto max-h-75">
+          <section aria-label="Active instances">
+            <h3 class="font-semibold">Active instances</h3>
+            <ul id="instance-picker-active" />
+            <button
+              id="instance-picker-more-active"
+              type="button"
+              class="underline cursor-pointer"
+              title="Load more active instances"
+              hidden
+            >
+              Load more
+            </button>
+          </section>
+          <section
+            id="instance-picker-stale-section"
+            aria-label="Stale instances"
+            hidden
+          >
+            <h3 class="font-semibold mt-4">Stale instances</h3>
+            <ul id="instance-picker-stale" />
+            <button
+              id="instance-picker-more-stale"
+              type="button"
+              class="underline cursor-pointer"
+              title="Load more stale instances"
+              hidden
+            >
+              Load more
+            </button>
+          </section>
+        </div>
+      </div>
+    </dialog>
+    <script dangerouslySetInnerHTML={{ __html: instancePickerScript }} />
   </>
 );
 
@@ -373,11 +514,10 @@ export const createHandler = ({
       const url = new URL(c.req.url);
       const search = url.searchParams;
       const requestedInstance = search.get("instance") ?? undefined;
-      const showStale = search.get("showStale") === "1";
       const isApiRequest =
         url.pathname === "/api" || url.pathname.startsWith("/api/");
-      let instances: EventHubInstance[] = [];
-      let selectedInstance: (typeof instances)[number] | undefined;
+      let hasInstances = false;
+      let selectedInstance: EventHubInstance | undefined;
       let registryError: ResultError["error"] | { message: string } | undefined;
 
       try {
@@ -395,30 +535,39 @@ export const createHandler = ({
                 : undefined;
           }
         } else {
-          const activeResult = await listAllInstances(registryStub, "active");
+          const activeResult = await registryStub.list({
+            status: "active",
+            max: 1,
+          });
           if (!activeResult.ok) {
             registryError = activeResult.error;
           } else {
-            const active = activeResult.value;
-            const requestedIsActive = active.some(
-              (instance) => instance.name === requestedInstance,
-            );
-            const shouldListStale =
-              showStale ||
-              active.length === 0 ||
-              Boolean(requestedInstance && !requestedIsActive);
-            const staleResult = shouldListStale
-              ? await listAllInstances(registryStub, "stale")
-              : ({ ok: true, value: [] } as const);
-            if (!staleResult.ok) {
-              registryError = staleResult.error;
+            const firstActive = activeResult.value.instances[0];
+            hasInstances = Boolean(firstActive);
+            if (requestedInstance) {
+              const requestedResult = await registryStub.get(requestedInstance);
+              if (!requestedResult.ok) {
+                registryError = requestedResult.error;
+              } else if (
+                requestedResult.value?.status === "active" ||
+                requestedResult.value?.status === "stale"
+              ) {
+                selectedInstance = requestedResult.value;
+                hasInstances = true;
+              }
             } else {
-              instances = [...active, ...staleResult.value];
-              selectedInstance = requestedInstance
-                ? instances.find(
-                    (instance) => instance.name === requestedInstance,
-                  )
-                : active[0];
+              selectedInstance = firstActive;
+            }
+            if (!hasInstances && !registryError) {
+              const staleResult = await registryStub.list({
+                status: "stale",
+                max: 1,
+              });
+              if (!staleResult.ok) {
+                registryError = staleResult.error;
+              } else {
+                hasInstances = staleResult.value.instances.length > 0;
+              }
             }
           }
         }
@@ -437,9 +586,6 @@ export const createHandler = ({
       ): string => {
         const query = new URLSearchParams();
         if (selectedInstance) query.set("instance", selectedInstance.name);
-        if (showStale || selectedInstance?.status === "stale") {
-          query.set("showStale", "1");
-        }
         for (const [key, value] of Object.entries(values)) {
           if (value === undefined || value === null || value === false) {
             query.delete(key);
@@ -454,10 +600,9 @@ export const createHandler = ({
       c.set("eventHubBinding", binding);
       c.set("registryBinding", registryBinding);
       c.set("registry", registryStub);
-      c.set("instances", instances);
+      c.set("hasInstances", hasInstances);
       c.set("selectedInstance", selectedInstance);
       c.set("requestedInstance", requestedInstance);
-      c.set("showStale", showStale);
       c.set("registryError", registryError);
       c.set("getEventHub", () =>
         selectedInstance ? binding.getByName(selectedInstance.name) : undefined,
@@ -507,17 +652,15 @@ export const createHandler = ({
         }
 
         if (!hub) {
-          const hasInstances = c.var.instances.length > 0;
+          const hasInstances = c.var.hasInstances;
           if (c.var.requestedInstance) c.status(404);
           return c.render(
             <div>
               <ConsoleHeader
                 environment={environment}
                 color={color}
-                instances={c.var.instances}
                 selectedName={undefined}
                 selectedStatus={undefined}
-                showStale={c.var.showStale}
                 buildUrl={c.var.buildUrl}
               />
               <ConsoleState
@@ -547,10 +690,8 @@ export const createHandler = ({
               <ConsoleHeader
                 environment={environment}
                 color={color}
-                instances={c.var.instances}
                 selectedName={c.var.selectedInstance?.name}
                 selectedStatus={c.var.selectedInstance?.status}
-                showStale={c.var.showStale}
                 buildUrl={c.var.buildUrl}
               />
               <ConsoleState title={title} detail={detail} />
@@ -650,6 +791,7 @@ export const createHandler = ({
                   id="dismiss-notification"
                   class="rounded-full ml-1 px-2 py-1 hover:bg-gray-900 select-none"
                   type="button"
+                  title="Dismiss notification"
                 >
                   dismiss
                 </button>
@@ -658,10 +800,8 @@ export const createHandler = ({
             <ConsoleHeader
               environment={environment}
               color={color}
-              instances={c.var.instances}
               selectedName={c.var.selectedInstance?.name}
               selectedStatus={c.var.selectedInstance?.status}
-              showStale={c.var.showStale}
               buildUrl={c.var.buildUrl}
               showCreate
             />
@@ -705,11 +845,17 @@ export const createHandler = ({
                     <div class="flex gap-2">
                       <Button
                         type="submit"
+                        title="Create event"
                         data-confirm="Are you sure you wish to create new event?"
                       >
                         Create
                       </Button>
-                      <Button type="button" data-close-dialog secondary>
+                      <Button
+                        type="button"
+                        data-close-dialog
+                        title="Cancel creating an event"
+                        secondary
+                      >
                         Cancel
                       </Button>
                     </div>

@@ -8,6 +8,7 @@ import {
   getEventHubFromPayload,
   routeByConfig,
 } from "cf-eventhub";
+import { createSetupNames, MAX_SETUP_COUNT, parseSetupCount } from "./setup";
 
 export { EventHubRegistry };
 
@@ -42,8 +43,6 @@ export class DevEventHub extends EventHub<Env> {
   });
 }
 
-const eventHubName = "default";
-const exampleEventHubNames = [eventHubName, "tenant:acme", "orders"] as const;
 const placeholder = `// example payload for this demo
 {
   "eventName": "", // this will be used as a title of the event
@@ -52,28 +51,40 @@ const placeholder = `// example payload for this demo
 
 export default {
   fetch: async (request, env) => {
-    if (new URL(request.url).pathname === "/setup") {
+    const url = new URL(request.url);
+    if (url.pathname === "/setup") {
+      const count = parseSetupCount(url.searchParams);
+      if (count === null) {
+        return Response.json(
+          { error: `count must be an integer in 1..${MAX_SETUP_COUNT}` },
+          { status: 400 },
+        );
+      }
+      const names = createSetupNames(count);
       const registry = env.EVENT_HUB_REGISTRY.getByName(
         EVENT_HUB_REGISTRY_NAME,
       );
-      let results: Awaited<ReturnType<typeof registry.register>>[];
       try {
-        results = await Promise.all(
-          exampleEventHubNames.map((name) => registry.register(name)),
-        );
+        for (let offset = 0; offset < names.length; offset += 25) {
+          const results = await Promise.all(
+            names
+              .slice(offset, offset + 25)
+              .map((name) => registry.register(name)),
+          );
+          for (const result of results) {
+            if (!result.ok) {
+              return Response.json(result.error, { status: 500 });
+            }
+          }
+        }
       } catch {
         return Response.json(
           { error: "EventHub Registry unavailable" },
           { status: 503 },
         );
       }
-      for (const result of results) {
-        if (!result.ok) {
-          return Response.json(result.error, { status: 500 });
-        }
-      }
       return new Response(
-        "Registered default, tenant:acme, and orders. Reload the console.",
+        `Registered ${names.length} instance${names.length === 1 ? "" : "s"}. Reload the console.`,
       );
     }
 

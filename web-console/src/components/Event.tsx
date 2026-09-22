@@ -70,6 +70,7 @@ export const Event: FC<{
             cursor-pointer
           "
           type="button"
+          title="Copy event payload to clipboard"
           data-copy-payload={JSON.stringify(event.payload)}
         >
           Copy to clipboard
@@ -128,6 +129,7 @@ const DeliveryJobRow: FC<{
     <TableCell>
       <button
         type="button"
+        title="Show delivery details"
         class="w-fit cursor-pointer hover:text-gray-500"
         data-open-deliveryjob-detail={job.id}
       >
@@ -217,12 +219,18 @@ export const DeliveryJobDetails: FC<{
       >
         <Button
           type="submit"
+          title="Redrive this delivery"
           data-confirm="Are you sure you wish to redrive this delivery job?"
         >
           Redrive this delivery
         </Button>
       </form>
-      <Button type="button" data-close-dialog secondary>
+      <Button
+        type="button"
+        data-close-dialog
+        title="Close delivery details"
+        secondary
+      >
         Close
       </Button>
     </div>

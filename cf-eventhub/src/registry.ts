@@ -18,6 +18,7 @@ export type ListEventHubInstancesOptions = {
   status?: EventHubInstanceStatus;
   cursor?: string;
   max?: number;
+  nameContains?: string;
 };
 
 export type ListEventHubInstancesResult = {
@@ -111,13 +112,25 @@ export class EventHubRegistry extends DurableObject<Record<string, never>> {
           "eventhub registry: max must be an integer in 1..100",
         );
       }
+      if (
+        options.nameContains !== undefined &&
+        (typeof options.nameContains !== "string" ||
+          options.nameContains.length > 200)
+      ) {
+        return resultError(
+          "INVALID_ARGUMENT",
+          "eventhub registry: nameContains must be a string of at most 200 characters",
+        );
+      }
       let cursorName: string | undefined;
       if (options.cursor !== undefined) {
         const cursor = decodeCursor(options.cursor);
         if (!cursor.ok) return cursor;
         cursorName = cursor.value;
       }
-      return resultOk(await this.#list(status, cursorName, max));
+      return resultOk(
+        await this.#list(status, cursorName, max, options.nameContains),
+      );
     });
   }
 
@@ -151,6 +164,7 @@ export class EventHubRegistry extends DurableObject<Record<string, never>> {
     status: EventHubInstanceStatus,
     cursorName: string | undefined,
     max: number,
+    nameContains?: string,
   ): Promise<ListEventHubInstancesResult> {
     const now = Date.now();
     const result = listInstances(
@@ -159,6 +173,7 @@ export class EventHubRegistry extends DurableObject<Record<string, never>> {
       cursorName,
       max,
       now - EVENT_HUB_STALE_AFTER_MS,
+      nameContains,
     );
     return {
       instances: result.instances,

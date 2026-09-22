@@ -4,6 +4,7 @@
 
 ### Minor Changes
 
+- Replace the instance select with a searchable, paginated picker modal.
 - Replace the static EventHub instance setting with Registry-based active and stale instance discovery, selection, and URL state propagation.
 - Allow a selected stale EventHub instance to be deleted from the Registry.
 

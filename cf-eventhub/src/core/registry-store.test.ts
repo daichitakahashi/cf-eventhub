@@ -147,4 +147,38 @@ describe("registry store", () => {
       expect(secondStalePage.nextName).toBeUndefined();
     });
   });
+
+  test("searches literal name fragments within a lifecycle and paginates matches", async () => {
+    const stub = env.EVENT_HUB_REGISTRY.getByName("store-search");
+    await runInDurableObject(stub, async (_instance, state) => {
+      for (const name of ["other", "team%a", "team%z", "team_a"]) {
+        registerInstance(state.storage.sql, name, 10_000, 0);
+      }
+      const first = listInstances(
+        state.storage.sql,
+        "active",
+        undefined,
+        1,
+        0,
+        "team%",
+      );
+      const second = listInstances(
+        state.storage.sql,
+        "active",
+        first.nextName,
+        1,
+        0,
+        "team%",
+      );
+      expect({
+        first: first.instances.map(({ name }) => name),
+        second: second.instances.map(({ name }) => name),
+        cursor: second.nextName,
+      }).toStrictEqual({
+        first: ["team%a"],
+        second: ["team%z"],
+        cursor: undefined,
+      });
+    });
+  });
 });
