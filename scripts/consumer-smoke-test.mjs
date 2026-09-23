@@ -101,10 +101,10 @@ allowBuilds:
       { "name": "EVENT_HUB_REGISTRY", "class_name": "EventHubRegistry" }
     ]
   },
-  "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["SmokeEventHub"] },
-    { "tag": "v2", "new_sqlite_classes": ["EventHubRegistry"] }
-  ],
+  "exports": {
+    "SmokeEventHub": { "type": "durable-object", "storage": "sqlite" },
+    "EventHubRegistry": { "type": "durable-object", "storage": "sqlite" }
+  },
   "queues": {
     "producers": [{ "binding": "EVENTS", "queue": "events" }]
   }

@@ -7,28 +7,34 @@
   "name": "cf-eventhub",
   "main": "src/test.ts",
   "compatibility_date": "2026-05-02",
-  "migrations": [
-    {
-      "new_sqlite_classes": ["TestEventHub", "TestEventHubWithJobId"],
-      "tag": "v1"
+  "exports": {
+    "TestEventHub": { "type": "durable-object", "storage": "sqlite" },
+    "TestEventHubWithJobId": {
+      "type": "durable-object",
+      "storage": "sqlite"
     },
-    {
-      "new_sqlite_classes": [
-        "TestEventHubWithDeleteEviction",
-        "TestEventHubWithArchiveEviction",
-        "TestEventHubWithFailingArchiveEviction"
-      ],
-      "tag": "v2"
+    "TestEventHubWithDeleteEviction": {
+      "type": "durable-object",
+      "storage": "sqlite"
     },
-    {
-      "new_sqlite_classes": [
-        "EventHubRegistry",
-        "TestRegisteredEventHub",
-        "TestEventHubWithFailingRegistry"
-      ],
-      "tag": "v3"
+    "TestEventHubWithArchiveEviction": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    },
+    "TestEventHubWithFailingArchiveEviction": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    },
+    "EventHubRegistry": { "type": "durable-object", "storage": "sqlite" },
+    "TestRegisteredEventHub": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    },
+    "TestEventHubWithFailingRegistry": {
+      "type": "durable-object",
+      "storage": "sqlite"
     }
-  ],
+  },
   "durable_objects": {
     "bindings": [
       {

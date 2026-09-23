@@ -44,7 +44,7 @@ npm install cf-eventhub
 
 EventHub uses SQLite-backed Durable Objects. The Worker that defines your
 EventHub subclass must export the class and declare it in both
-`durable_objects.bindings` and `migrations`; see the complete Wrangler example
+`durable_objects.bindings` and `exports`; see the complete Wrangler example
 below.
 
 ### Package Format
@@ -117,10 +117,10 @@ Add `wrangler.jsonc`:
       }
     ]
   },
-  "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["MyEventHub"] },
-    { "tag": "v2", "new_sqlite_classes": ["EventHubRegistry"] }
-  ],
+  "exports": {
+    "MyEventHub": { "type": "durable-object", "storage": "sqlite" },
+    "EventHubRegistry": { "type": "durable-object", "storage": "sqlite" }
+  },
   "queues": {
     "producers": [{ "binding": "EVENTS", "queue": "events" }]
   }
@@ -543,7 +543,7 @@ The `path` field uses JSONPath-like syntax to extract values from event payloads
 ## Wrangler Configuration Example
 
 This example adds the Queue and R2 destinations used by the routing examples
-above. The Durable Object bindings and migrations are the same as in
+above. The Durable Object bindings and exports are the same as in
 [Quick Start](#quick-start). If you change bindings, run `npx wrangler types`.
 
 ```jsonc
@@ -565,16 +565,16 @@ above. The Durable Object bindings and migrations are the same as in
       }
     ]
   },
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": ["MyEventHub"]
+  "exports": {
+    "MyEventHub": {
+      "type": "durable-object",
+      "storage": "sqlite"
     },
-    {
-      "tag": "v2",
-      "new_sqlite_classes": ["EventHubRegistry"]
+    "EventHubRegistry": {
+      "type": "durable-object",
+      "storage": "sqlite"
     }
-  ],
+  },
   "queues": {
     "producers": [
       {
@@ -792,7 +792,7 @@ available after `evict()`.
 
 Cloudflare Workflows should keep side effects inside `step.do()`, so this example executes `eject`, `R2.put`, and `evict` only inside workflow steps.
 
-In addition to the EventHub binding and migrations from
+In addition to the EventHub binding and exports from
 [Quick Start](#quick-start), add the archive bucket and Workflow bindings to
 `wrangler.jsonc`:
 

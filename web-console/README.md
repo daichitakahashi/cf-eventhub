@@ -22,7 +22,7 @@ The console requires an EventHub Worker with:
 
 - an exported `EventHub` subclass;
 - an exported `EventHubRegistry` class;
-- Durable Object bindings and migrations for both classes;
+- Durable Object bindings and exports for both classes;
 - the Registry assigned to the EventHub subclass; and
 - at least one named EventHub accessed with `getByName()`.
 
