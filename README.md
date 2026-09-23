@@ -41,6 +41,6 @@ visit `/setup` to register three example EventHub instances, or use
 hex digits. The repository
 uses Node.js 24 and pnpm 11, as declared in `package.json`.
 
-For installation, Durable Object bindings and migrations, API details, and
+For installation, Durable Object bindings and exports, API details, and
 deployment examples, see the [`cf-eventhub`](./cf-eventhub/README.md) and
 [`@cf-eventhub/web-console`](./web-console/README.md) package documentation.
