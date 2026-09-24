@@ -4,22 +4,22 @@
 
 This monorepo provides event ingestion, durable delivery, and operational tooling
 for Cloudflare Workers. Events are persisted in Durable Objects before they are
-routed to Cloudflare Queues or R2, making delivery history, retries, failure
+routed to Cloudflare Queues, R2, or Workflows, making delivery history, retries, failure
 investigation, and redrive available as one system.
 
 ## Packages
 
 | Package | Role |
 | --- | --- |
-| [`cf-eventhub`](./cf-eventhub/README.md) | Durable Object component for persistence, fan-out routing, Queue/R2 delivery, retries, redrive, Registry discovery, and retention or archival. |
+| [`cf-eventhub`](./cf-eventhub/README.md) | Durable Object component for persistence, fan-out routing, Queue/R2/Workflow delivery, retries, redrive, Registry discovery, and retention or archival. |
 | [`@cf-eventhub/web-console`](./web-console/README.md) | Operations UI for selecting EventHub instances, inspecting payloads and delivery jobs, creating events, and redriving deliveries. |
-| [`eventhub-demo`](./demo/src/index.ts) | Local example that connects EventHub, the Registry, Web Console, Queues, an R2 sink, and DLQ failure reporting. |
+| [`eventhub-demo`](./demo/src/index.ts) | Local example that connects EventHub, the Registry, Web Console, Queues, an R2 sink, a flaky Workflow destination, and downstream failure reporting. |
 
 ## Why this repo
 
 - **Persist before delivery**: retain the event and every delivery job before the
   first delivery attempt starts.
-- **Fan out by content**: route one JSON event to multiple Queue and R2 bindings
+- **Fan out by content**: route one JSON event to multiple Queue, R2, or Workflow bindings
   with declarative conditions or custom routing logic.
 - **Recover from failures**: retry transient delivery errors automatically,
   record downstream failures from a DLQ, and redrive individual deliveries.
@@ -40,6 +40,11 @@ visit `/setup` to register three example EventHub instances, or use
 `default` and creates the remaining names as `tenant:` followed by eight random
 hex digits. The repository
 uses Node.js 24 and pnpm 11, as declared in `package.json`.
+
+Create an event with `"workflow": true` to route it to the demo's flaky
+Workflow. Roughly half of its instances fail intentionally; the Workflow
+rollback calls `reportFailure()` so the Web Console shows the downstream
+failure separately from the completed EventHub delivery.
 
 For installation, Durable Object bindings and exports, API details, and
 deployment examples, see the [`cf-eventhub`](./cf-eventhub/README.md) and

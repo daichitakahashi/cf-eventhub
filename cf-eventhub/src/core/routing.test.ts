@@ -456,16 +456,20 @@ describe("routeByConfig", () => {
     expect(strategy.findRoutes({ eventName: "orderPlaced" })).toStrictEqual([]);
   });
 
-  test("resolves queue and R2 destinations from env", () => {
+  test("resolves Queue, R2, and Workflow destinations from env", () => {
     const queue = { sendBatch: async () => {} } as unknown as Queue;
     const bucket = {
       put: async () => ({}),
       createMultipartUpload: async () => ({}),
     } as unknown as R2Bucket;
+    const workflow = {
+      createBatch: async () => [],
+    } as unknown as Workflow;
     const strategy = routeByConfig(
       {
         QUEUE_DESTINATION: queue,
         ARCHIVE: bucket,
+        REPORT_WORKFLOW: workflow,
       },
       {
         routes: [],
@@ -479,6 +483,10 @@ describe("routeByConfig", () => {
     expect(strategy.resolveDestination("ARCHIVE")).toStrictEqual({
       ok: true,
       value: { kind: "r2", bucket },
+    });
+    expect(strategy.resolveDestination("REPORT_WORKFLOW")).toStrictEqual({
+      ok: true,
+      value: { kind: "workflow", workflow },
     });
   });
 
@@ -502,6 +510,26 @@ describe("routeByConfig", () => {
 });
 
 describe("routeFunc", () => {
+  test("supports Workflow destinations", () => {
+    const workflow = {
+      createBatch: async () => [],
+    } as unknown as Workflow;
+    const strategy = routeFunc({ REPORT_WORKFLOW: workflow }, () => [
+      { destination: "REPORT_WORKFLOW" },
+    ]);
+
+    expect({
+      routes: strategy.findRoutes({}),
+      resolved: strategy.resolveDestination("REPORT_WORKFLOW"),
+    }).toStrictEqual({
+      routes: [{ destination: "REPORT_WORKFLOW" }],
+      resolved: {
+        ok: true,
+        value: { kind: "workflow", workflow },
+      },
+    });
+  });
+
   test("returns each destination once in callback order", () => {
     const strategy = routeFunc(
       {

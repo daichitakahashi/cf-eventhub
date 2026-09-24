@@ -1,10 +1,17 @@
-import { env } from "cloudflare:workers";
+import {
+  env,
+  WorkflowEntrypoint,
+  type WorkflowEvent,
+  type WorkflowStep,
+} from "cloudflare:workers";
+import { NonRetryableError } from "cloudflare:workflows";
 import { createWebConsole } from "@cf-eventhub/web-console";
 import {
   configureDelivery,
   EVENT_HUB_REGISTRY_NAME,
   EventHub,
   EventHubRegistry,
+  type EventPayload,
   getEventHubFromPayload,
   routeByConfig,
 } from "cf-eventhub";
@@ -36,6 +43,13 @@ export class DevEventHub extends EventHub<Env> {
           allOf: [],
         },
       },
+      {
+        destination: "FLAKY_WORKFLOW",
+        condition: {
+          path: "$.workflow",
+          exact: true,
+        },
+      },
     ],
   });
   deliveryConfig = configureDelivery({
@@ -43,10 +57,51 @@ export class DevEventHub extends EventHub<Env> {
   });
 }
 
+export class FlakyWorkflow extends WorkflowEntrypoint<Env, EventPayload> {
+  async run(event: WorkflowEvent<EventPayload>, step: WorkflowStep) {
+
+    await step.sleep("wait", "6 seconds");
+
+    await step.do(
+      "process event",
+      async () => {
+        const n = Math.floor(Math.random() * 10);
+        console.log("workflow n", n);
+        if (n % 2 !== 0) {
+          throw new NonRetryableError("flaky workflow failed");
+        }
+      },
+      {
+        rollback: async () => {
+          const eventHub = getEventHubFromPayload(
+            this.env.EVENT_HUB,
+            event.payload,
+          );
+          if (!eventHub) {
+            throw new NonRetryableError("Invalid EventHub metadata");
+          }
+
+          const result = await eventHub.reportFailure(event.payload);
+          if (!result.ok) throw new Error(result.error.message);
+        },
+        rollbackConfig: {
+          retries: {
+            limit: 3,
+            delay: "10 seconds",
+            backoff: "exponential",
+          },
+          timeout: "1 minute",
+        },
+      },
+    );
+  }
+}
+
 const placeholder = `// example payload for this demo
 {
   "eventName": "", // this will be used as a title of the event
-  "flaky": false // if true, queue consumer may fail
+  "flaky": false, // if true, queue consumer may fail
+  "workflow": false // if true, a flaky Workflow instance is created
 }`;
 
 export default {
