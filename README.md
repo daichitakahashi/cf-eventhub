@@ -13,7 +13,7 @@ investigation, and redrive available as one system.
 | --- | --- |
 | [`cf-eventhub`](./cf-eventhub/README.md) | Durable Object component for persistence, fan-out routing, Queue/R2/Workflow delivery, retries, redrive, Registry discovery, and retention or archival. |
 | [`@cf-eventhub/web-console`](./web-console/README.md) | Operations UI for selecting EventHub instances, inspecting payloads and delivery jobs, creating events, and redriving deliveries. |
-| [`eventhub-demo`](./demo/src/index.ts) | Local example that connects EventHub, the Registry, Web Console, Queues, an R2 sink, and DLQ failure reporting. |
+| [`eventhub-demo`](./demo/src/index.ts) | Local example that connects EventHub, the Registry, Web Console, Queues, an R2 sink, a flaky Workflow destination, and downstream failure reporting. |
 
 ## Why this repo
 
@@ -40,6 +40,11 @@ visit `/setup` to register three example EventHub instances, or use
 `default` and creates the remaining names as `tenant:` followed by eight random
 hex digits. The repository
 uses Node.js 24 and pnpm 11, as declared in `package.json`.
+
+Create an event with `"workflow": true` to route it to the demo's flaky
+Workflow. Roughly half of its instances fail intentionally; the Workflow
+rollback calls `reportFailure()` so the Web Console shows the downstream
+failure separately from the completed EventHub delivery.
 
 For installation, Durable Object bindings and exports, API details, and
 deployment examples, see the [`cf-eventhub`](./cf-eventhub/README.md) and

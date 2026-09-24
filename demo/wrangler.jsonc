@@ -20,6 +20,13 @@
       }
     ]
   },
+  "workflows": [
+    {
+      "name": "flaky-workflow",
+      "binding": "FLAKY_WORKFLOW",
+      "class_name": "FlakyWorkflow"
+    }
+  ],
   "queues": {
     "producers": [
       {
