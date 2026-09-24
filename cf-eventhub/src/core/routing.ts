@@ -7,7 +7,7 @@ import {
 } from "./jsonpath-lite";
 import type { EventPayload, JSONObject } from "./type";
 
-type Destination = Queue | R2Bucket;
+type Destination = Queue | R2Bucket | Workflow;
 
 export type Destinations<Env extends object> = Extract<
   keyof {
@@ -42,7 +42,15 @@ export type R2Destination = {
   objectKey?: R2ObjectKeyFactory;
 };
 
-export type ResolvedDestination = QueueDestination | R2Destination;
+export type WorkflowDestination = {
+  kind: "workflow";
+  workflow: Workflow<EventPayload>;
+};
+
+export type ResolvedDestination =
+  | QueueDestination
+  | R2Destination
+  | WorkflowDestination;
 
 export type R2ObjectKeyContext<Destination extends string = string> = {
   payload: EventPayload;
@@ -228,6 +236,11 @@ const isR2Bucket = (value: unknown): value is R2Bucket =>
   value !== null &&
   "put" in value &&
   "createMultipartUpload" in value;
+const isWorkflow = (value: unknown): value is Workflow<EventPayload> =>
+  typeof value === "object" &&
+  value !== null &&
+  "createBatch" in value &&
+  typeof value.createBatch === "function";
 
 const queryWithOptionalCache = (
   message: unknown,
@@ -365,9 +378,15 @@ const resolveDestinationBinding = <Env extends object>(
       ...(r2Options === undefined ? {} : { objectKey: r2Options.objectKey }),
     });
   }
+  if (isWorkflow(binding)) {
+    return resultOk({
+      kind: "workflow",
+      workflow: binding,
+    });
+  }
   return resultError(
     "INVALID_DESTINATION_BINDING",
-    `eventhub: value of ${String(destination)} is not a Queue or R2Bucket`,
+    `eventhub: value of ${String(destination)} is not a Queue, R2Bucket, or Workflow`,
   );
 };
 

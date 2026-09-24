@@ -5,11 +5,13 @@ import type {
   R2Destination,
   ResolvedDestination,
   RoutingStrategy,
+  WorkflowDestination,
 } from "./routing";
 import type { PendingDeliveryJobs, PersistedDeliveryJob } from "./store";
 import type { EventPayload } from "./type";
 
 const MAX_SEND_BATCH_COUNT = 100;
+const MAX_WORKFLOW_BATCH_COUNT = 100;
 const MAX_SEND_BATCH_BYTES = 256_000;
 const MAX_QUEUE_MESSAGE_BYTES = 128_000;
 const DELIVERY_JOB_ID_PLACEHOLDER = "0".repeat(ULID_LENGTH);
@@ -186,7 +188,7 @@ const injectDeliveryMetadata = (
   };
 };
 
-const getQueueMessageBody = (
+const getDestinationPayload = (
   payload: EventPayload,
   jobId: string,
   context: DeliveryContext,
@@ -219,7 +221,7 @@ export const validatePendingQueueMessageSizes = <Env extends object>(
     );
     if (!hasQueueDestination) continue;
 
-    const queuePayload = getQueueMessageBody(
+    const queuePayload = getDestinationPayload(
       payload,
       DELIVERY_JOB_ID_PLACEHOLDER,
       context,
@@ -267,7 +269,7 @@ const deliverQueueJobs = async <Env extends object>(
   let batchBytes = 0;
 
   for (const job of jobs) {
-    const body = getQueueMessageBody(job.payload, job.id, context);
+    const body = getDestinationPayload(job.payload, job.id, context);
     const bytes = getJsonByteLength(
       body,
       context.includeDeliveryMetadata ? undefined : job.serializedPayload,
@@ -336,6 +338,42 @@ const deliverR2Jobs = async <Env extends object>(
   }
 };
 
+const sendWorkflowBatch = async <Env extends object>(
+  jobs: readonly DeliveryJob<Env>[],
+  target: WorkflowDestination,
+  handlers: DeliverJobsHandlers,
+  context: DeliveryContext,
+): Promise<void> => {
+  const jobIds = jobs.map(({ id }) => id);
+  try {
+    await target.workflow.createBatch(
+      jobs.map((job) => ({
+        id: job.id,
+        params: getDestinationPayload(job.payload, job.id, context),
+      })),
+    );
+    await handlers.onDelivered(jobIds);
+  } catch (error) {
+    await handlers.onFailed(jobIds, error);
+  }
+};
+
+const deliverWorkflowJobs = async <Env extends object>(
+  jobs: readonly DeliveryJob<Env>[],
+  target: WorkflowDestination,
+  handlers: DeliverJobsHandlers,
+  context: DeliveryContext,
+): Promise<void> => {
+  for (let index = 0; index < jobs.length; index += MAX_WORKFLOW_BATCH_COUNT) {
+    await sendWorkflowBatch(
+      jobs.slice(index, index + MAX_WORKFLOW_BATCH_COUNT),
+      target,
+      handlers,
+      context,
+    );
+  }
+};
+
 // Sends jobs in destination-local units and reports success or failure per attempt.
 export const deliverJobs = async <Env extends object>(
   jobs: readonly DeliveryJob<Env>[],
@@ -348,11 +386,15 @@ export const deliverJobs = async <Env extends object>(
       await deliverQueueJobs(destinationJobs, target.queue, handlers, context);
       continue;
     }
-    await deliverR2Jobs(destinationJobs, target, handlers, context);
+    if (target.kind === "r2") {
+      await deliverR2Jobs(destinationJobs, target, handlers, context);
+      continue;
+    }
+    await deliverWorkflowJobs(destinationJobs, target, handlers, context);
   }
 };
 
-// Resolves queues per destination and keeps other destinations moving on failure.
+// Resolves bindings per destination and keeps other destinations moving on failure.
 export const deliverPersistedJobs = async <Env extends object>(
   routing: RoutingStrategy<Env>,
   jobs: readonly PersistedDeliveryJob[],

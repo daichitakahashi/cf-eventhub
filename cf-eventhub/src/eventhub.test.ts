@@ -6,7 +6,7 @@ import {
 import { env } from "cloudflare:workers";
 import { assert, describe, expect, test, vi } from "vitest";
 
-import { QueueMock, R2BucketMock } from "./core/mock";
+import { QueueMock, R2BucketMock, WorkflowMock } from "./core/mock";
 import { routeFunc } from "./core/routing";
 import {
   claimDeliverableJobs,
@@ -1366,6 +1366,53 @@ const markAllCompleted = (
 };
 
 describe("reportFailure", () => {
+  test("records a Workflow-reported failure without changing delivery status", async () => {
+    // 1. Deliver an event with metadata to a Workflow and report downstream failure.
+    // 2. Verify the durable handoff stays completed while the failure is recorded separately.
+    const stub = getStub("workflow-reported-failure");
+
+    await runInDurableObject(stub, async (instance, state) => {
+      const hub = instance as TestEventHub;
+      const workflow = new WorkflowMock();
+      hub.deliveryConfig = configureDelivery({
+        includeDeliveryMetadata: true,
+      });
+      hub.routing = routeFunc(
+        { REPORT_WORKFLOW: workflow as unknown as Workflow<EventPayload> },
+        () => [{ destination: "REPORT_WORKFLOW" }],
+      ) as unknown as typeof hub.routing;
+
+      await hub.publish({ kind: "report" });
+      await vi.waitFor(() => expect(workflow.instances.size).toBe(1));
+      const [workflowInstanceId] = workflow.instances.keys();
+      const [workflowPayload] = workflow.instances.values();
+      assert(workflowInstanceId, "expected Workflow instance ID");
+      assert(workflowPayload, "expected Workflow payload");
+      const recorded = unwrap(await hub.reportFailure(workflowPayload));
+      const job = state.storage.sql
+        .exec<Pick<DeliveryJobRow, "id" | "final_status">>(
+          "SELECT id, final_status FROM delivery_jobs",
+        )
+        .one();
+      const failure = state.storage.sql
+        .exec<{ delivery_job_id: string }>(
+          "SELECT delivery_job_id FROM delivery_job_failures",
+        )
+        .one();
+
+      expect({ recorded, job, failure }).toStrictEqual({
+        recorded: true,
+        job: {
+          id: workflowInstanceId,
+          final_status: "completed",
+        },
+        failure: {
+          delivery_job_id: workflowInstanceId,
+        },
+      });
+    });
+  });
+
   test("records a consumer-reported failure for a delivery job", async () => {
     // 1. Publish a payload and extract the delivery job ID from the database.
     // 2. Call reportFailure with a payload containing the job ID.

@@ -110,3 +110,37 @@ export class R2BucketMock {
     };
   }
 }
+
+export class WorkflowMock {
+  readonly createBatchCalls: WorkflowInstanceCreateOptions<EventPayload>[][] =
+    [];
+  readonly instances = new Map<string, EventPayload>();
+  private readonly failingBatchIndexes: Set<number>;
+
+  constructor(
+    failingBatchIndexes: number[] = [],
+    existingInstances: Iterable<[string, EventPayload]> = [],
+  ) {
+    this.failingBatchIndexes = new Set(failingBatchIndexes);
+    this.instances = new Map(existingInstances);
+  }
+
+  async createBatch(
+    batch: WorkflowInstanceCreateOptions<EventPayload>[],
+  ): Promise<WorkflowInstance[]> {
+    const batchIndex = this.createBatchCalls.length;
+    this.createBatchCalls.push(batch);
+    const created: WorkflowInstance[] = [];
+    for (const { id, params } of batch) {
+      if (id === undefined || params === undefined || this.instances.has(id)) {
+        continue;
+      }
+      this.instances.set(id, params);
+      created.push({ id } as WorkflowInstance);
+    }
+    if (this.failingBatchIndexes.has(batchIndex)) {
+      throw new Error(`failed Workflow batch ${batchIndex}`);
+    }
+    return created;
+  }
+}

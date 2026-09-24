@@ -1,6 +1,6 @@
 # cf-eventhub
 
-cf-eventhub is an event aggregation component built on Cloudflare Durable Objects. It persists JSON events published from Workers and delivers them to Queue or R2 destinations based on routing rules.
+cf-eventhub is an event aggregation component built on Cloudflare Durable Objects. It persists JSON events published from Workers and delivers them to Queue, R2, or Workflow destinations based on routing rules.
 
 Delivery is attempted immediately, and failed jobs are retried via Durable Object Alarms. Once delivery has completed or permanently failed, finalized events can be snapshotted with `eject()`, paged through with `listEjected()`, archived elsewhere, and then removed with `evict()`.
 
@@ -16,6 +16,8 @@ Delivery is attempted immediately, and failed jobs are retried via Durable Objec
 - [Queue Delivery Limits](#queue-delivery-limits)
 - [Automatic Eviction](#automatic-eviction)
 - [Routing](#routing)
+  - [Durable Handoff Requirement](#durable-handoff-requirement)
+  - [Workflow Destinations](#workflow-destinations)
 - [Wrangler Configuration Example](#wrangler-configuration-example)
 - [Publishing from a Worker](#publishing-from-a-worker)
 - [Failure Reporting with Dead-Letter Queues](#failure-reporting-with-dead-letter-queues)
@@ -27,10 +29,10 @@ Delivery is attempted immediately, and failed jobs are retried via Durable Objec
 ## What It Does
 
 - Persist events published from a Worker with `publish()`
-- Fan out a published event to multiple Queue or R2 destinations
+- Fan out a published event to multiple Queue, R2, or Workflow destinations
 - Route events with JSONPath-based conditions or custom routing logic
-- Retry failed deliveries to Queue or R2 automatically
-- Record processing failures reported by Queue consumers with `reportFailure()`
+- Retry failed deliveries automatically
+- Record downstream processing failures with `reportFailure()`
 - Redrive a specific event delivery with `redrive(deliveryJobId)`
 - Archive finalized events gradually with `eject -> listEjected -> evict`
 - Automatically delete or archive finalized events after a retention period
@@ -287,7 +289,7 @@ export class MyEventHub extends EventHub<Env> {
 }
 ```
 
-Before Queue or R2 I/O starts, EventHub atomically leases each delivery job.
+Before destination I/O starts, EventHub atomically leases each delivery job.
 Immediate delivery and alarm retries use the same claim path, so an alarm cannot
 start a second attempt while the first attempt is running. The live instance
 tracks running attempts (including jobs waiting in the same delivery batch)
@@ -302,7 +304,7 @@ can enable `includeDeliveryMetadata` and use `deliveryJobId` to deduplicate.
 
 When `includeDeliveryMetadata` is `true`, EventHub injects `instanceId`,
 `deliveryJobId`, and, for named instances, `instanceName` under `__eventhub__`
-before sending each payload to Queue or R2 destinations. The delivered payload
+before sending each payload to Queue, R2, or Workflow destinations. The delivered payload
 can be used with `reportFailure()` to record downstream processing failures for
 that delivery job.
 
@@ -323,8 +325,8 @@ injected `__eventhub__` object is included in both the per-message and batch
 size calculations.
 
 The per-message validation applies only when a payload has at least one Queue
-destination. Payloads routed exclusively to R2, and payloads with no matching
-destination, are not subject to the Queue message-size limit. If one argument
+destination. Payloads routed exclusively to R2 or Workflows, and payloads with
+no matching destination, are not subject to the Queue message-size limit. If one argument
 in a multi-payload `publish()` call is oversized, the entire call fails before
 any argument from that call is persisted.
 
@@ -430,12 +432,23 @@ Delivery retries and eviction share the Durable Object's single alarm, with deli
 
 ## Routing
 
-Define routing rules by extending `EventHub` and assigning a `RoutingStrategy` to the `routing` field. Use `routeByConfig(env, config)` to create a strategy from a route configuration. The `destination` value must match the binding name of a Queue or R2 bucket. The routing strategy resolves destination bindings from the Worker environment, so mismatched names fail when the strategy validates or resolves that destination.
+Define routing rules by extending `EventHub` and assigning a `RoutingStrategy` to the `routing` field. Use `routeByConfig(env, config)` to create a strategy from a route configuration. The `destination` value must match the binding name of a Queue, R2 bucket, or Workflow. The routing strategy resolves destination bindings from the Worker environment, so mismatched names fail when the strategy validates or resolves that destination.
 
 Each published payload is delivered once per unique matching destination. With
 `routeByConfig()`, destinations are ordered by their first matching rule.
 `routeFunc()` applies the same uniqueness rule and preserves the order in which
 each destination first appears in the callback result.
+
+### Durable Handoff Requirement
+
+**A destination must provide a durable handoff boundary.** EventHub marks a
+delivery successful only after the destination has durably accepted
+responsibility for the event, so EventHub no longer needs to retain that
+delivery for reliability. A successful Queue send, R2 write, or Workflow
+instance creation meets this requirement. A generic Service Binding or RPC call
+does not meet it by itself because returning successfully does not prove that
+the receiver durably owns the event. Future destination types must satisfy the
+same requirement.
 
 ```ts
 import { env } from "cloudflare:workers";
@@ -462,6 +475,118 @@ export class MyEventHub extends EventHub<Env> {
   });
 }
 ```
+
+### Workflow Destinations
+
+Workflow bindings work with both `routeByConfig()` and `routeFunc()`. Declare
+the binding in `Env` and use its binding name as the route destination:
+
+```ts
+import { env } from "cloudflare:workers";
+import { EventHub, routeByConfig } from "cf-eventhub";
+
+type Env = {
+  REPORT_WORKFLOW: Workflow;
+};
+
+export class MyEventHub extends EventHub<Env> {
+  routing = routeByConfig(env, {
+    routes: [
+      {
+        condition: {
+          path: "$.type",
+          exact: "report.requested",
+        },
+        destination: "REPORT_WORKFLOW",
+      },
+    ],
+  });
+}
+```
+
+Configure the Workflow binding in `wrangler.jsonc`:
+
+```jsonc
+{
+  "workflows": [
+    {
+      "name": "report-workflow",
+      "binding": "REPORT_WORKFLOW",
+      "class_name": "ReportWorkflow"
+    }
+  ]
+}
+```
+
+EventHub groups jobs for the same Workflow into batches of at most 100 and uses
+[`Workflow.createBatch()`](https://developers.cloudflare.com/workflows/build/workers-api/#createbatch).
+Every Workflow instance ID is the corresponding delivery job ID, and its
+parameters are the event payload, including `__eventhub__` when
+`includeDeliveryMetadata` is enabled. `createBatch()` is idempotent: instance
+IDs that already exist are skipped rather than rejected. A successful call
+therefore completes every job in the requested batch, whether its instance was
+created by that attempt or an earlier ambiguous attempt. A failed call keeps
+the jobs retryable with the same IDs.
+
+Once instance creation is accepted, EventHub considers the durable handoff
+complete. Workflow execution, retries, and final outcome belong to the Workflow
+system and do not alter the delivery job's `finalStatus`.
+
+A Workflow may optionally report an execution failure using the same metadata
+and helper used by Queue consumers:
+
+```ts
+import {
+  WorkflowEntrypoint,
+  type WorkflowEvent,
+  type WorkflowStep,
+} from "cloudflare:workers";
+import {
+  type EventHub,
+  type EventPayload,
+  getEventHubFromPayload,
+} from "cf-eventhub";
+
+type Env = {
+  EVENT_HUB: DurableObjectNamespace<EventHub>;
+};
+
+export class ReportWorkflow extends WorkflowEntrypoint<Env, EventPayload> {
+  async run(event: WorkflowEvent<EventPayload>, step: WorkflowStep) {
+    await step.do(
+      "process event",
+      async () => {
+        // Application work
+      },
+      {
+        rollback: async () => {
+          const hub = getEventHubFromPayload(
+            this.env.EVENT_HUB,
+            event.payload,
+          );
+          if (!hub) return;
+
+          await hub.reportFailure(event.payload);
+        },
+        rollbackConfig: {
+          retries: {
+            limit: 3,
+            delay: "10 seconds",
+            backoff: "exponential",
+          },
+          timeout: "1 minute",
+        },
+      },
+    );
+  }
+}
+```
+
+This records a separate consumer-reported failure and does not change the
+already completed delivery status. Register the failure-reporting rollback once
+per Workflow: `reportFailure()` is idempotent, but multiple rollback handlers
+would perform redundant calls. The rollback also runs when an instance is
+explicitly terminated with rollback enabled.
 
 Supported operators are `exact`, `match`, `exists`, `lt`, `lte`, `gt`, `gte`, `allOf`, `anyOf`, and `not`.
 Regular expressions used with `match` must not use the stateful global (`g`) or
@@ -636,6 +761,7 @@ Notes:
 - Queue destinations are delivered with byte-aware, count-bounded
   `sendBatch()` calls as described in [Queue Delivery Limits](#queue-delivery-limits)
 - R2 destinations are delivered with `put()`
+- Workflow destinations are delivered with idempotent `createBatch()` calls
 - Events with no matching route are still persisted as payloads
 - `redrive(deliveryJobId)` creates a new independent payload and delivery job from an existing, non-ejected job, then starts delivery immediately. A successful result contains `false` if the source job no longer exists.
 
