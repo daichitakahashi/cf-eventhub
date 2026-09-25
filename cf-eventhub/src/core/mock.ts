@@ -41,12 +41,22 @@ export class QueueMock implements Queue<EventPayload> {
 
 export class R2BucketMock {
   readonly objects = new Map<string, { body: string; contentType?: string }>();
+  readonly putCalls: Array<{
+    key: string;
+    body: string;
+    contentType?: string;
+  }> = [];
   private readonly failingKeys: Set<string>;
   private readonly failAll: boolean;
+  private readonly pendingPutFailures: Array<"before" | "after"> = [];
 
   constructor(failingKeys: string[] = [], failAll = false) {
     this.failingKeys = new Set(failingKeys);
     this.failAll = failAll;
+  }
+
+  failNextPut(timing: "before" | "after" = "before"): void {
+    this.pendingPutFailures.push(timing);
   }
 
   async head(): Promise<R2Object | null> {
@@ -68,17 +78,23 @@ export class R2BucketMock {
       | Blob,
     options?: R2PutOptions,
   ): Promise<R2Object> {
-    if (this.failAll || this.failingKeys.has(key)) {
-      throw new Error(`failed put ${key}`);
-    }
     if (typeof value !== "string") {
       throw new Error("expected string payload");
     }
-    this.objects.set(key, {
+    const object = {
       body: value,
       // @ts-expect-error: assume httpMetadata is always R2HTTPMetadata
       contentType: options?.httpMetadata?.contentType,
-    });
+    };
+    this.putCalls.push({ key, ...object });
+    const failure = this.pendingPutFailures.shift();
+    if (this.failAll || this.failingKeys.has(key) || failure === "before") {
+      throw new Error(`failed put ${key}`);
+    }
+    this.objects.set(key, object);
+    if (failure === "after") {
+      throw new Error(`failed put after write ${key}`);
+    }
     return {
       key,
       version: "v1",

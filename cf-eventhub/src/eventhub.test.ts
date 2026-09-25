@@ -2022,6 +2022,234 @@ describe("automatic eviction", () => {
     });
   });
 
+  test("retries the same page after R2 commits before progress is persisted", async () => {
+    // 1. Make the first page write externally visible while reporting failure.
+    // 2. Retry from unchanged SQL progress and verify the page key and body are identical.
+    // 3. Finish the remaining page and manifest without skipping or duplicating payloads.
+    const stub = getFailingArchiveEvictionStub(
+      "archive-page-write-before-progress",
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await runInDurableObject(stub, async (instance, state) => {
+      const hub = instance as TestEventHubWithFailingArchiveEviction;
+      let sequence = 0;
+      state.storage.transactionSync(() => {
+        for (const ordinal of [1, 2]) {
+          persistDeliveryJobs(
+            state.storage.sql,
+            createPendingDeliveryJobs(testRouting, [
+              { kind: "other", ordinal, data: "x".repeat(180_000) },
+            ]),
+            () => `01INTERRUPTPAGE${String(sequence++).padStart(9, "0")}`,
+            new Date(Date.now() - 10_000),
+          );
+        }
+      });
+
+      hub.bucket.failNextPut("after");
+      await hub.alarm();
+      const interrupted = state.storage.sql
+        .exec<{
+          ejection_key: string;
+          phase: string;
+          cursor: string | null;
+          page_index: number;
+          payload_count: number;
+          retry_count: number;
+        }>(
+          "SELECT ejection_key, phase, cursor, page_index, payload_count, retry_count FROM eviction_runs",
+        )
+        .one();
+      const firstAttempt = hub.bucket.putCalls[0];
+      expect({
+        interrupted,
+        snapshotCount: state.storage.sql
+          .exec<{ count: number }>("SELECT COUNT(*) AS count FROM ejections")
+          .one().count,
+        ejectedPayloadCount: state.storage.sql
+          .exec<{ count: number }>(
+            "SELECT COUNT(*) AS count FROM ejected_payloads",
+          )
+          .one().count,
+        storedPage: hub.bucket.objects.get(firstAttempt?.key ?? ""),
+      }).toMatchObject({
+        interrupted: {
+          phase: "pages",
+          cursor: null,
+          page_index: 0,
+          payload_count: 0,
+          retry_count: 1,
+        },
+        snapshotCount: 1,
+        ejectedPayloadCount: 2,
+        storedPage: { body: firstAttempt?.body },
+      });
+
+      state.storage.sql.exec(
+        "UPDATE eviction_runs SET next_attempt_at = ?",
+        new Date(Date.now() - 1).toISOString(),
+      );
+      await hub.alarm();
+      expect({
+        attempts: hub.bucket.putCalls.slice(0, 2),
+        run: state.storage.sql
+          .exec<{
+            phase: string;
+            cursor: string | null;
+            page_index: number;
+            payload_count: number;
+            retry_count: number;
+          }>(
+            "SELECT phase, cursor, page_index, payload_count, retry_count FROM eviction_runs",
+          )
+          .one(),
+      }).toMatchObject({
+        attempts: [firstAttempt, firstAttempt],
+        run: {
+          phase: "pages",
+          cursor: expect.any(String),
+          page_index: 1,
+          payload_count: 1,
+          retry_count: 0,
+        },
+      });
+
+      await hub.alarm();
+      await hub.alarm();
+      const pageAttempts = [...hub.bucket.objects.entries()]
+        .filter(([key]) => key.includes("/pages/"))
+        .sort(([left], [right]) => left.localeCompare(right));
+      const archivedPayloads = pageAttempts.flatMap(([, object]) => {
+        const page = JSON.parse(object.body) as {
+          payloads: Array<{ payloadId: string; payload: { ordinal: number } }>;
+        };
+        return page.payloads;
+      });
+      expect({
+        pageKeys: pageAttempts.map(([key]) => key),
+        ordinals: archivedPayloads.map(({ payload }) => payload.ordinal),
+        uniquePayloadIds: new Set(
+          archivedPayloads.map(({ payloadId }) => payloadId),
+        ).size,
+        runCount: state.storage.sql
+          .exec<{ count: number }>(
+            "SELECT COUNT(*) AS count FROM eviction_runs",
+          )
+          .one().count,
+        snapshotCount: state.storage.sql
+          .exec<{ count: number }>("SELECT COUNT(*) AS count FROM ejections")
+          .one().count,
+      }).toStrictEqual({
+        pageKeys: [
+          `automatic-failure/objects/${state.id.toString()}/ejections/${interrupted.ejection_key}/pages/000000.json`,
+          `automatic-failure/objects/${state.id.toString()}/ejections/${interrupted.ejection_key}/pages/000001.json`,
+        ],
+        ordinals: [1, 2],
+        uniquePayloadIds: 2,
+        runCount: 0,
+        snapshotCount: 0,
+      });
+
+      const completedPutCount = hub.bucket.putCalls.length;
+      await hub.alarm();
+      expect(hub.bucket.putCalls).toHaveLength(completedPutCount);
+    });
+    warn.mockRestore();
+  });
+
+  test("rewrites a committed manifest safely before cleaning up SQLite", async () => {
+    // 1. Advance the run to manifest phase.
+    // 2. Persist the manifest externally while reporting failure and retain the snapshot.
+    // 3. Retry the identical manifest, clean up once, and make another alarm a no-op.
+    const stub = getFailingArchiveEvictionStub(
+      "archive-manifest-write-before-cleanup",
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await runInDurableObject(stub, async (instance, state) => {
+      const hub = instance as TestEventHubWithFailingArchiveEviction;
+      state.storage.transactionSync(() => {
+        persistDeliveryJobs(
+          state.storage.sql,
+          createPendingDeliveryJobs(testRouting, [{ kind: "other" }]),
+          () => "01INTERRUPTMANIFEST000000",
+          new Date(Date.now() - 10_000),
+        );
+      });
+      await hub.alarm();
+      const readyForManifest = state.storage.sql
+        .exec<{
+          phase: string;
+          cursor: string | null;
+          page_index: number;
+          payload_count: number;
+          completed_at: string | null;
+        }>(
+          "SELECT phase, cursor, page_index, payload_count, completed_at FROM eviction_runs",
+        )
+        .one();
+
+      hub.bucket.failNextPut("after");
+      await hub.alarm();
+      const interrupted = state.storage.sql
+        .exec<{
+          phase: string;
+          cursor: string | null;
+          page_index: number;
+          payload_count: number;
+          completed_at: string | null;
+          retry_count: number;
+          next_attempt_at: string;
+        }>(
+          "SELECT phase, cursor, page_index, payload_count, completed_at, retry_count, next_attempt_at FROM eviction_runs",
+        )
+        .one();
+      const firstManifestAttempt = hub.bucket.putCalls.at(-1);
+      expect({
+        interrupted,
+        manifest: hub.bucket.objects.get(firstManifestAttempt?.key ?? ""),
+        snapshotCount: state.storage.sql
+          .exec<{ count: number }>("SELECT COUNT(*) AS count FROM ejections")
+          .one().count,
+      }).toMatchObject({
+        interrupted: { ...readyForManifest, retry_count: 1 },
+        manifest: { body: firstManifestAttempt?.body },
+        snapshotCount: 1,
+      });
+      expect(await state.storage.getAlarm()).toBe(
+        Date.parse(interrupted.next_attempt_at),
+      );
+
+      state.storage.sql.exec(
+        "UPDATE eviction_runs SET next_attempt_at = ?",
+        new Date(Date.now() - 1).toISOString(),
+      );
+      await hub.alarm();
+      const manifestAttempts = hub.bucket.putCalls.filter(({ key }) =>
+        key.endsWith("/manifest.json"),
+      );
+      expect({
+        manifestAttempts,
+        runCount: state.storage.sql
+          .exec<{ count: number }>(
+            "SELECT COUNT(*) AS count FROM eviction_runs",
+          )
+          .one().count,
+        snapshotCount: state.storage.sql
+          .exec<{ count: number }>("SELECT COUNT(*) AS count FROM ejections")
+          .one().count,
+      }).toStrictEqual({
+        manifestAttempts: [firstManifestAttempt, firstManifestAttempt],
+        runCount: 0,
+        snapshotCount: 0,
+      });
+
+      const completedPutCount = hub.bucket.putCalls.length;
+      await hub.alarm();
+      expect(hub.bucket.putCalls).toHaveLength(completedPutCount);
+    });
+    warn.mockRestore();
+  });
+
   test.each([
     ["delete", getDeleteEvictionStub],
     ["archive", getArchiveEvictionStub],
@@ -2116,6 +2344,23 @@ describe("automatic eviction", () => {
       await hub.alarm();
       const original = hub.eviction;
       assert(original?.action.type === "archive");
+      const runBeforePause = state.storage.sql
+        .exec<{
+          ejection_key: string;
+          phase: string;
+          cursor: string | null;
+          page_index: number;
+          payload_count: number;
+          archive_prefix: string;
+          completed_at: string | null;
+        }>(
+          "SELECT ejection_key, phase, cursor, page_index, payload_count, archive_prefix, completed_at FROM eviction_runs",
+        )
+        .one();
+      const archivePrefix = `automatic/objects/${state.id.toString()}/ejections/${runBeforePause.ejection_key}`;
+      const keysBeforePause = (
+        await env.EVICTION_ARCHIVE.list({ prefix: archivePrefix })
+      ).objects.map(({ key }) => key);
       const pausedState = () => ({
         runs: state.storage.sql
           .exec<{ count: number }>(
@@ -2152,6 +2397,20 @@ describe("automatic eviction", () => {
       await hub.alarm();
       expect(pausedState()).toStrictEqual({ runs: 1, ejected: 1 });
 
+      expect({
+        run: state.storage.sql
+          .exec<typeof runBeforePause>(
+            "SELECT ejection_key, phase, cursor, page_index, payload_count, archive_prefix, completed_at FROM eviction_runs",
+          )
+          .one(),
+        keys: (
+          await env.EVICTION_ARCHIVE.list({ prefix: archivePrefix })
+        ).objects.map(({ key }) => key),
+      }).toStrictEqual({
+        run: runBeforePause,
+        keys: keysBeforePause,
+      });
+
       hub.eviction = original;
       await hub.alarm();
       expect(pausedState()).toStrictEqual({ runs: 0, ejected: 0 });
@@ -2161,12 +2420,14 @@ describe("automatic eviction", () => {
   });
 
   test("R2 failure preserves the snapshot and stores persistent backoff", async () => {
-    // 1. Seed one eligible payload behind an R2 binding that always fails.
+    // 1. Seed one eligible payload and fail its first R2 page write.
     // 2. Run the alarm and verify the payload is retained in its snapshot.
-    // 3. Verify retry state advances without completing or evicting the run.
+    // 3. Verify persistent retry state, then resume and finish after R2 recovers.
     const stub = getFailingArchiveEvictionStub("archive-put-failure");
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     await runInDurableObject(stub, async (instance, state) => {
+      const hub = instance as TestEventHubWithFailingArchiveEviction;
+      hub.bucket.failNextPut();
       state.storage.transactionSync(() => {
         persistDeliveryJobs(
           state.storage.sql,
@@ -2176,7 +2437,7 @@ describe("automatic eviction", () => {
         );
       });
       const beforeAlarm = Date.now();
-      await (instance as TestEventHubWithFailingArchiveEviction).alarm();
+      await hub.alarm();
 
       const run = state.storage.sql
         .exec<{
@@ -2210,6 +2471,34 @@ describe("automatic eviction", () => {
       expect(Date.parse(run.next_attempt_at)).toBeGreaterThanOrEqual(
         beforeAlarm + 60_000,
       );
+      expect(await state.storage.getAlarm()).toBe(
+        Date.parse(run.next_attempt_at),
+      );
+
+      state.storage.sql.exec(
+        "UPDATE eviction_runs SET next_attempt_at = ?",
+        new Date(Date.now() - 1).toISOString(),
+      );
+      await hub.alarm();
+      expect(
+        state.storage.sql
+          .exec<{ phase: string; retry_count: number }>(
+            "SELECT phase, retry_count FROM eviction_runs",
+          )
+          .one(),
+      ).toStrictEqual({ phase: "manifest", retry_count: 0 });
+
+      await hub.alarm();
+      expect({
+        runCount: state.storage.sql
+          .exec<{ count: number }>(
+            "SELECT COUNT(*) AS count FROM eviction_runs",
+          )
+          .one().count,
+        snapshotCount: state.storage.sql
+          .exec<{ count: number }>("SELECT COUNT(*) AS count FROM ejections")
+          .one().count,
+      }).toStrictEqual({ runCount: 0, snapshotCount: 0 });
     });
     expect(warn).toHaveBeenCalledWith(
       "eventhub: automatic eviction write failed",
