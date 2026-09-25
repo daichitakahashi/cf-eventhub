@@ -104,7 +104,7 @@ export class TestEventHubWithArchiveEviction extends EventHub<Env> {
 }
 
 export class TestEventHubWithFailingArchiveEviction extends EventHub<Env> {
-  bucket = new R2BucketMock([], true);
+  bucket = new R2BucketMock();
   deliveryConfig = configureDelivery({});
   eviction: EvictionConfig | undefined = configureEviction({
     afterMs: 1_000,
