@@ -57,8 +57,8 @@ const safe: unique symbol = Symbol();
 /**
  * Delivery and retry configuration for EventHub.
  */
-export type DeliveryConfig = {
-  [safe]: true;
+export type DeliveryConfig = Readonly<{
+  readonly [safe]: true;
 
   /**
    * Maximum number of delivery jobs to process in a single alarm batch.
@@ -101,17 +101,17 @@ export type DeliveryConfig = {
    * @default false
    */
   includeDeliveryMetadata: boolean;
-};
+}>;
 
 export type EvictionAction =
-  | { type: "delete" }
-  | { type: "archive"; bucket: R2Bucket; prefix: string };
+  | Readonly<{ type: "delete" }>
+  | Readonly<{ type: "archive"; bucket: R2Bucket; prefix: string }>;
 
-export type EvictionConfig = {
+export type EvictionConfig = Readonly<{
   afterMs: number;
   action: EvictionAction;
   batchSize: number;
-};
+}>;
 
 export type EjectOptions = {
   /**
@@ -297,7 +297,7 @@ export const configureDelivery = (
     throw new Error("eventhub: initialRetryDelayMs must be <= maxRetryDelayMs");
   }
 
-  return cfg;
+  return Object.freeze(cfg);
 };
 
 export const configureEviction = (
@@ -311,29 +311,42 @@ export const configureEviction = (
     throw new Error("eventhub: batchSize must be <= 100");
   }
 
-  const action = config.action as EvictionAction | undefined;
-  if (!action || (action.type !== "delete" && action.type !== "archive")) {
+  const inputAction = config.action as EvictionAction | undefined;
+  if (
+    !inputAction ||
+    (inputAction.type !== "delete" && inputAction.type !== "archive")
+  ) {
     throw new Error(
       'eventhub: eviction action type must be "delete" or "archive"',
     );
   }
-  if (action.type === "archive") {
-    if (!action.bucket || typeof action.bucket.put !== "function") {
+  if (inputAction.type === "archive") {
+    if (!inputAction.bucket || typeof inputAction.bucket.put !== "function") {
       throw new Error("eventhub: archive bucket is required");
     }
     if (
-      typeof action.prefix !== "string" ||
-      action.prefix.length === 0 ||
-      action.prefix.startsWith("/") ||
-      action.prefix.endsWith("/") ||
-      action.prefix.includes("//")
+      typeof inputAction.prefix !== "string" ||
+      inputAction.prefix.length === 0 ||
+      inputAction.prefix.startsWith("/") ||
+      inputAction.prefix.endsWith("/") ||
+      inputAction.prefix.includes("//")
     ) {
       throw new Error(
         "eventhub: archive prefix must be non-empty and contain no leading, trailing, or repeated slash",
       );
     }
   }
-  return { afterMs: config.afterMs, action, batchSize };
+
+  const action: EvictionAction =
+    inputAction.type === "delete"
+      ? Object.freeze({ type: "delete" as const })
+      : Object.freeze({
+          type: "archive" as const,
+          bucket: inputAction.bucket,
+          prefix: inputAction.prefix,
+        });
+
+  return Object.freeze({ afterMs: config.afterMs, action, batchSize });
 };
 
 // Durable object that persists delivery jobs and retries them via alarms.
