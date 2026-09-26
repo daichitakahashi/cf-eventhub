@@ -1,5 +1,16 @@
 # @cf-eventhub/web-console
 
+## 1.0.0-rc.1
+
+### Patch Changes
+
+- 43b73b3: Disable manual eviction APIs when automatic eviction is configured and teach
+  the web console about the new error code.
+- Updated dependencies [4e6c038]
+- Updated dependencies [7315686]
+- Updated dependencies [43b73b3]
+  - cf-eventhub@1.0.0-rc.1
+
 ## 1.0.0-rc.0
 
 ### Major Changes
