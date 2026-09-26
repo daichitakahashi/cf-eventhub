@@ -1720,6 +1720,17 @@ describe("reportFailure", () => {
 });
 
 describe("automatic eviction", () => {
+  test("configureDelivery returns an immutable configuration", () => {
+    const config = configureDelivery({ maxDeliveryRetries: 1 });
+
+    expect(Object.isFrozen(config)).toBe(true);
+    expect(() => {
+      // @ts-expect-error DeliveryConfig is readonly
+      config.maxDeliveryRetries = 2;
+    }).toThrow(TypeError);
+    expect(config.maxDeliveryRetries).toBe(1);
+  });
+
   test("configureEviction applies the default batch size", () => {
     expect(
       configureEviction({ afterMs: 1, action: { type: "delete" } }),
@@ -1770,6 +1781,43 @@ describe("automatic eviction", () => {
         action: { type: "archive", bucket, prefix: "/invalid" },
       }),
     ).toThrow("eventhub: archive prefix");
+  });
+
+  test("configureEviction returns an immutable configuration snapshot", () => {
+    const bucket = getArchiveBucket();
+    const action = {
+      type: "archive" as const,
+      bucket,
+      prefix: "events",
+    };
+    const config = configureEviction({ afterMs: 1, action });
+
+    action.prefix = "/invalid/";
+
+    expect({
+      configFrozen: Object.isFrozen(config),
+      actionFrozen: Object.isFrozen(config.action),
+      bucketFrozen: Object.isFrozen(bucket),
+      actionCopied: config.action !== action,
+      prefix: config.action.type === "archive" ? config.action.prefix : null,
+    }).toStrictEqual({
+      configFrozen: true,
+      actionFrozen: true,
+      bucketFrozen: false,
+      actionCopied: true,
+      prefix: "events",
+    });
+
+    expect(() => {
+      // @ts-expect-error EvictionConfig is readonly
+      config.afterMs = 2;
+    }).toThrow(TypeError);
+    expect(() => {
+      if (config.action.type === "archive") {
+        // @ts-expect-error EvictionAction is readonly
+        config.action.prefix = "changed";
+      }
+    }).toThrow(TypeError);
   });
 
   test("delete action removes at most one bounded batch without a snapshot", async () => {
