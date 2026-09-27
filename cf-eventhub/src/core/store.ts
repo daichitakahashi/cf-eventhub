@@ -84,10 +84,6 @@ export type ListResult = {
   payloads: ListedPayload[];
 };
 
-export type EjectedDeliveryJob = ListedDeliveryJob;
-export type EjectedPayload = ListedPayload;
-export type ListEjectedResult = ListResult;
-
 export type EvictionRunPhase = "pages" | "manifest";
 
 export type EvictionRun = {
@@ -1223,7 +1219,7 @@ export const listEjected = (
   cursor?: string,
   max = 50,
   maxBytes = 262_144, // 256KiB
-): Result<ListEjectedResult> => {
+): Result<ListResult> => {
   const decodedCursor =
     cursor === undefined
       ? resultOk<DecodedCursor | undefined>(undefined)
@@ -1281,7 +1277,7 @@ export const listEjected = (
     )
     .toArray()
     .map(
-      (row): EjectedDeliveryJob => ({
+      (row): ListedDeliveryJob => ({
         id: row.id,
         payloadId: row.payload_id,
         destination: row.destination,

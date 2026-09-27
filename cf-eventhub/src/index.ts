@@ -1,17 +1,14 @@
 export {
-  type Config,
   type R2Destinations,
   type R2ObjectKeyContext,
   type R2ObjectKeyFactory,
+  type RoutingConfig,
   type RoutingOptions,
   routeByConfig,
   routeFunc,
 } from "./core/routing";
 export type {
-  EjectedDeliveryJob,
-  EjectedPayload,
   EjectResult,
-  ListEjectedResult,
   ListedDeliveryJob,
   ListedPayload,
   ListResult,
@@ -42,6 +39,5 @@ export type {
 } from "./registry";
 export {
   EVENT_HUB_REGISTRY_NAME,
-  EVENT_HUB_STALE_AFTER_MS,
   EventHubRegistry,
 } from "./registry";

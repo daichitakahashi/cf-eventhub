@@ -150,6 +150,20 @@ through the optional EventHub Registry used by
 
 ## Public API
 
+The package root intentionally exports the following consumer-facing surface:
+
+| Area | Exports |
+| --- | --- |
+| EventHub runtime | `EventHub`, `configureDelivery`, `configureEviction`, `getEventHubFromPayload` |
+| Routing | `routeByConfig`, `routeFunc`, `RoutingConfig`, `RoutingOptions`, `R2Destinations`, `R2ObjectKeyContext`, `R2ObjectKeyFactory` |
+| Payloads and listings | `EventPayload`, `JSONObject`, `ListedPayload`, `ListedDeliveryJob`, `ListResult`, `EjectResult` |
+| RPC results | `Result`, `ResultOk`, `ResultError`, `EventHubErrorCode` |
+| EventHub configuration | `DeliveryConfig`, `EvictionConfig`, `EvictionAction`, `ListOptions`, `ListEjectedOptions`, `EjectOptions`, `ListOrder` |
+| Registry | `EventHubRegistry`, `EVENT_HUB_REGISTRY_NAME`, `EventHubInstance`, `EventHubInstanceStatus`, `ListEventHubInstancesOptions`, `ListEventHubInstancesResult` |
+
+Internal storage, delivery, migration, and Registry policy details are not part
+of the package API.
+
 The `EventHub` Durable Object exposes the following RPC methods:
 
 | Method | Behavior |
@@ -159,7 +173,7 @@ The `EventHub` Durable Object exposes the following RPC methods:
 | `reportFailure(payload)` | Returns `Result<boolean>`. Idempotently records a downstream failure from EventHub delivery metadata. |
 | `list(options?)` | Returns `Result<ListResult>` for live payloads and their delivery jobs. |
 | `eject(before, options?)` | Returns `Result<EjectResult>` after moving eligible finalized payloads into a snapshot. Available only when automatic eviction is not configured. |
-| `listEjected(ejectKey, options?)` | Returns `Result<ListEjectedResult>` for an ejection snapshot page. Available only when automatic eviction is not configured. |
+| `listEjected(ejectKey, options?)` | Returns `Result<ListResult>` for an ejection snapshot page. Available only when automatic eviction is not configured. |
 | `evict(ejectKey)` | Returns `Result` after idempotently removing an ejection snapshot. Available only when automatic eviction is not configured. |
 
 `payload` must be a JSON object.

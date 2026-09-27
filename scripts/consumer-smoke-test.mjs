@@ -131,7 +131,12 @@ allowBuilds:
       path.join(consumerDirectory, "src", "index.ts"),
       `import { createWebConsole } from "@cf-eventhub/web-console";
 import { env } from "cloudflare:workers";
-import { EventHub, EventHubRegistry, routeByConfig } from "cf-eventhub";
+import {
+  EventHub,
+  EventHubRegistry,
+  type RoutingConfig,
+  routeByConfig,
+} from "cf-eventhub";
 
 export { EventHubRegistry };
 
@@ -141,16 +146,18 @@ interface Env {
   EVENTS: Queue;
 }
 
+const routingConfig: RoutingConfig<Env> = {
+  routes: [
+    {
+      condition: { allOf: [] },
+      destination: "EVENTS",
+    },
+  ],
+};
+
 export class SmokeEventHub extends EventHub<Env> {
   registry = env.EVENT_HUB_REGISTRY;
-  routing = routeByConfig(env, {
-    routes: [
-      {
-        condition: { allOf: [] },
-        destination: "EVENTS",
-      },
-    ],
-  });
+  routing = routeByConfig(env, routingConfig);
 }
 
 export default createWebConsole({
