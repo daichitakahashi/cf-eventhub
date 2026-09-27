@@ -1569,7 +1569,8 @@ describe("ejectPayloads", () => {
 
 describe("delivery job state transitions", () => {
   test("completes more jobs than the SQLite parameter limit", async () => {
-    // 1. Persist 101 jobs, exceeding SQLite's 100 bound parameter limit.
+    // 1. Persist 101 jobs so completion receives more IDs than SQLite allows
+    //    as individually bound parameters.
     // 2. Complete all jobs through one JSON-bound ID list and verify every row.
     await runInDurableObject(
       getStub("store-mark-full-batch-completed"),

@@ -79,7 +79,11 @@ const deliveryContext = {
 const createPayloadWithJsonBytes = (bytes: number): EventPayload => {
   const payload = { kind: "culture", data: "" };
   const overhead = new TextEncoder().encode(JSON.stringify(payload)).byteLength;
-  return { ...payload, data: "x".repeat(bytes - overhead) };
+  const dataBytes = bytes - overhead;
+  return {
+    ...payload,
+    data: `${"あ".repeat(Math.floor(dataBytes / 3))}${"x".repeat(dataBytes % 3)}`,
+  };
 };
 
 describe("resolveDestinationBindings", () => {
