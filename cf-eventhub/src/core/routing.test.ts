@@ -1,11 +1,16 @@
 import { describe, expect, test, vi } from "vitest";
 
 import * as jsonpath from "./jsonpath-lite";
-import { type Config, findRoutes, routeByConfig, routeFunc } from "./routing";
+import {
+  findRoutes,
+  type RoutingConfig,
+  routeByConfig,
+  routeFunc,
+} from "./routing";
 
 describe("findRoutes", () => {
   test("returns destination for exact comparator", () => {
-    const config: Config<{ ORDER_HANDLER: Queue }> = {
+    const config: RoutingConfig<{ ORDER_HANDLER: Queue }> = {
       routes: [
         {
           condition: {
@@ -23,7 +28,7 @@ describe("findRoutes", () => {
   });
 
   test("returns destination for match comparator", () => {
-    const config: Config<{ ORDER_HANDLER: Queue }> = {
+    const config: RoutingConfig<{ ORDER_HANDLER: Queue }> = {
       routes: [
         {
           condition: {
@@ -41,7 +46,7 @@ describe("findRoutes", () => {
   });
 
   test("returns destination for exists comparator", () => {
-    const config: Config<{ ORDER_HANDLER: Queue }> = {
+    const config: RoutingConfig<{ ORDER_HANDLER: Queue }> = {
       routes: [
         {
           condition: {
@@ -59,7 +64,7 @@ describe("findRoutes", () => {
   });
 
   test("returns each matching destination once in route order", () => {
-    const config: Config<{
+    const config: RoutingConfig<{
       EVENTS: Queue;
       AUDIT: Queue;
     }> = {
@@ -85,7 +90,7 @@ describe("findRoutes", () => {
   });
 
   test("treats undefined properties as absent for exists comparator", () => {
-    const config: Config<{ ORDER_HANDLER: Queue }> = {
+    const config: RoutingConfig<{ ORDER_HANDLER: Queue }> = {
       routes: [
         {
           condition: {
@@ -101,7 +106,7 @@ describe("findRoutes", () => {
   });
 
   test("does not match inherited properties for exists comparator", () => {
-    const config: Config<{ ORDER_HANDLER: Queue }> = {
+    const config: RoutingConfig<{ ORDER_HANDLER: Queue }> = {
       routes: [
         {
           condition: {
@@ -117,7 +122,7 @@ describe("findRoutes", () => {
   });
 
   test("evaluates numeric comparators", () => {
-    const config: Config<{
+    const config: RoutingConfig<{
       LTE: Queue;
       GTE: Queue;
       LT: Queue;
@@ -170,7 +175,7 @@ describe("findRoutes", () => {
   });
 
   test("evaluates zero-valued numeric comparators", () => {
-    const config: Config<{
+    const config: RoutingConfig<{
       LTE_ZERO: Queue;
       GTE_ZERO: Queue;
       LT_ZERO: Queue;
@@ -223,7 +228,7 @@ describe("findRoutes", () => {
   });
 
   test("evaluates logical operators", () => {
-    const config: Config<{
+    const config: RoutingConfig<{
       TOKYO: Queue;
       JAPAN: Queue;
       ACTIVE_ONLY: Queue;
@@ -270,7 +275,7 @@ describe("findRoutes", () => {
   });
 
   test("reuses parsed json paths when a cache is provided", () => {
-    const config: Config<{ ORDER_HANDLER: Queue }> = {
+    const config: RoutingConfig<{ ORDER_HANDLER: Queue }> = {
       routes: [
         {
           condition: {
@@ -361,7 +366,7 @@ describe("routeByConfig", () => {
       routeByConfig(env, {
         routes: [
           {
-            condition: condition as Config<
+            condition: condition as RoutingConfig<
               typeof env
             >["routes"][number]["condition"],
             destination: "ORDER_HANDLER",
@@ -415,7 +420,7 @@ describe("routeByConfig", () => {
       routeByConfig(env, {
         routes: [
           {
-            condition: condition as Config<
+            condition: condition as RoutingConfig<
               typeof env
             >["routes"][number]["condition"],
             destination: "ORDER_HANDLER",
@@ -432,7 +437,9 @@ describe("routeByConfig", () => {
       routeByConfig(env, {
         routes: [
           {
-            condition: {} as Config<typeof env>["routes"][number]["condition"],
+            condition: {} as RoutingConfig<
+              typeof env
+            >["routes"][number]["condition"],
             destination: "ORDER_HANDLER",
           },
         ],

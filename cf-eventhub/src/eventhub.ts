@@ -25,7 +25,6 @@ import {
   getNextRetryAt,
   getRegistrySyncedAt,
   initializeSchema,
-  type ListEjectedResult,
   type ListOrder,
   type ListResult,
   listEjected,
@@ -92,7 +91,7 @@ export type DeliveryConfig = Readonly<{
    * An interrupted attempt becomes eligible again after this lease expires.
    * @default 300000 (5 minutes)
    */
-  deliveryAttemptLeaseMs?: number;
+  deliveryAttemptLeaseMs: number;
 
   /**
    * Whether to include delivery metadata in the payload sent to destinations.
@@ -473,7 +472,7 @@ export abstract class EventHub<
   listEjected(
     ejectKey: string,
     options?: ListEjectedOptions,
-  ): Promise<Result<ListEjectedResult>> {
+  ): Promise<Result<ListResult>> {
     return rpcBoundary(
       "listEjected",
       async () => {
@@ -672,9 +671,7 @@ export abstract class EventHub<
     resolvedDestinations?: ResolvedDestinations<Env>,
   ): Promise<void> {
     const leaseToken = this.idGenerator.generate(Date.now());
-    const leaseDurationMs =
-      this.deliveryConfig.deliveryAttemptLeaseMs ??
-      DEFAULT_DELIVERY_ATTEMPT_LEASE_MS;
+    const leaseDurationMs = this.deliveryConfig.deliveryAttemptLeaseMs;
     // Register before the first await so a concurrent claim cannot steal jobs
     // between committing this attempt's lease and resuming its delivery.
     this.activeDeliveryAttempts.add(leaseToken);
@@ -1070,7 +1067,7 @@ export abstract class EventHub<
   async #listEjected(
     ejectKey: string,
     options: ValidatedPageOptions,
-  ): Promise<Result<ListEjectedResult>> {
+  ): Promise<Result<ListResult>> {
     return this.runInTransactionWithAlarmReconciliation(() =>
       listEjected(
         this.ctx.storage.sql,

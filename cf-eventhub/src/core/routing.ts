@@ -223,7 +223,7 @@ export type Route<Env extends object> = {
   destination: Destinations<Env>;
 };
 
-export type Config<Env extends object> = {
+export type RoutingConfig<Env extends object> = {
   routes: Route<Env>[];
 };
 
@@ -333,7 +333,7 @@ const matchCond =
   };
 
 export const findRoutes = <Env extends object>(
-  c: Config<Env>,
+  c: RoutingConfig<Env>,
   message: JSONObject,
   pathCache?: PathCache,
 ): FoundRoute<Env>[] => {
@@ -392,7 +392,7 @@ const resolveDestinationBinding = <Env extends object>(
 
 export const routeByConfig = <Env extends object>(
   env: Env,
-  config: Config<Env>,
+  config: RoutingConfig<Env>,
   options: RoutingOptions<Env> = {},
 ): RoutingStrategy<Env> => {
   const pathCache: PathCache = new Map();
