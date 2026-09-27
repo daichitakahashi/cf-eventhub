@@ -1,4 +1,8 @@
-/** Stable categories exposed by intentional cf-eventhub errors over RPC. */
+/**
+ * Stable error categories returned after cf-eventhub completes its public RPC
+ * implementation boundary. `INTERNAL_ERROR` represents an unexpected failure
+ * caught inside that boundary.
+ */
 export type EventHubErrorCode =
   | "INVALID_ARGUMENT"
   | "OPERATION_NOT_ALLOWED"
@@ -9,6 +13,7 @@ export type EventHubErrorCode =
   | "INSTANCE_MISMATCH"
   | "INTERNAL_ERROR";
 
+/** A failure returned by cf-eventhub from inside its public RPC boundary. */
 export type ResultError = {
   ok: false;
   error: {
@@ -21,6 +26,13 @@ export type ResultOk<T = void> =
   // biome-ignore lint/suspicious/noConfusingVoidType: void distinguishes value-less RPC success results.
   [T] extends [void] ? { ok: true } : { ok: true; value: T };
 
+/**
+ * The value returned by public EventHub and EventHub Registry RPC methods.
+ *
+ * A rejected RPC Promise is a separate failure channel for Cloudflare RPC,
+ * serialization, transport, or Durable Objects infrastructure failures outside
+ * cf-eventhub's implementation boundary.
+ */
 export type Result<T = void> = ResultOk<T> | ResultError;
 
 export function resultOk(): Result;
@@ -143,6 +155,8 @@ export const serializeError = (error: unknown): SerializedError => {
 /**
  * Runs an RPC implementation that returns expected failures explicitly.
  * Only unexpected exceptions are caught and converted to `INTERNAL_ERROR`.
+ * Failures outside this callback's implementation boundary can still reject
+ * the RPC Promise observed by the caller.
  */
 export const rpcBoundary = async <T>(
   operation: string,
