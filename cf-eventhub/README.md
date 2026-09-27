@@ -334,8 +334,8 @@ that delivery job.
 
 ## Queue Delivery Limits
 
-EventHub applies Cloudflare Queues producer limits to the JSON body actually
-sent to each Queue destination:
+EventHub applies [Cloudflare Queues producer limits](https://developers.cloudflare.com/queues/platform/limits/)
+to the JSON body actually sent to each Queue destination:
 
 | Limit | EventHub behavior |
 | --- | --- |
@@ -543,7 +543,8 @@ Configure the Workflow binding in `wrangler.jsonc`:
 ```
 
 EventHub groups jobs for the same Workflow into batches of at most 100 and uses
-[`Workflow.createBatch()`](https://developers.cloudflare.com/workflows/build/workers-api/#createbatch).
+[`Workflow.createBatch()`](https://developers.cloudflare.com/workflows/build/workers-api/#createbatch),
+whose platform limit is 100 instances per call.
 Every Workflow instance ID is the corresponding delivery job ID, and its
 parameters are the event payload, including `__eventhub__` when
 `includeDeliveryMetadata` is enabled. `createBatch()` is idempotent: instance

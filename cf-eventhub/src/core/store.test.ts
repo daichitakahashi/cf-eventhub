@@ -1568,6 +1568,43 @@ describe("ejectPayloads", () => {
 });
 
 describe("delivery job state transitions", () => {
+  test("completes more jobs than the SQLite parameter limit", async () => {
+    // 1. Persist 101 jobs, exceeding SQLite's 100 bound parameter limit.
+    // 2. Complete all jobs through one JSON-bound ID list and verify every row.
+    await runInDurableObject(
+      getStub("store-mark-full-batch-completed"),
+      async (_instance, state) => {
+        let sequence = 0;
+        const jobs = persistDeliveryJobs(
+          state.storage.sql,
+          createPendingDeliveryJobs(routing, [
+            { kind: "culture", avoidUrban: true },
+            ...Array.from({ length: 100 }, () => ({
+              kind: "culture",
+              avoidUrban: true,
+            })),
+          ]),
+          () => `full-batch-${String(sequence++).padStart(3, "0")}`,
+          new Date("2026-05-04T00:00:00.000Z"),
+        );
+
+        markDeliveryJobsCompleted(
+          state.storage.sql,
+          jobs.map(({ id }) => id),
+          new Date("2026-05-04T00:00:10.000Z"),
+        );
+
+        expect(
+          state.storage.sql
+            .exec<{ count: number }>(
+              "SELECT COUNT(*) AS count FROM delivery_jobs WHERE final_status = 'completed'",
+            )
+            .one().count,
+        ).toBe(101);
+      },
+    );
+  });
+
   test("marks jobs as completed and clears the last error", async () => {
     // 1. Seed a job with a stored error and mark it completed.
     // 2. Verify the completion time and error cleanup.
