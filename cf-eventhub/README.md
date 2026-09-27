@@ -175,8 +175,17 @@ fragment; the same filter applies across cursor pages.
 ## Error Handling and Observability
 
 EventHub and EventHub Registry RPC methods return the exported `Result<T>` type.
-An `ok: false` value means the RPC reached EventHub and completed with an
-application-level failure. Its `error.code` is the stable public contract.
+These methods have two distinct error boundaries:
+
+- A `Result` with `ok: false` means the invocation reached the EventHub or
+  EventHub Registry implementation and cf-eventhub completed its public RPC
+  boundary with an application or internal error. Its `error.code` is the
+  stable public contract.
+- A rejected Promise means the invocation itself could not be completed across
+  the Worker-to-Durable-Object RPC boundary. Cloudflare RPC, transport,
+  serialization, or Durable Objects infrastructure can fail outside
+  cf-eventhub's implementation boundary, so cf-eventhub cannot convert or
+  guarantee those failures as `Result` values.
 
 ```ts
 const result = await hub.list({ max: 200 });
@@ -185,18 +194,17 @@ if (!result.ok && result.error.code === "INVALID_ARGUMENT") {
 }
 ```
 
-Promise rejection remains reserved for failures that prevent the RPC itself
-from completing, such as transport, serialization, runtime, or Durable Objects
-infrastructure failures:
+Callers must therefore handle both the returned `Result` and Promise rejection:
 
 ```ts
 try {
   const result = await hub.publish(payload);
   if (!result.ok) {
-    // EventHub application error.
+    // EventHub application error, or an unexpected implementation failure
+    // represented as INTERNAL_ERROR.
   }
 } catch (error) {
-  // RPC/runtime/infrastructure failure.
+  // The Cloudflare RPC/infrastructure boundary did not complete the call.
 }
 ```
 
@@ -211,10 +219,12 @@ The exported `EventHubErrorCode` union currently contains:
 - `INSTANCE_MISMATCH`
 - `INTERNAL_ERROR`
 
-Expected EventHub errors preserve their descriptive message. Unexpected
-exceptions raised while processing a reached RPC are logged with their original
-details and returned as a generic `INTERNAL_ERROR`; internal exception details
-and stack traces are not exposed to the caller.
+Expected EventHub errors preserve their descriptive message. If an unexpected
+exception occurs inside cf-eventhub's public RPC implementation boundary, it is
+logged with its original details and returned as a generic `INTERNAL_ERROR`;
+internal exception details and stack traces are not exposed to the caller. This
+does not cover failures outside that boundary, which may still reject the RPC
+Promise.
 
 Failures handled internally are emitted as structured Workers logs without
 payload bodies. Retryable delivery, automatic R2 eviction, and Registry
