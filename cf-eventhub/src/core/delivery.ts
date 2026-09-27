@@ -10,10 +10,16 @@ import type {
 import type { PendingDeliveryJobs, PersistedDeliveryJob } from "./store";
 import type { EventPayload } from "./type";
 
+// Cloudflare Queues limits sendBatch() to 100 messages / 256,000 bytes and
+// each message to 128,000 bytes:
+// https://developers.cloudflare.com/queues/platform/limits/
 const MAX_SEND_BATCH_COUNT = 100;
-const MAX_WORKFLOW_BATCH_COUNT = 100;
 const MAX_SEND_BATCH_BYTES = 256_000;
 const MAX_QUEUE_MESSAGE_BYTES = 128_000;
+
+// Cloudflare Workflows limits createBatch() to 100 instances:
+// https://developers.cloudflare.com/workflows/build/workers-api/#createbatch
+const MAX_WORKFLOW_BATCH_COUNT = 100;
 const DELIVERY_JOB_ID_PLACEHOLDER = "0".repeat(ULID_LENGTH);
 const textEncoder = new TextEncoder();
 

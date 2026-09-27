@@ -79,7 +79,11 @@ const deliveryContext = {
 const createPayloadWithJsonBytes = (bytes: number): EventPayload => {
   const payload = { kind: "culture", data: "" };
   const overhead = new TextEncoder().encode(JSON.stringify(payload)).byteLength;
-  return { ...payload, data: "x".repeat(bytes - overhead) };
+  const dataBytes = bytes - overhead;
+  return {
+    ...payload,
+    data: `${"あ".repeat(Math.floor(dataBytes / 3))}${"x".repeat(dataBytes % 3)}`,
+  };
 };
 
 describe("resolveDestinationBindings", () => {
@@ -369,16 +373,16 @@ describe("deliverJobs", () => {
     expect(env.OKINAWA.sentBatches).toStrictEqual([]);
   });
 
-  test("splits Queue batches by serialized UTF-8 JSON byte size", async () => {
+  test("keeps an exact 256,000-byte Queue batch and splits the next message", async () => {
     const env = createEnv();
     const routing = createRouting(env);
     const jobs = resolveDeliveryJobs(
       routing,
-      Array.from({ length: 3 }, (_, i) => ({
+      [128_000, 128_000, 30_000].map((bytes, i) => ({
         id: `01TEST0000000000000000000${i}`,
         payloadId: `01PAYL0000000000000000000${i}`,
         destination: "OKAYAMA",
-        payload: { kind: "culture", data: "あ".repeat(42_000) },
+        payload: createPayloadWithJsonBytes(bytes),
       })),
     );
 
@@ -391,6 +395,13 @@ describe("deliverJobs", () => {
     expect(env.OKAYAMA.sentBatches.map((batch) => batch.length)).toStrictEqual([
       2, 1,
     ]);
+    expect(
+      env.OKAYAMA.sentBatches[0]?.reduce(
+        (total, { body }) =>
+          total + new TextEncoder().encode(JSON.stringify(body)).byteLength,
+        0,
+      ),
+    ).toBe(256_000);
   });
 
   test("includes injected delivery metadata in Queue batch byte size", async () => {

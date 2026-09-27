@@ -295,7 +295,11 @@ export const redriveDeliveryJob = (
   };
 };
 
-// Marks delivered jobs as completed after a successful queue enqueue.
+// Durable Object SQLite allows at most 100 bound parameters per query. ID
+// batches are passed through one JSON parameter so a full 100-job EventHub
+// batch still leaves room for timestamps and lease metadata:
+// https://developers.cloudflare.com/durable-objects/platform/limits/#sql-storage-limits
+// Marks delivered jobs as completed after a successful external handoff.
 export const markDeliveryJobsCompleted = (
   sql: SqlStorage,
   jobIds: readonly string[],
