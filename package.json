@@ -5,6 +5,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "check:biome": "biome check .",
     "dev": "pnpm --filter eventhub-demo dev",
     "smoke:consumer": "node ./scripts/consumer-smoke-test.mjs",
     "ci:publish": "node ./scripts/pin-readme-links.mjs && pnpm smoke:consumer && pnpm changeset publish"

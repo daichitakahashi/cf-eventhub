@@ -59,7 +59,6 @@ export class DevEventHub extends EventHub<Env> {
 
 export class FlakyWorkflow extends WorkflowEntrypoint<Env, EventPayload> {
   async run(event: WorkflowEvent<EventPayload>, step: WorkflowStep) {
-
     await step.sleep("wait", "6 seconds");
 
     await step.do(
