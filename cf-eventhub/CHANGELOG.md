@@ -1,5 +1,22 @@
 # cf-eventhub
 
+## 1.0.0-rc.1
+
+### Minor Changes
+
+- 7315686: Add idempotent Cloudflare Workflow destinations with delivery-job IDs as
+  Workflow instance IDs and document the durable handoff requirement.
+- e105195: Freeze the v1 public API: rename `Config` to `RoutingConfig`, reuse
+  `ListResult` for live and ejected listings, stop exporting the internal
+  Registry staleness interval, and make the fully populated delivery
+  configuration shape explicit.
+
+### Patch Changes
+
+- 4e6c038: Make validated delivery and eviction configuration snapshots immutable.
+- 43b73b3: Disable manual eviction APIs when automatic eviction is configured and teach
+  the web console about the new error code.
+
 ## 1.0.0-rc.0
 
 ### Major Changes
