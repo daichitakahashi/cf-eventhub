@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -6,11 +7,13 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packageDirectory = path.join(root, "cf-eventhub");
+const webConsoleDirectory = path.join(root, "web-console");
 const temporaryDirectory = await mkdtemp(
   path.join(os.tmpdir(), "cf-eventhub-consumer-"),
 );
 const consumerDirectory = path.join(temporaryDirectory, "consumer");
-const tarball = path.join(temporaryDirectory, "cf-eventhub.tgz");
+const packageTarball = path.join(temporaryDirectory, "cf-eventhub.tgz");
+const webConsoleTarball = path.join(temporaryDirectory, "web-console.tgz");
 
 const run = (command, args, cwd) => {
   console.log(`> ${command} ${args.join(" ")}`);
@@ -27,13 +30,22 @@ const installedVersion = async (packageName) => {
   return manifest.version;
 };
 
+const readManifest = async (directory, packageName = "") =>
+  JSON.parse(
+    await readFile(
+      path.join(directory, "node_modules", packageName, "package.json"),
+      "utf8",
+    ),
+  );
+
 try {
   const [typescriptVersion, wranglerVersion] = await Promise.all([
     installedVersion("typescript"),
     installedVersion("wrangler"),
   ]);
 
-  run("pnpm", ["pack", "--out", tarball], packageDirectory);
+  run("pnpm", ["pack", "--out", packageTarball], packageDirectory);
+  run("pnpm", ["pack", "--out", webConsoleTarball], webConsoleDirectory);
 
   await mkdir(path.join(consumerDirectory, "src"), { recursive: true });
   await Promise.all([
@@ -45,6 +57,7 @@ try {
           private: true,
           type: "module",
           dependencies: {
+            "@cf-eventhub/web-console": "file:../web-console.tgz",
             "cf-eventhub": "file:../cf-eventhub.tgz",
           },
           devDependencies: {
@@ -77,8 +90,11 @@ allowBuilds:
             module: "ESNext",
             moduleResolution: "Bundler",
             strict: true,
+            skipLibCheck: true,
             noEmit: true,
             isolatedModules: true,
+            jsx: "react-jsx",
+            jsxImportSource: "hono/jsx",
             types: ["./worker-configuration.d.ts"],
           },
           include: ["worker-configuration.d.ts", "src/**/*.ts"],
@@ -113,7 +129,8 @@ allowBuilds:
     ),
     writeFile(
       path.join(consumerDirectory, "src", "index.ts"),
-      `import { env } from "cloudflare:workers";
+      `import { createWebConsole } from "@cf-eventhub/web-console";
+import { env } from "cloudflare:workers";
 import { EventHub, EventHubRegistry, routeByConfig } from "cf-eventhub";
 
 export { EventHubRegistry };
@@ -136,16 +153,32 @@ export class SmokeEventHub extends EventHub<Env> {
   });
 }
 
-export default {
-  fetch() {
-    return new Response("ok");
+export default createWebConsole({
+  eventHub: {
+    binding: "EVENT_HUB",
   },
-} satisfies ExportedHandler<Env>;
+  registry: {
+    binding: "EVENT_HUB_REGISTRY",
+  },
+  environment: "smoke-test",
+});
 `,
     ),
   ]);
 
   run("pnpm", ["install", "--no-frozen-lockfile"], consumerDirectory);
+
+  const [installedPackage, installedWebConsole] = await Promise.all([
+    readManifest(consumerDirectory, "cf-eventhub"),
+    readManifest(consumerDirectory, "@cf-eventhub/web-console"),
+  ]);
+  assert.equal(installedPackage.name, "cf-eventhub");
+  assert.equal(installedWebConsole.name, "@cf-eventhub/web-console");
+  assert.equal(
+    installedWebConsole.peerDependencies["cf-eventhub"],
+    `^${installedPackage.version}`,
+  );
+
   run("pnpm", ["exec", "wrangler", "types"], consumerDirectory);
   run("pnpm", ["exec", "tsc", "--noEmit"], consumerDirectory);
   run("pnpm", ["exec", "wrangler", "deploy", "--dry-run"], consumerDirectory);
