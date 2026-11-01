@@ -1,0 +1,350 @@
+[
+  {
+    "retainedTarget": 100,
+    "ok": true,
+    "elapsedMs": 0,
+    "rowsRead": 1005,
+    "plans": [
+      [
+        {
+          "id": 2,
+          "parent": 0,
+          "notused": 0,
+          "detail": "CO-ROUTINE budgeted"
+        },
+        {
+          "id": 5,
+          "parent": 2,
+          "notused": 0,
+          "detail": "CO-ROUTINE (subquery-4)"
+        },
+        {
+          "id": 8,
+          "parent": 5,
+          "notused": 0,
+          "detail": "CO-ROUTINE (subquery-5)"
+        },
+        {
+          "id": 11,
+          "parent": 8,
+          "notused": 0,
+          "detail": "MATERIALIZE candidates"
+        },
+        {
+          "id": 19,
+          "parent": 11,
+          "notused": 225,
+          "detail": "SCAN p USING INDEX idx_payloads_created_at_id"
+        },
+        {
+          "id": 35,
+          "parent": 8,
+          "notused": 216,
+          "detail": "SCAN candidates"
+        },
+        {
+          "id": 50,
+          "parent": 5,
+          "notused": 216,
+          "detail": "SCAN (subquery-5)"
+        },
+        {
+          "id": 99,
+          "parent": 2,
+          "notused": 216,
+          "detail": "SCAN (subquery-4)"
+        },
+        {
+          "id": 178,
+          "parent": 0,
+          "notused": 216,
+          "detail": "SCAN page"
+        },
+        {
+          "id": 185,
+          "parent": 0,
+          "notused": 47,
+          "detail": "SEARCH p USING INDEX sqlite_autoindex_payloads_1 (id=?)"
+        },
+        {
+          "id": 198,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ],
+      [
+        {
+          "id": 6,
+          "parent": 0,
+          "notused": 107,
+          "detail": "SEARCH dj USING INDEX idx_delivery_jobs_payload_id (payload_id=?)"
+        },
+        {
+          "id": 10,
+          "parent": 0,
+          "notused": 0,
+          "detail": "LIST SUBQUERY 1"
+        },
+        {
+          "id": 12,
+          "parent": 10,
+          "notused": 0,
+          "detail": "SCAN json_each VIRTUAL TABLE INDEX 1:"
+        },
+        {
+          "id": 29,
+          "parent": 0,
+          "notused": 47,
+          "detail": "SEARCH djf USING INDEX sqlite_autoindex_delivery_job_failures_1 (delivery_job_id=?) LEFT-JOIN"
+        },
+        {
+          "id": 56,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ],
+      [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 194,
+          "detail": "SEARCH p USING COVERING INDEX idx_payloads_created_at_id ((created_at,id)>(?,?))"
+        }
+      ]
+    ]
+  },
+  {
+    "retainedTarget": 10000,
+    "ok": true,
+    "elapsedMs": 0,
+    "rowsRead": 1005,
+    "plans": [
+      [
+        {
+          "id": 2,
+          "parent": 0,
+          "notused": 0,
+          "detail": "CO-ROUTINE budgeted"
+        },
+        {
+          "id": 5,
+          "parent": 2,
+          "notused": 0,
+          "detail": "CO-ROUTINE (subquery-4)"
+        },
+        {
+          "id": 8,
+          "parent": 5,
+          "notused": 0,
+          "detail": "CO-ROUTINE (subquery-5)"
+        },
+        {
+          "id": 11,
+          "parent": 8,
+          "notused": 0,
+          "detail": "MATERIALIZE candidates"
+        },
+        {
+          "id": 19,
+          "parent": 11,
+          "notused": 225,
+          "detail": "SCAN p USING INDEX idx_payloads_created_at_id"
+        },
+        {
+          "id": 35,
+          "parent": 8,
+          "notused": 216,
+          "detail": "SCAN candidates"
+        },
+        {
+          "id": 50,
+          "parent": 5,
+          "notused": 216,
+          "detail": "SCAN (subquery-5)"
+        },
+        {
+          "id": 99,
+          "parent": 2,
+          "notused": 216,
+          "detail": "SCAN (subquery-4)"
+        },
+        {
+          "id": 178,
+          "parent": 0,
+          "notused": 216,
+          "detail": "SCAN page"
+        },
+        {
+          "id": 185,
+          "parent": 0,
+          "notused": 47,
+          "detail": "SEARCH p USING INDEX sqlite_autoindex_payloads_1 (id=?)"
+        },
+        {
+          "id": 198,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ],
+      [
+        {
+          "id": 6,
+          "parent": 0,
+          "notused": 107,
+          "detail": "SEARCH dj USING INDEX idx_delivery_jobs_payload_id (payload_id=?)"
+        },
+        {
+          "id": 10,
+          "parent": 0,
+          "notused": 0,
+          "detail": "LIST SUBQUERY 1"
+        },
+        {
+          "id": 12,
+          "parent": 10,
+          "notused": 0,
+          "detail": "SCAN json_each VIRTUAL TABLE INDEX 1:"
+        },
+        {
+          "id": 29,
+          "parent": 0,
+          "notused": 47,
+          "detail": "SEARCH djf USING INDEX sqlite_autoindex_delivery_job_failures_1 (delivery_job_id=?) LEFT-JOIN"
+        },
+        {
+          "id": 56,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ],
+      [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 194,
+          "detail": "SEARCH p USING COVERING INDEX idx_payloads_created_at_id ((created_at,id)>(?,?))"
+        }
+      ]
+    ]
+  },
+  {
+    "retainedTarget": 100000,
+    "ok": true,
+    "elapsedMs": 0,
+    "rowsRead": 1005,
+    "plans": [
+      [
+        {
+          "id": 2,
+          "parent": 0,
+          "notused": 0,
+          "detail": "CO-ROUTINE budgeted"
+        },
+        {
+          "id": 5,
+          "parent": 2,
+          "notused": 0,
+          "detail": "CO-ROUTINE (subquery-4)"
+        },
+        {
+          "id": 8,
+          "parent": 5,
+          "notused": 0,
+          "detail": "CO-ROUTINE (subquery-5)"
+        },
+        {
+          "id": 11,
+          "parent": 8,
+          "notused": 0,
+          "detail": "MATERIALIZE candidates"
+        },
+        {
+          "id": 19,
+          "parent": 11,
+          "notused": 225,
+          "detail": "SCAN p USING INDEX idx_payloads_created_at_id"
+        },
+        {
+          "id": 35,
+          "parent": 8,
+          "notused": 216,
+          "detail": "SCAN candidates"
+        },
+        {
+          "id": 50,
+          "parent": 5,
+          "notused": 216,
+          "detail": "SCAN (subquery-5)"
+        },
+        {
+          "id": 99,
+          "parent": 2,
+          "notused": 216,
+          "detail": "SCAN (subquery-4)"
+        },
+        {
+          "id": 178,
+          "parent": 0,
+          "notused": 216,
+          "detail": "SCAN page"
+        },
+        {
+          "id": 185,
+          "parent": 0,
+          "notused": 47,
+          "detail": "SEARCH p USING INDEX sqlite_autoindex_payloads_1 (id=?)"
+        },
+        {
+          "id": 198,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ],
+      [
+        {
+          "id": 6,
+          "parent": 0,
+          "notused": 107,
+          "detail": "SEARCH dj USING INDEX idx_delivery_jobs_payload_id (payload_id=?)"
+        },
+        {
+          "id": 10,
+          "parent": 0,
+          "notused": 0,
+          "detail": "LIST SUBQUERY 1"
+        },
+        {
+          "id": 12,
+          "parent": 10,
+          "notused": 0,
+          "detail": "SCAN json_each VIRTUAL TABLE INDEX 1:"
+        },
+        {
+          "id": 29,
+          "parent": 0,
+          "notused": 47,
+          "detail": "SEARCH djf USING INDEX sqlite_autoindex_delivery_job_failures_1 (delivery_job_id=?) LEFT-JOIN"
+        },
+        {
+          "id": 56,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ],
+      [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 194,
+          "detail": "SEARCH p USING COVERING INDEX idx_payloads_created_at_id ((created_at,id)>(?,?))"
+        }
+      ]
+    ]
+  }
+]

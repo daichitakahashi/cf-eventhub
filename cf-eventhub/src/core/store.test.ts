@@ -762,6 +762,46 @@ describe("list", () => {
     });
   });
 
+  test.each(["asc", "desc"] as const)(
+    "list reads a bounded page from retained state (%s)",
+    async (order) => {
+      // 1. Seed a larger payload table with timestamps shared by each batch.
+      // 2. Read the first and a subsequent page and bound SQLite reads in both.
+      const stub = getStub(`store-list-retained-${order}`);
+      await runInDurableObject(stub, (_instance, state) => {
+        const { sql } = state.storage;
+        let sequence = 0;
+        state.storage.transactionSync(() => {
+          for (let batch = 0; batch < 100; batch++) {
+            const payloads = Array.from({ length: 100 }, () => ({
+              kind: "other",
+            }));
+            const [first, ...rest] = payloads;
+            persistDeliveryJobs(
+              sql,
+              createPendingDeliveryJobs(routing, [first, ...rest]),
+              () => String(sequence++).padStart(26, "0"),
+              new Date(1_000 + batch),
+            );
+          }
+        });
+        const exec = vi.fn(sql.exec.bind(sql));
+        const measuredSql = { exec } as unknown as SqlStorage;
+        const first = list(measuredSql, undefined, 100, 262_144, order);
+        const second = list(measuredSql, first.cursor, 100, 262_144, order);
+        const rowsRead = exec.mock.results.reduce(
+          (total, result) => total + result.value.rowsRead,
+          0,
+        );
+        expect({
+          first: first.payloads.length,
+          second: second.payloads.length,
+        }).toStrictEqual({ first: 100, second: 100 });
+        expect(rowsRead).toBeLessThan(3_000);
+      });
+    },
+  );
+
   test("continues live payload pagination by cursor", async () => {
     const stub = getStub("store-list-live-cursor-pages");
 
@@ -1841,6 +1881,42 @@ describe("delivery job state transitions", () => {
 });
 
 describe("delivery job scheduling", () => {
+  test("claiming a due job does not scan retained finalized jobs", async () => {
+    // 1. Retain 1,000 completed jobs alongside one due job.
+    // 2. Count SQLite rows read by the real claim helper, including payload loading.
+    const stub = getStub("store-claim-retained-jobs");
+    await runInDurableObject(stub, (_instance, state) => {
+      const { sql } = state.storage;
+      let sequence = 0;
+      const pending = createPendingDeliveryJobs(routing, [
+        { kind: "culture", avoidUrban: true },
+      ]);
+      state.storage.transactionSync(() => {
+        for (let i = 0; i < 1_000; i++) {
+          const jobs = persistDeliveryJobs(sql, pending, () =>
+            String(sequence++),
+          );
+          markDeliveryJobsCompleted(
+            sql,
+            jobs.map(({ id }) => id),
+          );
+        }
+        persistDeliveryJobs(sql, pending, () => String(sequence++));
+      });
+      const exec = vi.fn(sql.exec.bind(sql));
+      const measuredSql = { exec } as unknown as SqlStorage;
+      const claim = state.storage.transactionSync(() =>
+        claimDeliverableJobs(measuredSql, 100, "measured-lease", 10_000),
+      );
+      const rowsRead = exec.mock.results.reduce(
+        (total, result) => total + result.value.rowsRead,
+        0,
+      );
+      expect(claim.jobs).toHaveLength(1);
+      expect(rowsRead).toBeLessThan(100);
+    });
+  });
+
   test("leases due jobs once and makes interrupted attempts retryable after expiry", async () => {
     // 1. Claim a due job and verify another attempt cannot claim it concurrently.
     // 2. Advance beyond the lease and verify the interrupted job can be claimed again.

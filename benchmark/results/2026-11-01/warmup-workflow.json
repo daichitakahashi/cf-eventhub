@@ -1,0 +1,36 @@
+{
+  "metadata": {
+    "startedAt": "2026-11-01T13:35:54.646Z",
+    "loadGenerator": "v25.2.1",
+    "operation": "publish",
+    "destination": "workflow",
+    "durationSeconds": 5,
+    "concurrency": 20,
+    "partitions": 10,
+    "prefix": "baseline-20261101-workflow",
+    "paddingBytes": 0,
+    "elapsedMs": 5232.73,
+    "latencyScope": "HTTP response body consumed",
+    "ok": true,
+    "compatibilityDate": "2026-09-11",
+    "cfEventhubVersion": "1.0.0-rc.0",
+    "colo": "LAX",
+    "clientCity": "Tokyo",
+    "clientCountry": "JP"
+  },
+  "result": {
+    "requests": 761,
+    "successes": 761,
+    "failures": 0,
+    "throughputPerSecond": 145.43,
+    "latencyMs": {
+      "min": 28.38,
+      "p50": 58.61,
+      "p90": 277.54,
+      "p95": 437.8,
+      "p99": 636.68,
+      "max": 772.46
+    }
+  },
+  "errors": {}
+}

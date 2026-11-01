@@ -1,0 +1,11 @@
+{
+  "series": "fixed-20261101",
+  "baseUrl": "https://cf-eventhub-benchmark.t-daichi-snd.workers.dev",
+  "node": "v25.2.1",
+  "platform": "darwin",
+  "architecture": "arm64",
+  "durationSeconds": 30,
+  "concurrency": 20,
+  "warmupSeconds": 5,
+  "completedAt": "2026-11-01T13:55:06.103Z"
+}

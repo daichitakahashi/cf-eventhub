@@ -458,7 +458,7 @@ const loadClaimedDeliveryJobs = (
 				SELECT dj.id, dj.payload_id, dj.destination, p.body
 				FROM delivery_jobs dj
 				INNER JOIN payloads p ON p.id = dj.payload_id
-				WHERE dj.lease_token = ?
+				WHERE dj.final_status IS NULL AND dj.lease_token = ?
 				ORDER BY dj.next_retry_at ASC, dj.created_at ASC, dj.id ASC
 			`,
       leaseToken,
@@ -770,166 +770,35 @@ const listPayloadRows = (
   order: ListOrder,
 ): PayloadPageRow[] => {
   const orderSql = order === "asc" ? "ASC" : "DESC";
-  const nextCondition =
-    order === "asc"
-      ? `
-				p2.created_at > page.created_at
-				OR (
-					p2.created_at = page.created_at
-					AND p2.id > page.payload_id
-				)
-			`
-      : `
-				p2.created_at < page.created_at
-				OR (
-					p2.created_at = page.created_at
-					AND p2.id < page.payload_id
-				)
-			`;
+  const comparison = order === "asc" ? ">" : "<";
   const cursorCondition =
-    order === "asc"
-      ? `
-				p.created_at > ?3
-				OR (p.created_at = ?3 AND p.id > ?4)
-			`
-      : `
-				p.created_at < ?3
-				OR (p.created_at = ?3 AND p.id < ?4)
-			`;
-
-  if (cursor === undefined) {
-    return sql
-      .exec<PayloadPageRow>(
-        `
-					WITH RECURSIVE
-					first_row AS (
-						SELECT
-							p.id AS payload_id,
-							p.body,
-							p.created_at,
-							octet_length(p.body) AS body_bytes
-						FROM payloads p
-						ORDER BY p.created_at ${orderSql}, p.id ${orderSql}
-						LIMIT 1
-					),
-					page(
-						payload_id,
-						body,
-						created_at,
-						body_bytes,
-						total_bytes,
-						row_count
-					) AS (
-						SELECT
-							fr.payload_id,
-							fr.body,
-							fr.created_at,
-							fr.body_bytes,
-							fr.body_bytes AS total_bytes,
-							1 AS row_count
-						FROM first_row fr
-
-						UNION ALL
-
-						SELECT
-							p.id AS payload_id,
-							p.body,
-							p.created_at,
-							octet_length(p.body) AS body_bytes,
-							page.total_bytes + octet_length(p.body) AS total_bytes,
-							page.row_count + 1 AS row_count
-						FROM page
-						JOIN payloads p
-							ON p.id = (
-								SELECT p2.id
-								FROM payloads p2
-								WHERE ${nextCondition}
-								ORDER BY p2.created_at ${orderSql}, p2.id ${orderSql}
-								LIMIT 1
-							)
-						WHERE page.row_count < ?1
-							AND page.total_bytes + octet_length(p.body) <= ?2
-					)
-					SELECT
-						payload_id,
-						body,
-						created_at,
-						body_bytes
-					FROM page
-					ORDER BY created_at ${orderSql}, payload_id ${orderSql}
-				`,
-        limit,
-        maxBytes,
-      )
-      .toArray();
-  }
-
-  const { createdAt, payloadId } = cursor;
+    cursor === undefined
+      ? ""
+      : `WHERE (p.created_at, p.id) ${comparison} (?3, ?4)`;
+  // Materialize only bounded metadata before applying the byte budget. Payload
+  // bodies are fetched afterwards, so oversized later rows never enter JS.
   return sql
     .exec<PayloadPageRow>(
-      `
-				WITH RECURSIVE
-				first_row AS (
-					SELECT
-						p.id AS payload_id,
-						p.body,
-						p.created_at,
-						octet_length(p.body) AS body_bytes
-					FROM payloads p
-					WHERE ${cursorCondition}
-					ORDER BY p.created_at ${orderSql}, p.id ${orderSql}
-					LIMIT 1
-				),
-				page(
-					payload_id,
-					body,
-					created_at,
-					body_bytes,
-					total_bytes,
-					row_count
-				) AS (
-					SELECT
-						fr.payload_id,
-						fr.body,
-						fr.created_at,
-						fr.body_bytes,
-						fr.body_bytes AS total_bytes,
-						1 AS row_count
-					FROM first_row fr
-
-					UNION ALL
-
-					SELECT
-						p.id AS payload_id,
-						p.body,
-						p.created_at,
-						octet_length(p.body) AS body_bytes,
-						page.total_bytes + octet_length(p.body) AS total_bytes,
-						page.row_count + 1 AS row_count
-					FROM page
-					JOIN payloads p
-						ON p.id = (
-							SELECT p2.id
-							FROM payloads p2
-							WHERE ${nextCondition}
-							ORDER BY p2.created_at ${orderSql}, p2.id ${orderSql}
-							LIMIT 1
-						)
-					WHERE page.row_count < ?1
-						AND page.total_bytes + octet_length(p.body) <= ?2
-				)
-				SELECT
-					payload_id,
-					body,
-					created_at,
-					body_bytes
-				FROM page
-				ORDER BY created_at ${orderSql}, payload_id ${orderSql}
-			`,
+      `WITH candidates AS MATERIALIZED (
+        SELECT p.id AS payload_id, p.created_at, octet_length(p.body) AS body_bytes
+        FROM payloads p
+        ${cursorCondition}
+        ORDER BY p.created_at ${orderSql}, p.id ${orderSql}
+        LIMIT ?1
+      ), budgeted AS (
+        SELECT *,
+          SUM(body_bytes) OVER (ORDER BY created_at ${orderSql}, payload_id ${orderSql}) AS total_bytes,
+          ROW_NUMBER() OVER (ORDER BY created_at ${orderSql}, payload_id ${orderSql}) AS row_count
+        FROM candidates
+      )
+      SELECT page.payload_id, p.body, page.created_at, page.body_bytes
+      FROM budgeted page
+      INNER JOIN payloads p ON p.id = page.payload_id
+      WHERE page.total_bytes <= ?2 OR page.row_count = 1
+      ORDER BY page.created_at ${orderSql}, page.payload_id ${orderSql}`,
       limit,
       maxBytes,
-      createdAt,
-      payloadId,
+      ...(cursor === undefined ? [] : [cursor.createdAt, cursor.payloadId]),
     )
     .toArray();
 };
@@ -1014,12 +883,10 @@ export const list = (
   const hasMoreCondition =
     order === "asc"
       ? `
-				p.created_at > ?1
-				OR (p.created_at = ?1 AND p.id > ?2)
+				(p.created_at, p.id) > (?1, ?2)
 			`
       : `
-				p.created_at < ?1
-				OR (p.created_at = ?1 AND p.id < ?2)
+				(p.created_at, p.id) < (?1, ?2)
 			`;
   const orderSql = order === "asc" ? "ASC" : "DESC";
   const hasMore =

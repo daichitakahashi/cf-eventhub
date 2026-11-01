@@ -1,0 +1,248 @@
+{
+  "before": [
+    {
+      "payloads": 127,
+      "jobs": [
+        {
+          "final_status": "completed",
+          "count": 127
+        }
+      ]
+    },
+    {
+      "payloads": 127,
+      "jobs": [
+        {
+          "final_status": "completed",
+          "count": 127
+        }
+      ]
+    },
+    {
+      "payloads": 126,
+      "jobs": [
+        {
+          "final_status": "completed",
+          "count": 126
+        }
+      ]
+    },
+    {
+      "payloads": 126,
+      "jobs": [
+        {
+          "final_status": "completed",
+          "count": 126
+        }
+      ]
+    },
+    {
+      "payloads": 126,
+      "jobs": [
+        {
+          "final_status": "completed",
+          "count": 126
+        }
+      ]
+    },
+    {
+      "payloads": 126,
+      "jobs": [
+        {
+          "final_status": "completed",
+          "count": 126
+        }
+      ]
+    },
+    {
+      "payloads": 126,
+      "jobs": [
+        {
+          "final_status": "completed",
+          "count": 126
+        }
+      ]
+    },
+    {
+      "payloads": 126,
+      "jobs": [
+        {
+          "final_status": "completed",
+          "count": 126
+        }
+      ]
+    },
+    {
+      "payloads": 126,
+      "jobs": [
+        {
+          "final_status": "completed",
+          "count": 126
+        }
+      ]
+    },
+    {
+      "payloads": 126,
+      "jobs": [
+        {
+          "final_status": "completed",
+          "count": 126
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "startedAt": "2026-11-01T13:45:45.247Z",
+    "loadGenerator": "v25.2.1",
+    "operation": "publish",
+    "destination": "queue",
+    "durationSeconds": 30,
+    "concurrency": 20,
+    "partitions": 10,
+    "prefix": "fixed-20261101-queue",
+    "paddingBytes": 0,
+    "elapsedMs": 30127.46,
+    "latencyScope": "HTTP response body consumed",
+    "ok": true,
+    "compatibilityDate": "2026-09-11",
+    "cfEventhubVersion": "1.0.0-rc.0",
+    "colo": "NRT",
+    "clientCity": "Tokyo",
+    "clientCountry": "JP"
+  },
+  "result": {
+    "requests": 8409,
+    "successes": 8409,
+    "failures": 0,
+    "throughputPerSecond": 279.11,
+    "latencyMs": {
+      "min": 27.11,
+      "p50": 63.37,
+      "p90": 92.53,
+      "p95": 113,
+      "p99": 299.84,
+      "max": 579.42
+    }
+  },
+  "errors": {},
+  "after": [
+    {
+      "payloads": 968,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 1
+        },
+        {
+          "final_status": "completed",
+          "count": 967
+        }
+      ]
+    },
+    {
+      "payloads": 968,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 1
+        },
+        {
+          "final_status": "completed",
+          "count": 967
+        }
+      ]
+    },
+    {
+      "payloads": 967,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 3
+        },
+        {
+          "final_status": "completed",
+          "count": 964
+        }
+      ]
+    },
+    {
+      "payloads": 967,
+      "jobs": [
+        {
+          "final_status": "completed",
+          "count": 967
+        }
+      ]
+    },
+    {
+      "payloads": 967,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 2
+        },
+        {
+          "final_status": "completed",
+          "count": 965
+        }
+      ]
+    },
+    {
+      "payloads": 967,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 2
+        },
+        {
+          "final_status": "completed",
+          "count": 965
+        }
+      ]
+    },
+    {
+      "payloads": 967,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 2
+        },
+        {
+          "final_status": "completed",
+          "count": 965
+        }
+      ]
+    },
+    {
+      "payloads": 967,
+      "jobs": [
+        {
+          "final_status": "completed",
+          "count": 967
+        }
+      ]
+    },
+    {
+      "payloads": 967,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 1
+        },
+        {
+          "final_status": "completed",
+          "count": 966
+        }
+      ]
+    },
+    {
+      "payloads": 966,
+      "jobs": [
+        {
+          "final_status": "completed",
+          "count": 966
+        }
+      ]
+    }
+  ]
+}

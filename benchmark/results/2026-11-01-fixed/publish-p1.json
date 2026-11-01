@@ -1,0 +1,48 @@
+{
+  "before": [
+    {
+      "payloads": 1563,
+      "jobs": []
+    }
+  ],
+  "metadata": {
+    "startedAt": "2026-11-01T13:43:57.906Z",
+    "loadGenerator": "v25.2.1",
+    "operation": "publish",
+    "destination": "none",
+    "durationSeconds": 30,
+    "concurrency": 20,
+    "partitions": 1,
+    "prefix": "fixed-20261101-p1",
+    "paddingBytes": 0,
+    "elapsedMs": 30051.28,
+    "latencyScope": "HTTP response body consumed",
+    "ok": true,
+    "compatibilityDate": "2026-09-11",
+    "cfEventhubVersion": "1.0.0-rc.0",
+    "colo": "NRT",
+    "clientCity": "Tokyo",
+    "clientCountry": "JP"
+  },
+  "result": {
+    "requests": 10746,
+    "successes": 10746,
+    "failures": 0,
+    "throughputPerSecond": 357.59,
+    "latencyMs": {
+      "min": 29.97,
+      "p50": 46.33,
+      "p90": 71.5,
+      "p95": 81.98,
+      "p99": 248.71,
+      "max": 773.2
+    }
+  },
+  "errors": {},
+  "after": [
+    {
+      "payloads": 12309,
+      "jobs": []
+    }
+  ]
+}

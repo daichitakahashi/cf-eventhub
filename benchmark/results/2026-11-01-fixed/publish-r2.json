@@ -1,0 +1,272 @@
+{
+  "before": [
+    {
+      "payloads": 119,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 2
+        },
+        {
+          "final_status": "completed",
+          "count": 117
+        }
+      ]
+    },
+    {
+      "payloads": 118,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 2
+        },
+        {
+          "final_status": "completed",
+          "count": 116
+        }
+      ]
+    },
+    {
+      "payloads": 118,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 1
+        },
+        {
+          "final_status": "completed",
+          "count": 117
+        }
+      ]
+    },
+    {
+      "payloads": 118,
+      "jobs": [
+        {
+          "final_status": "completed",
+          "count": 118
+        }
+      ]
+    },
+    {
+      "payloads": 118,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 2
+        },
+        {
+          "final_status": "completed",
+          "count": 116
+        }
+      ]
+    },
+    {
+      "payloads": 118,
+      "jobs": [
+        {
+          "final_status": "completed",
+          "count": 118
+        }
+      ]
+    },
+    {
+      "payloads": 118,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 2
+        },
+        {
+          "final_status": "completed",
+          "count": 116
+        }
+      ]
+    },
+    {
+      "payloads": 118,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 1
+        },
+        {
+          "final_status": "completed",
+          "count": 117
+        }
+      ]
+    },
+    {
+      "payloads": 118,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 1
+        },
+        {
+          "final_status": "completed",
+          "count": 117
+        }
+      ]
+    },
+    {
+      "payloads": 118,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 10
+        },
+        {
+          "final_status": "completed",
+          "count": 108
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "startedAt": "2026-11-01T13:46:21.901Z",
+    "loadGenerator": "v25.2.1",
+    "operation": "publish",
+    "destination": "r2",
+    "durationSeconds": 30,
+    "concurrency": 20,
+    "partitions": 10,
+    "prefix": "fixed-20261101-r2",
+    "paddingBytes": 0,
+    "elapsedMs": 30151.96,
+    "latencyScope": "HTTP response body consumed",
+    "ok": true,
+    "compatibilityDate": "2026-09-11",
+    "cfEventhubVersion": "1.0.0-rc.0",
+    "colo": "NRT",
+    "clientCity": "Tokyo",
+    "clientCountry": "JP"
+  },
+  "result": {
+    "requests": 7799,
+    "successes": 7799,
+    "failures": 0,
+    "throughputPerSecond": 258.66,
+    "latencyMs": {
+      "min": 28,
+      "p50": 66.08,
+      "p90": 99.28,
+      "p95": 139.07,
+      "p99": 349.92,
+      "max": 1153.48
+    }
+  },
+  "errors": {},
+  "after": [
+    {
+      "payloads": 899,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 1
+        },
+        {
+          "final_status": "completed",
+          "count": 898
+        }
+      ]
+    },
+    {
+      "payloads": 898,
+      "jobs": [
+        {
+          "final_status": "completed",
+          "count": 898
+        }
+      ]
+    },
+    {
+      "payloads": 898,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 1
+        },
+        {
+          "final_status": "completed",
+          "count": 897
+        }
+      ]
+    },
+    {
+      "payloads": 898,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 6
+        },
+        {
+          "final_status": "completed",
+          "count": 892
+        }
+      ]
+    },
+    {
+      "payloads": 898,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 1
+        },
+        {
+          "final_status": "completed",
+          "count": 897
+        }
+      ]
+    },
+    {
+      "payloads": 898,
+      "jobs": [
+        {
+          "final_status": "completed",
+          "count": 898
+        }
+      ]
+    },
+    {
+      "payloads": 898,
+      "jobs": [
+        {
+          "final_status": "completed",
+          "count": 898
+        }
+      ]
+    },
+    {
+      "payloads": 898,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 1
+        },
+        {
+          "final_status": "completed",
+          "count": 897
+        }
+      ]
+    },
+    {
+      "payloads": 898,
+      "jobs": [
+        {
+          "final_status": "completed",
+          "count": 898
+        }
+      ]
+    },
+    {
+      "payloads": 897,
+      "jobs": [
+        {
+          "final_status": "completed",
+          "count": 897
+        }
+      ]
+    }
+  ]
+}

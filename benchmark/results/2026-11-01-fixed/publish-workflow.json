@@ -1,0 +1,300 @@
+{
+  "before": [
+    {
+      "payloads": 111,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 65
+        },
+        {
+          "final_status": "completed",
+          "count": 46
+        }
+      ]
+    },
+    {
+      "payloads": 111,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 65
+        },
+        {
+          "final_status": "completed",
+          "count": 46
+        }
+      ]
+    },
+    {
+      "payloads": 111,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 79
+        },
+        {
+          "final_status": "completed",
+          "count": 32
+        }
+      ]
+    },
+    {
+      "payloads": 111,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 67
+        },
+        {
+          "final_status": "completed",
+          "count": 44
+        }
+      ]
+    },
+    {
+      "payloads": 111,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 68
+        },
+        {
+          "final_status": "completed",
+          "count": 43
+        }
+      ]
+    },
+    {
+      "payloads": 111,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 67
+        },
+        {
+          "final_status": "completed",
+          "count": 44
+        }
+      ]
+    },
+    {
+      "payloads": 111,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 71
+        },
+        {
+          "final_status": "completed",
+          "count": 40
+        }
+      ]
+    },
+    {
+      "payloads": 110,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 77
+        },
+        {
+          "final_status": "completed",
+          "count": 33
+        }
+      ]
+    },
+    {
+      "payloads": 110,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 68
+        },
+        {
+          "final_status": "completed",
+          "count": 42
+        }
+      ]
+    },
+    {
+      "payloads": 110,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 67
+        },
+        {
+          "final_status": "completed",
+          "count": 43
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "startedAt": "2026-11-01T13:46:58.615Z",
+    "loadGenerator": "v25.2.1",
+    "operation": "publish",
+    "destination": "workflow",
+    "durationSeconds": 30,
+    "concurrency": 20,
+    "partitions": 10,
+    "prefix": "fixed-20261101-workflow",
+    "paddingBytes": 0,
+    "elapsedMs": 30478.22,
+    "latencyScope": "HTTP response body consumed",
+    "ok": true,
+    "compatibilityDate": "2026-09-11",
+    "cfEventhubVersion": "1.0.0-rc.0",
+    "colo": "NRT",
+    "clientCity": "Tokyo",
+    "clientCountry": "JP"
+  },
+  "result": {
+    "requests": 8139,
+    "successes": 8139,
+    "failures": 0,
+    "throughputPerSecond": 267.04,
+    "latencyMs": {
+      "min": 27.55,
+      "p50": 45.58,
+      "p90": 128.83,
+      "p95": 229.17,
+      "p99": 512.94,
+      "max": 2575.69
+    }
+  },
+  "errors": {},
+  "after": [
+    {
+      "payloads": 925,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 583
+        },
+        {
+          "final_status": "completed",
+          "count": 342
+        }
+      ]
+    },
+    {
+      "payloads": 925,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 529
+        },
+        {
+          "final_status": "completed",
+          "count": 396
+        }
+      ]
+    },
+    {
+      "payloads": 925,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 605
+        },
+        {
+          "final_status": "completed",
+          "count": 320
+        }
+      ]
+    },
+    {
+      "payloads": 925,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 575
+        },
+        {
+          "final_status": "completed",
+          "count": 350
+        }
+      ]
+    },
+    {
+      "payloads": 925,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 516
+        },
+        {
+          "final_status": "completed",
+          "count": 409
+        }
+      ]
+    },
+    {
+      "payloads": 925,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 557
+        },
+        {
+          "final_status": "completed",
+          "count": 368
+        }
+      ]
+    },
+    {
+      "payloads": 925,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 592
+        },
+        {
+          "final_status": "completed",
+          "count": 333
+        }
+      ]
+    },
+    {
+      "payloads": 924,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 564
+        },
+        {
+          "final_status": "completed",
+          "count": 360
+        }
+      ]
+    },
+    {
+      "payloads": 924,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 623
+        },
+        {
+          "final_status": "completed",
+          "count": 301
+        }
+      ]
+    },
+    {
+      "payloads": 923,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 539
+        },
+        {
+          "final_status": "completed",
+          "count": 384
+        }
+      ]
+    }
+  ]
+}

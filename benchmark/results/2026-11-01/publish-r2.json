@@ -1,0 +1,236 @@
+{
+  "before": [
+    {
+      "payloads": 87,
+      "jobs": [
+        {
+          "final_status": "completed",
+          "count": 87
+        }
+      ]
+    },
+    {
+      "payloads": 87,
+      "jobs": [
+        {
+          "final_status": "completed",
+          "count": 87
+        }
+      ]
+    },
+    {
+      "payloads": 87,
+      "jobs": [
+        {
+          "final_status": "completed",
+          "count": 87
+        }
+      ]
+    },
+    {
+      "payloads": 87,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 1
+        },
+        {
+          "final_status": "completed",
+          "count": 86
+        }
+      ]
+    },
+    {
+      "payloads": 87,
+      "jobs": [
+        {
+          "final_status": "completed",
+          "count": 87
+        }
+      ]
+    },
+    {
+      "payloads": 87,
+      "jobs": [
+        {
+          "final_status": "completed",
+          "count": 87
+        }
+      ]
+    },
+    {
+      "payloads": 87,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 5
+        },
+        {
+          "final_status": "completed",
+          "count": 82
+        }
+      ]
+    },
+    {
+      "payloads": 86,
+      "jobs": [
+        {
+          "final_status": "completed",
+          "count": 86
+        }
+      ]
+    },
+    {
+      "payloads": 86,
+      "jobs": [
+        {
+          "final_status": "completed",
+          "count": 86
+        }
+      ]
+    },
+    {
+      "payloads": 86,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 1
+        },
+        {
+          "final_status": "completed",
+          "count": 85
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "startedAt": "2026-11-01T13:35:23.626Z",
+    "loadGenerator": "v25.2.1",
+    "operation": "publish",
+    "destination": "r2",
+    "durationSeconds": 30,
+    "concurrency": 20,
+    "partitions": 10,
+    "prefix": "baseline-20261101-r2",
+    "paddingBytes": 0,
+    "elapsedMs": 30405.39,
+    "latencyScope": "HTTP response body consumed",
+    "ok": true,
+    "compatibilityDate": "2026-09-11",
+    "cfEventhubVersion": "1.0.0-rc.0",
+    "colo": "LAX",
+    "clientCity": "Tokyo",
+    "clientCountry": "JP"
+  },
+  "result": {
+    "requests": 5517,
+    "successes": 5517,
+    "failures": 0,
+    "throughputPerSecond": 181.45,
+    "latencyMs": {
+      "min": 28.79,
+      "p50": 73.82,
+      "p90": 264.72,
+      "p95": 292.22,
+      "p99": 411.83,
+      "max": 872.99
+    }
+  },
+  "errors": {},
+  "after": [
+    {
+      "payloads": 639,
+      "jobs": [
+        {
+          "final_status": "completed",
+          "count": 639
+        }
+      ]
+    },
+    {
+      "payloads": 639,
+      "jobs": [
+        {
+          "final_status": "completed",
+          "count": 639
+        }
+      ]
+    },
+    {
+      "payloads": 639,
+      "jobs": [
+        {
+          "final_status": "completed",
+          "count": 639
+        }
+      ]
+    },
+    {
+      "payloads": 639,
+      "jobs": [
+        {
+          "final_status": "completed",
+          "count": 639
+        }
+      ]
+    },
+    {
+      "payloads": 639,
+      "jobs": [
+        {
+          "final_status": "completed",
+          "count": 639
+        }
+      ]
+    },
+    {
+      "payloads": 639,
+      "jobs": [
+        {
+          "final_status": "completed",
+          "count": 639
+        }
+      ]
+    },
+    {
+      "payloads": 639,
+      "jobs": [
+        {
+          "final_status": null,
+          "count": 2
+        },
+        {
+          "final_status": "completed",
+          "count": 637
+        }
+      ]
+    },
+    {
+      "payloads": 637,
+      "jobs": [
+        {
+          "final_status": "completed",
+          "count": 637
+        }
+      ]
+    },
+    {
+      "payloads": 637,
+      "jobs": [
+        {
+          "final_status": "completed",
+          "count": 637
+        }
+      ]
+    },
+    {
+      "payloads": 637,
+      "jobs": [
+        {
+          "final_status": "completed",
+          "count": 637
+        }
+      ]
+    }
+  ]
+}

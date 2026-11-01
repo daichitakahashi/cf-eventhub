@@ -1,0 +1,36 @@
+{
+  "metadata": {
+    "startedAt": "2026-11-01T13:34:42.250Z",
+    "loadGenerator": "v25.2.1",
+    "operation": "publish",
+    "destination": "queue",
+    "durationSeconds": 5,
+    "concurrency": 20,
+    "partitions": 10,
+    "prefix": "baseline-20261101-queue",
+    "paddingBytes": 0,
+    "elapsedMs": 5262.48,
+    "latencyScope": "HTTP response body consumed",
+    "ok": true,
+    "compatibilityDate": "2026-09-11",
+    "cfEventhubVersion": "1.0.0-rc.0",
+    "colo": "NRT",
+    "clientCity": "Tokyo",
+    "clientCountry": "JP"
+  },
+  "result": {
+    "requests": 567,
+    "successes": 567,
+    "failures": 0,
+    "throughputPerSecond": 107.74,
+    "latencyMs": {
+      "min": 33.82,
+      "p50": 77.53,
+      "p90": 392.36,
+      "p95": 607.42,
+      "p99": 1877.51,
+      "max": 2342.74
+    }
+  },
+  "errors": {}
+}
