@@ -1,0 +1,58 @@
+{
+  "workers": [
+    {
+      "id": "cf-eventhub-benchmark",
+      "created_on": "2026-11-01T13:31:27.514827Z"
+    }
+  ],
+  "namespaces": [
+    {
+      "id": "0d866727433f43feb7882390b325f0b9",
+      "name": "cf-eventhub-benchmark_BenchmarkEventHub",
+      "script": "cf-eventhub-benchmark",
+      "class": "BenchmarkEventHub",
+      "use_sqlite": true
+    },
+    {
+      "id": "6dcb8eda4ade41b990de246e4d8d503e",
+      "name": "cf-eventhub-benchmark_RetryEventHub",
+      "script": "cf-eventhub-benchmark",
+      "class": "RetryEventHub",
+      "use_sqlite": true
+    }
+  ],
+  "queues": [
+    {
+      "queue_id": "65836302ae594d4c8dba10abc8df7a70",
+      "queue_name": "cf-eventhub-benchmark",
+      "created_on": "2026-11-01T13:29:42.448148Z"
+    }
+  ],
+  "r2": [
+    {
+      "name": "cf-eventhub-benchmark",
+      "creation_date": "2026-11-01T13:30:25.936Z"
+    }
+  ],
+  "workflows": [
+    {
+      "created_on": "2026-11-01T13:32:12.135Z",
+      "name": "cf-eventhub-benchmark",
+      "id": "8ba032be-9ec8-4eb7-af35-7e63302f7425",
+      "script_name": "cf-eventhub-benchmark",
+      "class_name": "BenchmarkWorkflow",
+      "instances": {
+        "queued": 0,
+        "running": 0,
+        "paused": 0,
+        "errored": 0,
+        "terminated": 0,
+        "complete": 15393,
+        "unknown": 0,
+        "waitingForPause": 0,
+        "waiting": 0,
+        "rollingBack": 0
+      }
+    }
+  ]
+}

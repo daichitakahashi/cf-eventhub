@@ -1,0 +1,19 @@
+{
+  "checkedAt": "2026-11-01T13:58:42.486653+00:00",
+  "allBenchmarkResourcesDeleted": true,
+  "remaining": {
+    "workers": [],
+    "namespaces": [],
+    "queues": [],
+    "r2": [],
+    "workflows": []
+  },
+  "r2ObjectsDeleted": 15364,
+  "durableObjectNamespacesDeleted": [
+    "0d866727433f43feb7882390b325f0b9",
+    "6dcb8eda4ade41b990de246e4d8d503e"
+  ],
+  "namespaceDeletionDeployment": "6af10d75-cf3a-4824-acfb-9a74134e46e9",
+  "workflowInstancesBeforeDeletion": 15393,
+  "note": "Queue consumer detached; both DO namespaces deleted via exports tombstones before deleting Worker. Existing unrelated account resources preserved."
+}

@@ -26,6 +26,13 @@ jobs:
         working-directory: cf-eventhub
         run: pnpm test
 
+      - name: Type check - benchmark harness
+        working-directory: benchmark
+        run: pnpm typecheck
+      - name: Test - benchmark harness
+        working-directory: benchmark
+        run: pnpm test
+
       - name: Check generated Web Console styles
         working-directory: web-console
         run: pnpm check:styles

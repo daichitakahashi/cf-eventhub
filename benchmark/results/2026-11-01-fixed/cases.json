@@ -1,0 +1,125 @@
+[
+  {
+    "name": "publish-p1",
+    "concurrency": "20",
+    "duration": "30",
+    "partitions": "1",
+    "prefix": "fixed-20261101-p1",
+    "operation": "publish"
+  },
+  {
+    "name": "publish-p10",
+    "concurrency": "20",
+    "duration": "30",
+    "partitions": "10",
+    "prefix": "fixed-20261101-p10",
+    "operation": "publish"
+  },
+  {
+    "name": "publish-p100",
+    "concurrency": "20",
+    "duration": "30",
+    "partitions": "100",
+    "prefix": "fixed-20261101-p100",
+    "operation": "publish"
+  },
+  {
+    "name": "publish-queue",
+    "concurrency": "20",
+    "duration": "30",
+    "partitions": "10",
+    "prefix": "fixed-20261101-queue",
+    "operation": "publish",
+    "destination": "queue"
+  },
+  {
+    "name": "publish-r2",
+    "concurrency": "20",
+    "duration": "30",
+    "partitions": "10",
+    "prefix": "fixed-20261101-r2",
+    "operation": "publish",
+    "destination": "r2"
+  },
+  {
+    "name": "publish-workflow",
+    "concurrency": "20",
+    "duration": "30",
+    "partitions": "10",
+    "prefix": "fixed-20261101-workflow",
+    "operation": "publish",
+    "destination": "workflow"
+  },
+  {
+    "name": "list-100",
+    "concurrency": "20",
+    "duration": "30",
+    "partitions": "1",
+    "prefix": "fixed-20261101-retained-100",
+    "operation": "list"
+  },
+  {
+    "name": "claim-100",
+    "concurrency": "20",
+    "duration": "30",
+    "partitions": "1",
+    "prefix": "fixed-20261101-retained-100",
+    "operation": "retry"
+  },
+  {
+    "name": "publish-100",
+    "concurrency": "20",
+    "duration": "30",
+    "partitions": "1",
+    "prefix": "fixed-20261101-retained-100",
+    "operation": "publish"
+  },
+  {
+    "name": "list-10000",
+    "concurrency": "20",
+    "duration": "30",
+    "partitions": "1",
+    "prefix": "fixed-20261101-retained-10000",
+    "operation": "list"
+  },
+  {
+    "name": "claim-10000",
+    "concurrency": "20",
+    "duration": "30",
+    "partitions": "1",
+    "prefix": "fixed-20261101-retained-10000",
+    "operation": "retry"
+  },
+  {
+    "name": "publish-10000",
+    "concurrency": "20",
+    "duration": "30",
+    "partitions": "1",
+    "prefix": "fixed-20261101-retained-10000",
+    "operation": "publish"
+  },
+  {
+    "name": "list-100000",
+    "concurrency": "20",
+    "duration": "30",
+    "partitions": "1",
+    "prefix": "fixed-20261101-retained-100000",
+    "operation": "list"
+  },
+  {
+    "name": "claim-100000",
+    "concurrency": "20",
+    "duration": "30",
+    "partitions": "1",
+    "prefix": "fixed-20261101-retained-100000",
+    "operation": "retry"
+  },
+  {
+    "name": "publish-100000",
+    "concurrency": "20",
+    "duration": "30",
+    "partitions": "1",
+    "prefix": "fixed-20261101-retained-100000",
+    "operation": "publish"
+  }
+]

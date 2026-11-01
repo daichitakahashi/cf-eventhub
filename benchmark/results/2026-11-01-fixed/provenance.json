@@ -1,0 +1,26 @@
+{
+  "baseCommit": "129f1c8",
+  "cfEventhubVersion": "1.0.0-rc.0 + retained-state fixes in this branch",
+  "compatibilityDate": "2026-09-11",
+  "wrangler": "4.131.0",
+  "workerVersions": [
+    {
+      "id": "b42bc737-04bd-4693-b9b1-eab1cc3b3997",
+      "note": "Partition/Queue runs and beginning of R2 run; includes both library fixes."
+    },
+    {
+      "id": "11e277a0-6e0e-49ec-a175-dde65f4eebfa",
+      "note": "From 13:46:27 UTC, caps benchmark claim RPC at one job. Same library code. All retained-state runs use this version."
+    }
+  ],
+  "bundle": {
+    "uploadKiB": 100.03,
+    "gzipKiB": 20.63,
+    "startupMs": 2
+  },
+  "sourceSha256": {
+    "cf-eventhub/src/core/store.ts": "7a08a47429dd74d023b63ae245095e546e2b306b0c8f020d6dd69d77fae5b017",
+    "benchmark/src/index.ts": "4ed5b512874c80d4f69fc10cb82fe1c7476ad83e460f7af1609ae5b2a44d6171",
+    "benchmark/wrangler.jsonc": "0b54528f62fca8c7445f25e37260d3626f1e1984d4f72e4bd6585d6126781df8"
+  }
+}

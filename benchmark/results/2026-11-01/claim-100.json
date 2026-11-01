@@ -1,0 +1,59 @@
+{
+  "before": [
+    {
+      "payloads": 100,
+      "jobs": [
+        {
+          "final_status": "completed",
+          "count": 100
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "startedAt": "2026-11-01T13:37:56.826Z",
+    "loadGenerator": "v25.2.1",
+    "operation": "retry",
+    "destination": null,
+    "durationSeconds": 30,
+    "concurrency": 20,
+    "partitions": 1,
+    "prefix": "baseline-20261101-retained-100",
+    "paddingBytes": 0,
+    "elapsedMs": 30367.75,
+    "latencyScope": "claim-and-finalize RPC only; throughput includes prepare RPC",
+    "ok": true,
+    "compatibilityDate": "2026-09-11",
+    "cfEventhubVersion": "1.0.0-rc.0",
+    "colo": "LAX",
+    "clientCity": "Tokyo",
+    "clientCountry": "JP"
+  },
+  "result": {
+    "requests": 1677,
+    "successes": 1677,
+    "failures": 0,
+    "throughputPerSecond": 55.22,
+    "latencyMs": {
+      "min": 118.05,
+      "p50": 154.98,
+      "p90": 180.09,
+      "p95": 275.12,
+      "p99": 654.4,
+      "max": 958.23
+    }
+  },
+  "claimedJobs": 1677,
+  "errors": {},
+  "after": [
+    {
+      "payloads": 1777,
+      "jobs": [
+        {
+          "final_status": "completed",
+          "count": 1777
+        }
+      ]
+    }
+  ]
+}

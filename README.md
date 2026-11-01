@@ -14,6 +14,7 @@ investigation, and redrive available as one system.
 | [`cf-eventhub`](./cf-eventhub/README.md) | Durable Object component for persistence, fan-out routing, Queue/R2/Workflow delivery, retries, redrive, Registry discovery, and retention or archival. |
 | [`@cf-eventhub/web-console`](./web-console/README.md) | Operations UI for selecting EventHub instances, inspecting payloads and delivery jobs, creating events, and redriving deliveries. |
 | [`eventhub-demo`](./demo/src/index.ts) | Local example that connects EventHub, the Registry, Web Console, Queues, an R2 sink, a flaky Workflow destination, and downstream failure reporting. |
+| [`eventhub-benchmark`](./benchmark/README.md) | Deployed performance harness with partition, retained-state, and destination comparisons; see the [recorded baseline](./benchmark/RESULTS.md). |
 
 ## Why this repo
 

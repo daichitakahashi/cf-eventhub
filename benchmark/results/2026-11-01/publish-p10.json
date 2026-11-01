@@ -1,0 +1,120 @@
+{
+  "before": [
+    {
+      "payloads": 171,
+      "jobs": []
+    },
+    {
+      "payloads": 171,
+      "jobs": []
+    },
+    {
+      "payloads": 171,
+      "jobs": []
+    },
+    {
+      "payloads": 171,
+      "jobs": []
+    },
+    {
+      "payloads": 171,
+      "jobs": []
+    },
+    {
+      "payloads": 171,
+      "jobs": []
+    },
+    {
+      "payloads": 170,
+      "jobs": []
+    },
+    {
+      "payloads": 170,
+      "jobs": []
+    },
+    {
+      "payloads": 170,
+      "jobs": []
+    },
+    {
+      "payloads": 170,
+      "jobs": []
+    }
+  ],
+  "metadata": {
+    "startedAt": "2026-11-01T13:33:34.303Z",
+    "loadGenerator": "v25.2.1",
+    "operation": "publish",
+    "destination": "none",
+    "durationSeconds": 30,
+    "concurrency": 20,
+    "partitions": 10,
+    "prefix": "baseline-20261101-p10",
+    "paddingBytes": 0,
+    "elapsedMs": 30622.82,
+    "latencyScope": "HTTP response body consumed",
+    "ok": true,
+    "compatibilityDate": "2026-09-11",
+    "cfEventhubVersion": "1.0.0-rc.0",
+    "colo": "NRT",
+    "clientCity": "Tokyo",
+    "clientCountry": "JP"
+  },
+  "result": {
+    "requests": 11262,
+    "successes": 11262,
+    "failures": 0,
+    "throughputPerSecond": 367.76,
+    "latencyMs": {
+      "min": 28.79,
+      "p50": 45.61,
+      "p90": 66.02,
+      "p95": 83.16,
+      "p99": 246.06,
+      "max": 779.05
+    }
+  },
+  "errors": {},
+  "after": [
+    {
+      "payloads": 1298,
+      "jobs": []
+    },
+    {
+      "payloads": 1298,
+      "jobs": []
+    },
+    {
+      "payloads": 1297,
+      "jobs": []
+    },
+    {
+      "payloads": 1297,
+      "jobs": []
+    },
+    {
+      "payloads": 1297,
+      "jobs": []
+    },
+    {
+      "payloads": 1297,
+      "jobs": []
+    },
+    {
+      "payloads": 1296,
+      "jobs": []
+    },
+    {
+      "payloads": 1296,
+      "jobs": []
+    },
+    {
+      "payloads": 1296,
+      "jobs": []
+    },
+    {
+      "payloads": 1296,
+      "jobs": []
+    }
+  ]
+}

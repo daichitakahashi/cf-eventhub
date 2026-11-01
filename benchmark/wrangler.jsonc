@@ -1,0 +1,56 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cf-eventhub-benchmark",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-11",
+  "compatibility_flags": ["nodejs_compat"],
+  "exports": {
+    "BenchmarkEventHub": { "type": "durable-object", "storage": "sqlite" },
+    "RetryEventHub": { "type": "durable-object", "storage": "sqlite" }
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "class_name": "BenchmarkEventHub",
+        "name": "EVENT_HUB"
+      },
+      {
+        "class_name": "RetryEventHub",
+        "name": "RETRY_EVENT_HUB"
+      }
+    ]
+  },
+  "queues": {
+    "producers": [
+      {
+        "binding": "BENCHMARK_QUEUE",
+        "queue": "cf-eventhub-benchmark"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "cf-eventhub-benchmark",
+        "max_batch_size": 100,
+        "max_batch_timeout": 1,
+        "max_retries": 0
+      }
+    ]
+  },
+  "r2_buckets": [
+    {
+      "binding": "BENCHMARK_BUCKET",
+      "bucket_name": "cf-eventhub-benchmark"
+    }
+  ],
+  "workflows": [
+    {
+      "name": "cf-eventhub-benchmark",
+      "binding": "BENCHMARK_WORKFLOW",
+      "class_name": "BenchmarkWorkflow"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  },
+  "upload_source_maps": true
+}

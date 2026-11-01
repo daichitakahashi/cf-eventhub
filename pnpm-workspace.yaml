@@ -2,6 +2,7 @@ packages:
   - cf-eventhub
   - web-console
   - demo
+  - benchmark
 
 allowBuilds:
   '@biomejs/biome': true

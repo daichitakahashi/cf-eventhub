@@ -1,0 +1,9 @@
+{
+  "status": "incomplete",
+  "workerVersion": "850cec7b-b67b-4b55-aa98-dab26b7af027",
+  "sourceBaseCommit": "129f1c8",
+  "stoppedDuring": "list-100000 post-measurement stats",
+  "reason": "30-second request timeout while processing 100k retained payload list requests; original runner did not persist measured results before post-run stats. No reliable 100k latency summary was saved.",
+  "completedConditions": 12,
+  "note": "See ../2026-11-01-fixed for the complete matrix after the list/claim scaling fixes."
+}

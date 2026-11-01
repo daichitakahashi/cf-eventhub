@@ -1,0 +1,120 @@
+{
+  "before": [
+    {
+      "payloads": 186,
+      "jobs": []
+    },
+    {
+      "payloads": 186,
+      "jobs": []
+    },
+    {
+      "payloads": 185,
+      "jobs": []
+    },
+    {
+      "payloads": 185,
+      "jobs": []
+    },
+    {
+      "payloads": 185,
+      "jobs": []
+    },
+    {
+      "payloads": 185,
+      "jobs": []
+    },
+    {
+      "payloads": 185,
+      "jobs": []
+    },
+    {
+      "payloads": 185,
+      "jobs": []
+    },
+    {
+      "payloads": 185,
+      "jobs": []
+    },
+    {
+      "payloads": 185,
+      "jobs": []
+    }
+  ],
+  "metadata": {
+    "startedAt": "2026-11-01T13:44:33.100Z",
+    "loadGenerator": "v25.2.1",
+    "operation": "publish",
+    "destination": "none",
+    "durationSeconds": 30,
+    "concurrency": 20,
+    "partitions": 10,
+    "prefix": "fixed-20261101-p10",
+    "paddingBytes": 0,
+    "elapsedMs": 30162.91,
+    "latencyScope": "HTTP response body consumed",
+    "ok": true,
+    "compatibilityDate": "2026-09-11",
+    "cfEventhubVersion": "1.0.0-rc.0",
+    "colo": "NRT",
+    "clientCity": "Tokyo",
+    "clientCountry": "JP"
+  },
+  "result": {
+    "requests": 12458,
+    "successes": 12458,
+    "failures": 0,
+    "throughputPerSecond": 413.02,
+    "latencyMs": {
+      "min": 26.4,
+      "p50": 39.28,
+      "p90": 50.57,
+      "p95": 78.48,
+      "p99": 296.2,
+      "max": 1119.85
+    }
+  },
+  "errors": {},
+  "after": [
+    {
+      "payloads": 1432,
+      "jobs": []
+    },
+    {
+      "payloads": 1432,
+      "jobs": []
+    },
+    {
+      "payloads": 1431,
+      "jobs": []
+    },
+    {
+      "payloads": 1431,
+      "jobs": []
+    },
+    {
+      "payloads": 1431,
+      "jobs": []
+    },
+    {
+      "payloads": 1431,
+      "jobs": []
+    },
+    {
+      "payloads": 1431,
+      "jobs": []
+    },
+    {
+      "payloads": 1431,
+      "jobs": []
+    },
+    {
+      "payloads": 1430,
+      "jobs": []
+    },
+    {
+      "payloads": 1430,
+      "jobs": []
+    }
+  ]
+}
