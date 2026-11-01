@@ -470,7 +470,7 @@ describe("routeByConfig", () => {
       createMultipartUpload: async () => ({}),
     } as unknown as R2Bucket;
     const workflow = {
-      createBatch: async () => [],
+      createBatch: async () => ({ created: [], errors: [] }),
     } as unknown as Workflow;
     const strategy = routeByConfig(
       {
@@ -519,7 +519,7 @@ describe("routeByConfig", () => {
 describe("routeFunc", () => {
   test("supports Workflow destinations", () => {
     const workflow = {
-      createBatch: async () => [],
+      createBatch: async () => ({ created: [], errors: [] }),
     } as unknown as Workflow;
     const strategy = routeFunc({ REPORT_WORKFLOW: workflow }, () => [
       { destination: "REPORT_WORKFLOW" },
