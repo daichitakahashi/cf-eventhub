@@ -350,17 +350,72 @@ const sendWorkflowBatch = async <Env extends object>(
   handlers: DeliverJobsHandlers,
   context: DeliveryContext,
 ): Promise<void> => {
-  const jobIds = jobs.map(({ id }) => id);
+  let result: WorkflowBatchCreateResult;
   try {
-    await target.workflow.createBatch(
-      jobs.map((job) => ({
+    result = await target.workflow.createBatch({
+      instances: jobs.map((job) => ({
         id: job.id,
         params: getDestinationPayload(job.payload, job.id, context),
       })),
-    );
-    await handlers.onDelivered(jobIds);
+    });
   } catch (error) {
-    await handlers.onFailed(jobIds, error);
+    // The response may have been lost after creation. Retry with the same IDs.
+    await handlers.onFailed(
+      jobs.map(({ id }) => id),
+      error,
+    );
+    return;
+  }
+
+  const createdIds = new Set(result.created.map(({ id }) => id));
+  const errorsByIndex = new Map(
+    result.errors.map((error) => [error.index, error]),
+  );
+  const seenIds = new Set<string>();
+  const duplicateIds = new Set<string>();
+  for (const { id } of jobs) {
+    if (seenIds.has(id)) duplicateIds.add(id);
+    seenIds.add(id);
+  }
+
+  const delivered: string[] = [];
+  const failures = new Map<string, Error>();
+  for (const [index, job] of jobs.entries()) {
+    const error = errorsByIndex.get(index);
+    if (duplicateIds.has(job.id) || error?.code === 10415) {
+      failures.set(
+        job.id,
+        new Error(
+          `eventhub: duplicate Workflow instance ID ${job.id} in batch (10415); internal invariant violation`,
+        ),
+      );
+    } else if (error && error.id !== undefined && error.id !== job.id) {
+      failures.set(
+        job.id,
+        new Error(
+          `eventhub: Workflow batch error ID does not match job ${job.id}`,
+        ),
+      );
+    } else if (error && error.code !== 10405) {
+      failures.set(
+        job.id,
+        new Error(
+          `eventhub: Workflow instance ${job.id} creation failed (${error.code}): ${error.message}`,
+        ),
+      );
+    } else if (error?.code === 10405 || createdIds.has(job.id)) {
+      delivered.push(job.id);
+    } else {
+      failures.set(
+        job.id,
+        new Error(`eventhub: Workflow batch result missing for job ${job.id}`),
+      );
+    }
+  }
+
+  if (delivered.length > 0) await handlers.onDelivered(delivered);
+  for (const [jobId, error] of failures) {
+    await handlers.onFailed([jobId], error);
   }
 };
 

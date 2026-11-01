@@ -520,11 +520,13 @@ describe("deliverJobs", () => {
     );
 
     expect(workflow.createBatchCalls).toStrictEqual([
-      [
-        { id: "workflow-job-0", params: { kind: "report", index: 0 } },
-        { id: "workflow-job-1", params: { kind: "report", index: 1 } },
-        { id: "workflow-job-2", params: { kind: "report", index: 2 } },
-      ],
+      {
+        instances: [
+          { id: "workflow-job-0", params: { kind: "report", index: 0 } },
+          { id: "workflow-job-1", params: { kind: "report", index: 1 } },
+          { id: "workflow-job-2", params: { kind: "report", index: 2 } },
+        ],
+      },
     ]);
     expect(onDelivered).toHaveBeenCalledWith([
       "workflow-job-0",
@@ -562,7 +564,9 @@ describe("deliverJobs", () => {
     );
 
     expect({
-      batchSizes: workflow.createBatchCalls.map((batch) => batch.length),
+      batchSizes: workflow.createBatchCalls.map(
+        (batch) => batch.instances.length,
+      ),
       deliveredSizes: delivered.map((jobIds) => jobIds.length),
     }).toStrictEqual({ batchSizes: [100, 1], deliveredSizes: [100, 1] });
   });
@@ -611,6 +615,190 @@ describe("deliverJobs", () => {
     });
   });
 
+  test("retries only failed Workflow jobs after a partial success", async () => {
+    // 1. Reject one instance while accepting the other requests.
+    // 2. Retry only the failed job and verify accepted IDs are not sent again.
+    const workflow = new WorkflowMock();
+    workflow.failInstance("failed-job", 10001, "capacity exceeded");
+    const routing = routeByConfig(
+      { REPORT_WORKFLOW: workflow as unknown as Workflow<EventPayload> },
+      { routes: [] },
+    );
+    const jobs = resolveDeliveryJobs(
+      routing,
+      ["first-job", "failed-job", "last-job"].map((id) => ({
+        id,
+        payloadId: id,
+        destination: "REPORT_WORKFLOW",
+        payload: { id },
+      })),
+    );
+    const onDelivered = vi.fn();
+    const onFailed = vi.fn();
+    await deliverJobs(jobs, { onDelivered, onFailed }, deliveryContext);
+    workflow.recoverInstance("failed-job");
+    await deliverJobs(
+      jobs.filter((job) => onFailed.mock.calls[0][0].includes(job.id)),
+      { onDelivered, onFailed },
+      deliveryContext,
+    );
+    expect({
+      delivered: onDelivered.mock.calls,
+      failures: onFailed.mock.calls,
+      batches: workflow.createBatchCalls.map(({ instances }) =>
+        instances.map(({ id }) => id),
+      ),
+    }).toStrictEqual({
+      delivered: [[["first-job", "last-job"]], [["failed-job"]]],
+      failures: [
+        [
+          ["failed-job"],
+          expect.objectContaining({
+            message: expect.stringContaining("10001"),
+          }),
+        ],
+      ],
+      batches: [["first-job", "failed-job", "last-job"], ["failed-job"]],
+    });
+  });
+
+  test("does not deliver duplicate Workflow job IDs even if the first was created", async () => {
+    // 1. Send duplicate IDs alongside a valid job.
+    // 2. The 10415 invariant failure overrides creation of the first duplicate.
+    const workflow = new WorkflowMock();
+    const routing = routeByConfig(
+      { REPORT_WORKFLOW: workflow as unknown as Workflow<EventPayload> },
+      { routes: [] },
+    );
+    const jobs = resolveDeliveryJobs(
+      routing,
+      ["duplicate", "duplicate", "valid"].map((id) => ({
+        id,
+        payloadId: id,
+        destination: "REPORT_WORKFLOW",
+        payload: { id },
+      })),
+    );
+    const onDelivered = vi.fn();
+    const onFailed = vi.fn();
+    await deliverJobs(jobs, { onDelivered, onFailed }, deliveryContext);
+    expect({
+      delivered: onDelivered.mock.calls,
+      failed: onFailed.mock.calls,
+    }).toStrictEqual({
+      delivered: [[["valid"]]],
+      failed: [
+        [
+          ["duplicate"],
+          expect.objectContaining({
+            message: expect.stringContaining("10415"),
+          }),
+        ],
+      ],
+    });
+  });
+
+  test.each([
+    {
+      name: "missing results",
+      result: { created: [], errors: [] },
+      message: "result missing",
+    },
+    {
+      name: "errors without IDs",
+      result: {
+        created: [],
+        errors: [{ index: 0, code: 10001, message: "failed" }],
+      },
+      message: "10001",
+    },
+    {
+      name: "mismatched error IDs",
+      result: {
+        created: [],
+        errors: [{ index: 0, id: "other", code: 10405, message: "exists" }],
+      },
+      message: "does not match",
+    },
+    {
+      name: "duplicate error codes",
+      result: {
+        created: [{ id: "job" }],
+        errors: [{ index: 0, id: "job", code: 10415, message: "duplicate" }],
+      },
+      message: "10415",
+    },
+  ])("fails closed for $name", async ({ result, message }) => {
+    // 1. Return a controlled response to check per-request result mapping.
+    // 2. Verify the job is failed instead of silently marked delivered.
+    const workflow = { createBatch: vi.fn().mockResolvedValue(result) };
+    const routing = routeByConfig(
+      { REPORT_WORKFLOW: workflow as unknown as Workflow<EventPayload> },
+      { routes: [] },
+    );
+    const jobs = resolveDeliveryJobs(routing, [
+      {
+        id: "job",
+        payloadId: "payload",
+        destination: "REPORT_WORKFLOW",
+        payload: {},
+      },
+    ]);
+    const onDelivered = vi.fn();
+    const onFailed = vi.fn();
+    await deliverJobs(jobs, { onDelivered, onFailed }, deliveryContext);
+    expect({
+      delivered: onDelivered.mock.calls,
+      failed: onFailed.mock.calls,
+    }).toStrictEqual({
+      delivered: [],
+      failed: [
+        [
+          ["job"],
+          expect.objectContaining({
+            message: expect.stringContaining(message),
+          }),
+        ],
+      ],
+    });
+  });
+
+  test("fails all Workflow jobs when creation throws before accepting instances", async () => {
+    // 1. Throw before any instance is created.
+    // 2. Preserve the stable job ID for retry and report no successful handoff.
+    const workflow = new WorkflowMock();
+    workflow.failNextBatch();
+    const routing = routeByConfig(
+      { REPORT_WORKFLOW: workflow as unknown as Workflow<EventPayload> },
+      { routes: [] },
+    );
+    const jobs = resolveDeliveryJobs(routing, [
+      {
+        id: "job",
+        payloadId: "payload",
+        destination: "REPORT_WORKFLOW",
+        payload: {},
+      },
+    ]);
+    const onDelivered = vi.fn();
+    const onFailed = vi.fn();
+    await deliverJobs(jobs, { onDelivered, onFailed }, deliveryContext);
+    expect({
+      delivered: onDelivered.mock.calls,
+      failed: onFailed.mock.calls,
+      instances: workflow.instances.size,
+    }).toStrictEqual({
+      delivered: [],
+      failed: [
+        [
+          ["job"],
+          expect.objectContaining({ message: "failed Workflow batch 0" }),
+        ],
+      ],
+      instances: 0,
+    });
+  });
+
   test("injects delivery metadata into Workflow parameters", async () => {
     const workflow = new WorkflowMock();
     const routing = routeByConfig(
@@ -637,19 +825,21 @@ describe("deliverJobs", () => {
     );
 
     expect(workflow.createBatchCalls).toStrictEqual([
-      [
-        {
-          id: "workflow-job-with-metadata",
-          params: {
-            kind: "report",
-            __eventhub__: {
-              instanceId: "eventhub-instance",
-              instanceName: "named-hub",
-              deliveryJobId: "workflow-job-with-metadata",
+      {
+        instances: [
+          {
+            id: "workflow-job-with-metadata",
+            params: {
+              kind: "report",
+              __eventhub__: {
+                instanceId: "eventhub-instance",
+                instanceName: "named-hub",
+                deliveryJobId: "workflow-job-with-metadata",
+              },
             },
           },
-        },
-      ],
+        ],
+      },
     ]);
   });
 
@@ -1021,14 +1211,18 @@ describe("deliverPersistedJobs", () => {
       deliveries: onDelivered.mock.calls,
     }).toStrictEqual({
       calls: [
-        [
-          { id: "workflow-job-a", params: { kind: "report", index: 0 } },
-          { id: "workflow-job-b", params: { kind: "report", index: 1 } },
-        ],
-        [
-          { id: "workflow-job-a", params: { kind: "report", index: 0 } },
-          { id: "workflow-job-b", params: { kind: "report", index: 1 } },
-        ],
+        {
+          instances: [
+            { id: "workflow-job-a", params: { kind: "report", index: 0 } },
+            { id: "workflow-job-b", params: { kind: "report", index: 1 } },
+          ],
+        },
+        {
+          instances: [
+            { id: "workflow-job-a", params: { kind: "report", index: 0 } },
+            { id: "workflow-job-b", params: { kind: "report", index: 1 } },
+          ],
+        },
       ],
       instances: new Map([
         ["workflow-job-a", { kind: "report", index: 0 }],

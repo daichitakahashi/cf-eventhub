@@ -547,11 +547,37 @@ EventHub groups jobs for the same Workflow into batches of at most 100 and uses
 whose platform limit is 100 instances per call.
 Every Workflow instance ID is the corresponding delivery job ID, and its
 parameters are the event payload, including `__eventhub__` when
-`includeDeliveryMetadata` is enabled. `createBatch()` is idempotent: instance
-IDs that already exist are skipped rather than rejected. A successful call
-therefore completes every job in the requested batch, whether its instance was
-created by that attempt or an earlier ambiguous attempt. A failed call keeps
-the jobs retryable with the same IDs.
+`includeDeliveryMetadata` is enabled.
+
+EventHub calls `createBatch({ instances })` and handles each result separately:
+
+- IDs in `created` complete their delivery jobs.
+- Error `10405` confirms that the ID already exists and completes the job as an
+  idempotent handoff, including retries after an ambiguous response.
+- Other per-instance errors retry only the affected jobs under the configured
+  retry policy. Duplicate IDs in a batch (`10415`) are internal invariant
+  violations and are never marked delivered, even if the first entry was created.
+- An item missing from both result arrays fails delivery. If the call throws,
+  the whole batch remains retryable with the same stable delivery job IDs because
+  acceptance may be ambiguous.
+
+Workflow destinations require **Wrangler 4.148.0 or later** and Workers types
+that include the object-form `Workflow.createBatch()` overload and
+`WorkflowBatchCreateResult` (verified with `@cloudflare/workers-types`
+5.20261006.1 when using that package instead of generated runtime types).
+Regenerate types with `wrangler types` after upgrading. The workspace verifies the Wrangler 4.148.0 type baseline; local and
+production runtimes must also support this API. EventHub does not detect or fall
+back to the deprecated array form.
+
+The existing-ID guarantee lasts only while Cloudflare retains the Workflow
+instance. After its retention period expires (or the instance is deleted), the
+same ID can create a new instance, so a sufficiently late retry can execute the
+Workflow again. EventHub does not maintain a permanent Workflow deduplication
+record. Configure retention to cover the delivery retry window, and use durable
+application-level deduplication for side effects that must remain idempotent
+beyond that window. See Cloudflare's
+[retention limits](https://developers.cloudflare.com/workflows/reference/limits/)
+and [Workflow invocation guidance](https://developers.cloudflare.com/workflows/build/rules-of-workflows/#batch-multiple-workflow-invocations).
 
 Once instance creation is accepted, EventHub considers the durable handoff
 complete. Workflow execution, retries, and final outcome belong to the Workflow
@@ -786,7 +812,8 @@ Notes:
 - Queue destinations are delivered with byte-aware, count-bounded
   `sendBatch()` calls as described in [Queue Delivery Limits](#queue-delivery-limits)
 - R2 destinations are delivered with `put()`
-- Workflow destinations are delivered with idempotent `createBatch()` calls
+- Workflow destinations use per-job `createBatch({ instances })` results and
+  stable IDs for retries, subject to [instance retention](#workflow-destinations)
 - Events with no matching route are still persisted as payloads
 - `redrive(deliveryJobId)` creates a new independent payload and delivery job from an existing, non-ejected job, then starts delivery immediately. A successful result contains `false` if the source job no longer exists.
 

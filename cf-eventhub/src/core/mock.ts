@@ -128,10 +128,16 @@ export class R2BucketMock {
 }
 
 export class WorkflowMock {
-  readonly createBatchCalls: WorkflowInstanceCreateOptions<EventPayload>[][] =
-    [];
-  readonly instances = new Map<string, EventPayload>();
+  readonly createBatchCalls: Array<{
+    instances: WorkflowInstanceCreateOptions<EventPayload>[];
+  }> = [];
+  readonly instances: Map<string, EventPayload>;
   private readonly failingBatchIndexes: Set<number>;
+  private readonly pendingFailures: Array<"before" | "after"> = [];
+  private readonly instanceErrors = new Map<
+    string,
+    { code: number; message: string }
+  >();
 
   constructor(
     failingBatchIndexes: number[] = [],
@@ -141,22 +147,54 @@ export class WorkflowMock {
     this.instances = new Map(existingInstances);
   }
 
-  async createBatch(
-    batch: WorkflowInstanceCreateOptions<EventPayload>[],
-  ): Promise<WorkflowInstance[]> {
+  failNextBatch(timing: "before" | "after" = "before"): void {
+    this.pendingFailures.push(timing);
+  }
+
+  failInstance(
+    id: string,
+    code = 10000,
+    message = "instance creation failed",
+  ): void {
+    this.instanceErrors.set(id, { code, message });
+  }
+
+  recoverInstance(id: string): void {
+    this.instanceErrors.delete(id);
+  }
+
+  async createBatch(options: {
+    instances: WorkflowInstanceCreateOptions<EventPayload>[];
+  }): Promise<WorkflowBatchCreateResult> {
     const batchIndex = this.createBatchCalls.length;
-    this.createBatchCalls.push(batch);
+    this.createBatchCalls.push(options);
+    const failure = this.pendingFailures.shift();
+    if (failure === "before") {
+      throw new Error(`failed Workflow batch ${batchIndex}`);
+    }
     const created: WorkflowInstance[] = [];
-    for (const { id, params } of batch) {
-      if (id === undefined || params === undefined || this.instances.has(id)) {
+    const errors: WorkflowBatchCreateResult["errors"] = [];
+    const seenIds = new Set<string>();
+    for (const [index, { id, params }] of options.instances.entries()) {
+      if (id === undefined || params === undefined) {
+        throw new Error("expected explicit Workflow ID and parameters");
+      }
+      const error = seenIds.has(id)
+        ? { code: 10415, message: "duplicate ID in batch" }
+        : this.instances.has(id)
+          ? { code: 10405, message: "instance already exists" }
+          : this.instanceErrors.get(id);
+      seenIds.add(id);
+      if (error) {
+        errors.push({ index, id, ...error });
         continue;
       }
       this.instances.set(id, params);
       created.push({ id } as WorkflowInstance);
     }
-    if (this.failingBatchIndexes.has(batchIndex)) {
+    if (this.failingBatchIndexes.has(batchIndex) || failure === "after") {
       throw new Error(`failed Workflow batch ${batchIndex}`);
     }
-    return created;
+    return { created, errors };
   }
 }
