@@ -99,8 +99,10 @@ export function reconcile({
       job?.destination !== "BUCKET" ||
       object.key !== `chaos/${runId}/${id}.json` ||
       object.payload.testRunId !== runId
-    )
+    ) {
       errors.push(`Phantom/invalid R2 object ${object.key}`);
+      continue;
+    }
     objectIds.add(id);
     observations.set(id, 1);
   }

@@ -89,6 +89,62 @@ test("rejects phantom receipts and R2 objects", () => {
     2,
   );
 });
+for (const [description, payload] of [
+  ["missing", undefined],
+  ["null", null],
+  ["primitive", "invalid"],
+  ["array", []],
+  ["missing metadata", { testRunId: "test" }],
+  [
+    "unknown job",
+    { testRunId: "test", __eventhub__: { deliveryJobId: "unknown" } },
+  ],
+  [
+    "wrong run",
+    { testRunId: "other", __eventhub__: { deliveryJobId: "job1" } },
+  ],
+]) {
+  test(`reports ${description} R2 payload without counting it as delivery evidence`, () => {
+    const input = fixture();
+    input.objects[0].payload = payload;
+    const result = reconcile(input);
+    assert.deepEqual(
+      {
+        pass: result.pass,
+        errors: result.errors,
+        r2Objects: result.totals.r2Objects,
+      },
+      {
+        pass: false,
+        errors: [
+          "Phantom/invalid R2 object chaos/test/job1.json",
+          "Missing destination side effect job1",
+        ],
+        r2Objects: 0,
+      },
+    );
+  });
+}
+test("excludes an R2 object with the wrong key from delivery evidence", () => {
+  const input = fixture();
+  input.objects[0].key = "chaos/test/other.json";
+  const result = reconcile(input);
+  assert.deepEqual(
+    {
+      pass: result.pass,
+      errors: result.errors,
+      r2Objects: result.totals.r2Objects,
+    },
+    {
+      pass: false,
+      errors: [
+        "Phantom/invalid R2 object chaos/test/other.json",
+        "Missing destination side effect job1",
+      ],
+      r2Objects: 0,
+    },
+  );
+});
 for (const finalStatus of [null, "failed"]) {
   test(`rejects non-successful job state ${finalStatus}`, () => {
     const input = fixture();
