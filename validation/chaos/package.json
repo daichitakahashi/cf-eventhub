@@ -1,0 +1,19 @@
+{
+  "name": "eventhub-chaos",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "cf-typegen": "wrangler types",
+    "typecheck": "wrangler types --check && tsc --noEmit",
+    "test": "node --test test/*.test.mjs",
+    "run": "node run.mjs"
+  },
+  "dependencies": { "cf-eventhub": "workspace:*" },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "typescript": "catalog:",
+    "wrangler": "catalog:"
+  }
+}

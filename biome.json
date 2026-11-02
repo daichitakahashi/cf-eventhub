@@ -9,6 +9,7 @@
     "includes": [
       "**/*",
       "!benchmark/worker-configuration.d.ts",
+      "!validation/chaos/worker-configuration.d.ts",
       "!cf-eventhub/worker-configuration.d.ts",
       "!demo/worker-configuration.d.ts",
       "!web-console/src/app/styles.css",

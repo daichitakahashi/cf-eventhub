@@ -3,6 +3,7 @@ packages:
   - web-console
   - demo
   - benchmark
+  - validation/chaos
 
 allowBuilds:
   '@biomejs/biome': true

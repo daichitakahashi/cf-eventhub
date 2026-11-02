@@ -1,0 +1,40 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cf-eventhub-chaos",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-11",
+  "compatibility_flags": ["nodejs_compat"],
+  "exports": {
+    "ChaosEventHub": { "type": "durable-object", "storage": "sqlite" },
+    "FaultController": { "type": "durable-object", "storage": "sqlite" },
+    "ReceiptLedger": { "type": "durable-object", "storage": "sqlite" }
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "HUB", "class_name": "ChaosEventHub" },
+      { "name": "FAULTS", "class_name": "FaultController" },
+      { "name": "RECEIPTS", "class_name": "ReceiptLedger" }
+    ]
+  },
+  "queues": {
+    "producers": [{ "binding": "QUEUE", "queue": "cf-eventhub-chaos" }],
+    "consumers": [
+      {
+        "queue": "cf-eventhub-chaos",
+        "max_batch_size": 100,
+        "max_batch_timeout": 1,
+        "max_retries": 10
+      }
+    ]
+  },
+  "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "cf-eventhub-chaos" }],
+  "workflows": [
+    {
+      "binding": "WORKFLOW",
+      "name": "cf-eventhub-chaos",
+      "class_name": "ReceiptWorkflow"
+    }
+  ],
+  "observability": { "enabled": true },
+  "upload_source_maps": true
+}

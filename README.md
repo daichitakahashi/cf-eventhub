@@ -16,6 +16,9 @@ investigation, and redrive available as one system.
 | [`eventhub-demo`](./demo/src/index.ts) | Local example that connects EventHub, the Registry, Web Console, Queues, an R2 sink, a flaky Workflow destination, and downstream failure reporting. |
 | [`eventhub-benchmark`](./benchmark/README.md) | Deployed performance harness with partition, retained-state, and destination comparisons; see the [recorded baseline](./benchmark/RESULTS.md). |
 
+For deployed fault-injection release validation, see the
+[chaos harness](./validation/chaos/README.md) and [v1 evidence](./docs/validation/v1-chaos.md).
+
 ## Why this repo
 
 - **Persist before delivery**: retain the event and every delivery job before the

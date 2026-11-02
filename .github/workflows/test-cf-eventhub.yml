@@ -33,6 +33,13 @@ jobs:
         working-directory: benchmark
         run: pnpm test
 
+      - name: Type check - chaos harness
+        working-directory: validation/chaos
+        run: pnpm typecheck
+      - name: Test - chaos harness
+        working-directory: validation/chaos
+        run: pnpm test
+
       - name: Check generated Web Console styles
         working-directory: web-console
         run: pnpm check:styles
