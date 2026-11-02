@@ -20,6 +20,12 @@ const MAX_QUEUE_MESSAGE_BYTES = 128_000;
 // Cloudflare Workflows limits createBatch() to 100 instances:
 // https://developers.cloudflare.com/workflows/build/workers-api/#createbatch
 const MAX_WORKFLOW_BATCH_COUNT = 100;
+
+// Cloudflare Workflows reports an instance that already exists with this code.
+const WORKFLOW_ERR_INSTANCE_EXISTS = 10405;
+// Cloudflare Workflows reports duplicate instance IDs within a batch with this code.
+const WORKFLOW_ERR_DUPLICATE_IN_BATCH = 10415;
+
 const DELIVERY_JOB_ID_PLACEHOLDER = "0".repeat(ULID_LENGTH);
 const textEncoder = new TextEncoder();
 
@@ -382,11 +388,14 @@ const sendWorkflowBatch = async <Env extends object>(
   const failures = new Map<string, Error>();
   for (const [index, job] of jobs.entries()) {
     const error = errorsByIndex.get(index);
-    if (duplicateIds.has(job.id) || error?.code === 10415) {
+    if (
+      duplicateIds.has(job.id) ||
+      error?.code === WORKFLOW_ERR_DUPLICATE_IN_BATCH
+    ) {
       failures.set(
         job.id,
         new Error(
-          `eventhub: duplicate Workflow instance ID ${job.id} in batch (10415); internal invariant violation`,
+          `eventhub: duplicate Workflow instance ID ${job.id} in batch (${WORKFLOW_ERR_DUPLICATE_IN_BATCH}); internal invariant violation`,
         ),
       );
     } else if (error && error.id !== undefined && error.id !== job.id) {
@@ -396,14 +405,17 @@ const sendWorkflowBatch = async <Env extends object>(
           `eventhub: Workflow batch error ID does not match job ${job.id}`,
         ),
       );
-    } else if (error && error.code !== 10405) {
+    } else if (error && error.code !== WORKFLOW_ERR_INSTANCE_EXISTS) {
       failures.set(
         job.id,
         new Error(
           `eventhub: Workflow instance ${job.id} creation failed (${error.code}): ${error.message}`,
         ),
       );
-    } else if (error?.code === 10405 || createdIds.has(job.id)) {
+    } else if (
+      error?.code === WORKFLOW_ERR_INSTANCE_EXISTS ||
+      createdIds.has(job.id)
+    ) {
       delivered.push(job.id);
     } else {
       failures.set(

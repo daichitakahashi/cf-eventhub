@@ -799,6 +799,69 @@ describe("deliverJobs", () => {
     });
   });
 
+  test("retries Workflow jobs idempotently when the creation response is lost", async () => {
+    // 1. Create the instance, then throw to simulate a lost response.
+    // 2. Retry the failed job with its stable ID; the existing instance completes delivery.
+    const workflow = new WorkflowMock();
+    workflow.failNextBatch("after");
+    const routing = routeByConfig(
+      { REPORT_WORKFLOW: workflow as unknown as Workflow<EventPayload> },
+      { routes: [] },
+    );
+    const jobs = resolveDeliveryJobs(routing, [
+      {
+        id: "job",
+        payloadId: "payload",
+        destination: "REPORT_WORKFLOW",
+        payload: { kind: "report" },
+      },
+    ]);
+    const onDelivered = vi.fn();
+    const onFailed = vi.fn();
+    await deliverJobs(jobs, { onDelivered, onFailed }, deliveryContext);
+
+    expect({
+      delivered: onDelivered.mock.calls,
+      failed: onFailed.mock.calls,
+      instances: workflow.instances,
+    }).toStrictEqual({
+      delivered: [],
+      failed: [
+        [
+          ["job"],
+          expect.objectContaining({ message: "failed Workflow batch 0" }),
+        ],
+      ],
+      instances: new Map([["job", { kind: "report" }]]),
+    });
+
+    const createdInstance = workflow.instances.get("job");
+    const retryOnFailed = vi.fn();
+    await deliverJobs(
+      jobs.filter((job) => onFailed.mock.calls[0][0].includes(job.id)),
+      { onDelivered, onFailed: retryOnFailed },
+      deliveryContext,
+    );
+
+    expect({
+      batches: workflow.createBatchCalls,
+      delivered: onDelivered.mock.calls,
+      failed: retryOnFailed.mock.calls,
+      instances: workflow.instances,
+      retainedOriginalInstance:
+        workflow.instances.get("job") === createdInstance,
+    }).toStrictEqual({
+      batches: [
+        { instances: [{ id: "job", params: { kind: "report" } }] },
+        { instances: [{ id: "job", params: { kind: "report" } }] },
+      ],
+      delivered: [[["job"]]],
+      failed: [],
+      instances: new Map([["job", { kind: "report" }]]),
+      retainedOriginalInstance: true,
+    });
+  });
+
   test("injects delivery metadata into Workflow parameters", async () => {
     const workflow = new WorkflowMock();
     const routing = routeByConfig(
