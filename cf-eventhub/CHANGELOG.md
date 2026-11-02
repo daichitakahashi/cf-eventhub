@@ -1,5 +1,29 @@
 # cf-eventhub
 
+## 1.0.0-rc.1
+
+### Minor Changes
+
+- 7315686: Add idempotent Cloudflare Workflow destinations with delivery-job IDs as
+  Workflow instance IDs and document the durable handoff requirement.
+- e105195: Freeze the v1 public API: rename `Config` to `RoutingConfig`, reuse
+  `ListResult` for live and ejected listings, stop exporting the internal
+  Registry staleness interval, and make the fully populated delivery
+  configuration shape explicit.
+
+### Patch Changes
+
+- 4e6c038: Make validated delivery and eviction configuration snapshots immutable.
+- df94ee4: Migrate Workflow delivery to the object-form createBatch API and handle partial
+  failures per job. Preserve stable IDs for ambiguous retries, treat existing
+  instances as completed handoffs, and reject duplicate or missing results.
+  Workflow destinations now require Wrangler 4.148.0+ types and a compatible runtime.
+- 43b73b3: Disable manual eviction APIs when automatic eviction is configured and teach
+  the web console about the new error code.
+- 2ceb7ce: Avoid scanning retained finalized delivery jobs when loading a claimed batch.
+  Build live payload pages from at most 100 candidate rows before applying the
+  body byte budget, avoiding recursive rescans as retained state grows.
+
 ## 1.0.0-rc.0
 
 ### Major Changes

@@ -1,5 +1,20 @@
 # @cf-eventhub/web-console
 
+## 1.0.0-rc.1
+
+### Patch Changes
+
+- 1bb2879: Require Hono 4.13.11 or later to include the fix for GHSA-5r4p-p66f-jhc7.
+- 43b73b3: Disable manual eviction APIs when automatic eviction is configured and teach
+  the web console about the new error code.
+- Updated dependencies [4e6c038]
+- Updated dependencies [7315686]
+- Updated dependencies [e105195]
+- Updated dependencies [df94ee4]
+- Updated dependencies [43b73b3]
+- Updated dependencies [2ceb7ce]
+  - cf-eventhub@1.0.0-rc.1
+
 ## 1.0.0-rc.0
 
 ### Major Changes
