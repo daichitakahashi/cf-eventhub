@@ -91,6 +91,22 @@ importers:
         specifier: 'catalog:'
         version: 4.148.0(@cloudflare/workers-types@5.20261006.1)(@types/node@25.6.0)
 
+  validation/chaos:
+    dependencies:
+      cf-eventhub:
+        specifier: workspace:*
+        version: link:../../cf-eventhub
+    devDependencies:
+      '@types/node':
+        specifier: ^25.6.0
+        version: 25.6.0
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
+      wrangler:
+        specifier: 'catalog:'
+        version: 4.148.0(@cloudflare/workers-types@5.20261006.1)(@types/node@25.6.0)
+
   web-console:
     dependencies:
       '@hono/valibot-validator':

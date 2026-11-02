@@ -1,0 +1,147 @@
+{
+  "runId": "v1-20261103-193",
+  "date": "2026-11-02T16:27:50.020Z",
+  "sourceCommit": "5629fb685f633a0564627cb23c0582a87ee81061",
+  "sourceDirty": true,
+  "cfEventhubVersion": "1.0.0-rc.0",
+  "compatibilityDate": "2026-09-11",
+  "config": {
+    "seed": 193,
+    "weights": {
+      "pass": 1,
+      "fail-before": 4,
+      "commit-then-fail": 4
+    },
+    "minimumCoverage": 5,
+    "minPayloads": 300,
+    "maxPayloads": 1000,
+    "chaosTimeoutMs": 300000,
+    "recoveryTimeoutMs": 600000,
+    "retry": {
+      "initialRetryDelayMs": 1000,
+      "maxRetryDelayMs": 5000,
+      "maxDeliveryRetries": 1000,
+      "deliveryAttemptLeaseMs": 30000,
+      "alarmBatchSize": 100
+    },
+    "includeDeliveryMetadata": true
+  },
+  "pass": true,
+  "chaosDurationMs": 35382,
+  "reconciliation": {
+    "pass": true,
+    "errors": [],
+    "totals": {
+      "published": 300,
+      "expectedJobs": 900,
+      "completedJobs": 900,
+      "queueJobs": 300,
+      "queueReceipts": 519,
+      "queueDuplicates": 219,
+      "r2Objects": 300,
+      "workflowJobs": 300,
+      "workflowInstances": 300,
+      "workflowReceiptRepeats": 0
+    }
+  },
+  "published": 300,
+  "expectedJobs": 900,
+  "recoveryDurationMs": 313889,
+  "coverage": {
+    "QUEUE/fail-before": 15,
+    "QUEUE/commit-then-fail": 17,
+    "BUCKET/fail-before": 140,
+    "BUCKET/commit-then-fail": 175,
+    "WORKFLOW/fail-before": 15,
+    "WORKFLOW/commit-then-fail": 11
+  },
+  "faults": {
+    "config": [
+      {
+        "body": "{\"seed\":193,\"weights\":{\"pass\":1,\"fail-before\":4,\"commit-then-fail\":4},\"runId\":\"v1-20261103-193\"}",
+        "enabled": 0
+      }
+    ],
+    "coverage": [
+      {
+        "destination": "BUCKET",
+        "mode": "commit-then-fail",
+        "outcome": "injected",
+        "count": 175
+      },
+      {
+        "destination": "BUCKET",
+        "mode": "fail-before",
+        "outcome": "injected",
+        "count": 140
+      },
+      {
+        "destination": "BUCKET",
+        "mode": "pass",
+        "outcome": "passed",
+        "count": 300
+      },
+      {
+        "destination": "QUEUE",
+        "mode": "commit-then-fail",
+        "outcome": "injected",
+        "count": 17
+      },
+      {
+        "destination": "QUEUE",
+        "mode": "fail-before",
+        "outcome": "injected",
+        "count": 15
+      },
+      {
+        "destination": "QUEUE",
+        "mode": "pass",
+        "outcome": "passed",
+        "count": 11
+      },
+      {
+        "destination": "WORKFLOW",
+        "mode": "commit-then-fail",
+        "outcome": "injected",
+        "count": 11
+      },
+      {
+        "destination": "WORKFLOW",
+        "mode": "fail-before",
+        "outcome": "injected",
+        "count": 15
+      },
+      {
+        "destination": "WORKFLOW",
+        "mode": "pass",
+        "outcome": "passed",
+        "count": 14
+      }
+    ],
+    "decisions": 698
+  },
+  "decisionLogAudit": {
+    "decisions": 698,
+    "monotonicSequence": true,
+    "allRunIdsMatch": true,
+    "allDecisionsFinished": true,
+    "allAffectedJobsExpected": true,
+    "destinationErrors": 0
+  },
+  "workerVersionId": "482ce171-204a-40bd-b315-0cc9869440cc",
+  "workflowJobsWithAmbiguousHandoff": 110,
+  "cleanup": {
+    "completed": true,
+    "r2ObjectsRemoved": 300,
+    "queueConsumerRemoved": true,
+    "workflowDeleted": true,
+    "durableObjectClassesDeleted": [
+      "ChaosEventHub",
+      "FaultController",
+      "ReceiptLedger"
+    ],
+    "workerDeleted": true,
+    "queueDeleted": true,
+    "r2BucketDeleted": true
+  }
+}
